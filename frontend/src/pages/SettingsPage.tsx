@@ -1,9 +1,12 @@
 import { CheckCircle, Database, WarningCircle } from '@phosphor-icons/react'
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { getSystemHealth } from '../api/system-api'
+import { SelectField } from '../components/forms/SelectField'
 
 export function SettingsPage() {
   const healthQuery = useQuery({ queryKey: ['system-health'], queryFn: getSystemHealth })
+  const [provider, setProvider] = useState('')
 
   return (
     <section className="module-page settings-page">
@@ -33,7 +36,7 @@ export function SettingsPage() {
           <section className="surface settings-section" id="model">
             <div className="panel-header"><div><h2>AI 模型</h2><p>控制分析与动作生成使用的模型</p></div></div>
             <form className="settings-form">
-              <label><span>模型提供商</span><select defaultValue=""><option value="" disabled>请选择模型提供商</option><option>OpenAI</option><option>通义千问</option><option>本地模型</option></select><small>保存后会用于新的 Agent 运行。</small></label>
+              <div className="settings-field"><span>模型提供商</span><SelectField value={provider} onChange={setProvider} ariaLabel="模型提供商" placeholder="请选择模型提供商" options={[{ value: 'openai', label: 'OpenAI' }, { value: 'qwen', label: '通义千问' }, { value: 'local', label: '本地模型' }]} /><small>保存后会用于新的 Agent 运行。</small></div>
               <label><span>模型名称</span><input type="text" placeholder="例如 qwen-plus" /><small>请输入提供商支持的模型标识。</small></label>
               <label><span>API Key</span><input type="password" placeholder="输入密钥" /><small>密钥将由后端加密保存。</small></label>
               <div className="settings-form-actions"><button className="button button-primary" type="button" disabled>保存模型配置</button></div>

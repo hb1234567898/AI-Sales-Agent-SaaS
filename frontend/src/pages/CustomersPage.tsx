@@ -1,5 +1,6 @@
 import { MagnifyingGlass, Plus, UploadSimple, UsersThree } from '@phosphor-icons/react'
 import { useMemo, useState } from 'react'
+import { SelectField } from '../components/forms/SelectField'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 import { mockCustomers } from '../data/mock-sales-data'
 
@@ -46,16 +47,13 @@ export function CustomersPage() {
               <MagnifyingGlass size={15} aria-hidden />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索企业、联系人或负责人" aria-label="搜索客户" />
             </label>
-            <select value={stage} onChange={(event) => setStage(event.target.value)} aria-label="筛选商机阶段">
-              <option>全部阶段</option>
-              <option>方案确认</option>
-              <option>技术评审</option>
-              <option>产品试用</option>
-              <option>价值评估</option>
-              <option>需求确认</option>
-              <option>初步接触</option>
-              <option>培育中</option>
-            </select>
+            <SelectField
+              className="is-compact"
+              value={stage}
+              onChange={setStage}
+              ariaLabel="筛选商机阶段"
+              options={['全部阶段', '方案确认', '技术评审', '产品试用', '价值评估', '需求确认', '初步接触', '培育中'].map((label) => ({ value: label, label }))}
+            />
           </div>
         </div>
 
