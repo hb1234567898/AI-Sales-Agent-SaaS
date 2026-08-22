@@ -1,0 +1,25 @@
+# Local environment
+.env
+.env.local
+!.env.example
+
+# Java
+**/target/
+*.log
+
+# Node
+**/node_modules/
+**/dist/
+**/.pnpm-store/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Test output
+**/coverage/
+**/playwright-report/
+**/test-results/
