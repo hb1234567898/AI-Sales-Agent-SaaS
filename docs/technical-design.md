@@ -120,10 +120,10 @@ API/Scheduler -> Application -> Domain
 Application -> Port interfaces
 Infrastructure -> Port implementations
 Tool adapters -> external providers
-Domain !-> Spring AI / HTTP / JPA
+Domain !-> Spring AI / HTTP / MyBatis-Plus
 ```
 
-不要让 JPA Entity 直接充当 API DTO 或模型输出 DTO。数据库模型、领域模型和外部协议模型分别演进。
+不要让 MyBatis 持久化对象直接充当 API DTO 或模型输出 DTO。数据库模型、领域模型和外部协议模型分别演进。常规单表查询使用 MyBatis-Plus Wrapper，复杂联表、JSONB 聚合和报表查询使用显式 Mapper XML，避免把难以审查的 SQL 逻辑散落在 Service 中。
 
 ## 5. 领域模型
 

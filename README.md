@@ -6,7 +6,7 @@
 
 ```text
 .
-├── backend/       Spring Boot 4.1 + 可选 Spring AI 2.0
+├── backend/       Spring Boot 4.1 + MyBatis-Plus + 可选 Spring AI 2.0
 ├── frontend/      React + Vite + TypeScript 手工设计系统
 ├── db/migration/  Flyway PostgreSQL 迁移
 ├── docs/          技术与前端设计
@@ -63,14 +63,18 @@ pnpm test
 pnpm build
 ```
 
-## Spring AI
+## Spring AI / 通义千问
 
-默认构建不加载模型供应商，因此没有 API Key 也可以启动。需要 OpenAI 模型时使用 Maven Profile：
+后端已通过 Spring AI 的 OpenAI 兼容适配器接入阿里云百炼。默认关闭模型客户端，因此没有 API Key 时客户管理等功能仍可启动。PowerShell 中配置千问：
 
 ```powershell
-$env:OPENAI_API_KEY = "your-key"
-.\mvnw.cmd -Pai-openai spring-boot:run
+$env:AI_CHAT_PROVIDER = "openai"
+$env:QWEN_API_KEY = "sk-your-bailian-key"
+$env:QWEN_MODEL = "qwen-plus"
+.\mvnw.cmd spring-boot:run
 ```
+
+这里的 `openai` 表示使用 OpenAI 兼容协议，不是调用 OpenAI 模型。默认百炼地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，可通过 `QWEN_BASE_URL` 覆盖。启动后在“设置 → AI 模型”查看状态并点击“测试连接”。
 
 正式开发 Agent 前，应继续通过应用控制的工作流实现审批、幂等和审计，不让模型直接控制有副作用的工具。
 

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.customer.infrastructure.DemoDataMapper">
+
+    <insert id="insertOrganization">
+        INSERT INTO organization (id, slug, name, timezone, locale, plan_code, status)
+        VALUES (#{organizationId}, 'demo-sales', '演示销售团队', 'Asia/Shanghai', 'zh-CN', 'STARTER', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING
+    </insert>
+
+    <insert id="insertUser">
+        INSERT INTO app_user (id, email, display_name, auth_provider, auth_subject, status, locale)
+        VALUES (#{id}, #{email}, #{displayName}, 'LOCAL', #{authSubject}, 'ACTIVE', 'zh-CN')
+        ON CONFLICT (id) DO NOTHING
+    </insert>
+
+    <insert id="insertMember">
+        INSERT INTO organization_member (id, organization_id, user_id, role, status, permissions, joined_at)
+        VALUES (#{id}, #{organizationId}, #{userId}, 'SALES', 'ACTIVE', '[]'::jsonb, clock_timestamp())
+        ON CONFLICT (id) DO NOTHING
+    </insert>
+
+</mapper>
