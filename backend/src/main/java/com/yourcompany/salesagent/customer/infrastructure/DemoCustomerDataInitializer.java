@@ -13,6 +13,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.yourcompany.salesagent.customer.domain.Customer;
@@ -36,19 +37,25 @@ public class DemoCustomerDataInitializer implements ApplicationRunner {
 	private final CustomerMapper customerMapper;
 	private final CustomerContactMapper contactMapper;
 	private final Clock clock;
+	private final PasswordEncoder passwordEncoder;
 	private final UUID organizationId;
+	private final String loginPassword;
 
 	public DemoCustomerDataInitializer(
 			DemoDataMapper demoDataMapper,
 			CustomerMapper customerMapper,
 			CustomerContactMapper contactMapper,
 			Clock clock,
-			@Value("${app.demo.organization-id}") UUID organizationId) {
+			PasswordEncoder passwordEncoder,
+			@Value("${app.demo.organization-id}") UUID organizationId,
+			@Value("${app.demo.login-password}") String loginPassword) {
 		this.demoDataMapper = demoDataMapper;
 		this.customerMapper = customerMapper;
 		this.contactMapper = contactMapper;
 		this.clock = clock;
+		this.passwordEncoder = passwordEncoder;
 		this.organizationId = organizationId;
+		this.loginPassword = loginPassword;
 	}
 
 	@Override
@@ -61,6 +68,10 @@ public class DemoCustomerDataInitializer implements ApplicationRunner {
 		demoDataMapper.insertMember(MEMBER_CHEN, organizationId, USER_CHEN);
 		demoDataMapper.insertMember(MEMBER_LI, organizationId, USER_LI);
 		demoDataMapper.insertMember(MEMBER_WANG, organizationId, USER_WANG);
+		var passwordHash = passwordEncoder.encode(loginPassword);
+		demoDataMapper.insertCredential(USER_CHEN, passwordHash);
+		demoDataMapper.insertCredential(USER_LI, passwordHash);
+		demoDataMapper.insertCredential(USER_WANG, passwordHash);
 
 		if (customerMapper.selectCount(Wrappers.<Customer>lambdaQuery()
 				.eq(Customer::getOrganizationId, organizationId)

@@ -13,7 +13,10 @@ afterEach(() => {
 
 describe('CustomerInteractionsPanel', () => {
   it('粘贴并导入微信聊天记录', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/interactions/analyses')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
       if (init?.method === 'POST') {
         const request = JSON.parse(String(init.body)) as { content: string }
         return new Response(JSON.stringify({
@@ -50,6 +53,90 @@ describe('CustomerInteractionsPanel', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/v1/customers/${customerId}/interactions/chat-import`,
       expect.objectContaining({ method: 'POST', body: expect.stringContaining('部署周期') }),
+    )
+  })
+
+  it('分析聊天并经销售确认后更新客户建议', async () => {
+    const interactionId = '70000000-0000-0000-0000-000000000001'
+    let analyses: Array<Record<string, unknown>> = []
+    const draft = {
+      id: '80000000-0000-0000-0000-000000000001',
+      interactionId,
+      version: 1,
+      status: 'DRAFT',
+      summary: '客户明确关注部署周期，购买意向较高。',
+      intentScore: 82,
+      intentLevel: 'HIGH',
+      sentiment: 'POSITIVE',
+      needs: ['明确部署周期'],
+      painPoints: [],
+      objections: [],
+      risks: ['销售承诺尚未兑现'],
+      recommendedActions: ['发送部署周期说明'],
+      suggestedNextAction: '发送部署周期说明并确认收到',
+      budgetSignal: null,
+      timelineSignal: '当天下午',
+      decisionMakerSignal: null,
+      evidence: ['方案能否补充部署周期'],
+      provider: 'QWEN',
+      model: 'qwen-test',
+      promptVersion: 'chat-analysis-v1',
+      analyzedAt: '2026-08-26T02:00:00Z',
+      appliedAt: null,
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/interactions/analyses')) {
+        return new Response(JSON.stringify(analyses), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.endsWith(`/${interactionId}/analysis`) && init?.method === 'POST') {
+        analyses = [draft]
+        return new Response(JSON.stringify(draft), { status: 201, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.endsWith(`/analysis/${draft.id}/apply`) && init?.method === 'POST') {
+        const applied = { ...draft, status: 'APPLIED', appliedAt: '2026-08-26T02:01:00Z' }
+        analyses = [applied]
+        return new Response(JSON.stringify(applied), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({
+        content: [{
+          id: interactionId,
+          customerId,
+          type: 'CHAT_IMPORT',
+          direction: 'NONE',
+          occurredAt: '2026-08-26T01:30:00Z',
+          subject: '微信聊天记录',
+          bodyText: '客户：方案能否补充部署周期？',
+          bodyPreview: '客户：方案能否补充部署周期？',
+          participants: ['林婉清'],
+          source: 'WECHAT',
+          createdAt: '2026-08-26T01:30:00Z',
+        }],
+        page: 0,
+        size: 50,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const user = userEvent.setup()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CustomerInteractionsPanel customerId={customerId} />
+      </QueryClientProvider>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'AI 分析' }))
+    expect(await screen.findByText('客户明确关注部署周期，购买意向较高。')).toBeInTheDocument()
+    expect(screen.getByText('82')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '确认并更新客户' }))
+    expect(await screen.findByText('已更新客户评分与下一步动作')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/customers/${customerId}/interactions/${interactionId}/analysis`,
+      expect.objectContaining({ method: 'POST' }),
     )
   })
 })

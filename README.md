@@ -51,6 +51,15 @@ pnpm dev
 
 打开 `http://localhost:5173`。开发服务器会把 `/api` 和 `/actuator` 代理到 `http://localhost:8080`。
 
+首次启动会创建演示工作区和本地账号：
+
+```text
+邮箱：chen.mo@demo.local
+密码：Demo@123456
+```
+
+另外两个演示账号为 `li.xin@demo.local` 和 `wang.ning@demo.local`，初始密码相同。可通过 `DEMO_LOGIN_PASSWORD` 修改初始密码。部署到正式环境时请设置 `DEMO_SEED_ENABLED=false`、`AUTH_COOKIE_SECURE=true`，并通过正式的管理员流程创建账号。
+
 ## 验证
 
 ```powershell
@@ -75,6 +84,8 @@ $env:QWEN_MODEL = "qwen-plus"
 ```
 
 这里的 `openai` 表示使用 OpenAI 兼容协议，不是调用 OpenAI 模型。默认百炼地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，可通过 `QWEN_BASE_URL` 覆盖。启动后在“设置 → AI 模型”查看状态并点击“测试连接”。
+
+客户详情的“互动记录”支持粘贴微信、WhatsApp 等聊天原文。导入后点击单条记录上的“AI 分析”，系统会生成需求、痛点、异议、风险、意向评分、分析依据和建议动作。分析结果默认处于待确认状态；只有销售点击“确认并更新客户”后，才会把意向评分和下一步动作回写客户档案。重新分析会新增版本，不覆盖历史结果。
 
 正式开发 Agent 前，应继续通过应用控制的工作流实现审批、幂等和审计，不让模型直接控制有副作用的工具。
 

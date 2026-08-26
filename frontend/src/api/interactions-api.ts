@@ -28,6 +28,36 @@ export interface InteractionPage {
   last: boolean
 }
 
+export type ChatAnalysisStatus = 'DRAFT' | 'APPLIED'
+export type ChatIntentLevel = 'LOW' | 'MEDIUM' | 'HIGH'
+export type ChatSentiment = 'NEGATIVE' | 'NEUTRAL' | 'POSITIVE' | 'MIXED'
+
+export interface ChatAnalysis {
+  id: string
+  interactionId: string
+  version: number
+  status: ChatAnalysisStatus
+  summary: string
+  intentScore: number
+  intentLevel: ChatIntentLevel
+  sentiment: ChatSentiment
+  needs: string[]
+  painPoints: string[]
+  objections: string[]
+  risks: string[]
+  recommendedActions: string[]
+  suggestedNextAction: string | null
+  budgetSignal: string | null
+  timelineSignal: string | null
+  decisionMakerSignal: string | null
+  evidence: string[]
+  provider: string
+  model: string
+  promptVersion: string
+  analyzedAt: string
+  appliedAt: string | null
+}
+
 export interface InteractionCreateInput {
   type: 'EMAIL_SENT' | 'EMAIL_RECEIVED' | 'CALL' | 'MEETING' | 'NOTE'
   direction: InteractionDirection
@@ -60,5 +90,21 @@ export function importCustomerChat(customerId: string, input: ChatImportInput) {
   return requestJson<CustomerInteraction>(`/api/v1/customers/${customerId}/interactions/chat-import`, {
     method: 'POST',
     body: JSON.stringify(input),
+  })
+}
+
+export function getCustomerChatAnalyses(customerId: string) {
+  return getJson<ChatAnalysis[]>(`/api/v1/customers/${customerId}/interactions/analyses`)
+}
+
+export function analyzeCustomerChat(customerId: string, interactionId: string) {
+  return requestJson<ChatAnalysis>(`/api/v1/customers/${customerId}/interactions/${interactionId}/analysis`, {
+    method: 'POST',
+  })
+}
+
+export function applyCustomerChatAnalysis(customerId: string, interactionId: string, analysisId: string) {
+  return requestJson<ChatAnalysis>(`/api/v1/customers/${customerId}/interactions/${interactionId}/analysis/${analysisId}/apply`, {
+    method: 'POST',
   })
 }

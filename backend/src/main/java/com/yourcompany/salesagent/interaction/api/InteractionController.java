@@ -1,6 +1,7 @@
 package com.yourcompany.salesagent.interaction.api;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.yourcompany.salesagent.interaction.application.ChatAnalysisService;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
 import com.yourcompany.salesagent.shared.api.PageResponse;
 
@@ -26,9 +28,11 @@ import jakarta.validation.constraints.Min;
 public class InteractionController {
 
 	private final InteractionService interactionService;
+	private final ChatAnalysisService chatAnalysisService;
 
-	public InteractionController(InteractionService interactionService) {
+	public InteractionController(InteractionService interactionService, ChatAnalysisService chatAnalysisService) {
 		this.interactionService = interactionService;
+		this.chatAnalysisService = chatAnalysisService;
 	}
 
 	@GetMapping
@@ -53,6 +57,28 @@ public class InteractionController {
 			@Valid @RequestBody ChatImportRequest request) {
 		var interaction = interactionService.importChat(customerId, request);
 		return ResponseEntity.created(interactionUri(customerId, interaction.id())).body(interaction);
+	}
+
+	@GetMapping("/analyses")
+	public List<ChatAnalysisResponse> findLatestAnalyses(@PathVariable UUID customerId) {
+		return chatAnalysisService.findLatestForCustomer(customerId);
+	}
+
+	@PostMapping("/{interactionId}/analysis")
+	public ResponseEntity<ChatAnalysisResponse> analyzeChat(
+			@PathVariable UUID customerId,
+			@PathVariable UUID interactionId) {
+		var analysis = chatAnalysisService.analyze(customerId, interactionId);
+		return ResponseEntity.created(URI.create(interactionUri(customerId, interactionId) + "/analysis/" + analysis.id()))
+				.body(analysis);
+	}
+
+	@PostMapping("/{interactionId}/analysis/{analysisId}/apply")
+	public ChatAnalysisResponse applyAnalysis(
+			@PathVariable UUID customerId,
+			@PathVariable UUID interactionId,
+			@PathVariable UUID analysisId) {
+		return chatAnalysisService.apply(customerId, interactionId, analysisId);
 	}
 
 	private URI interactionUri(UUID customerId, UUID interactionId) {
