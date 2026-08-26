@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.auth.infrastructure.AuthMapper">
+
+    <select id="selectLoginAccount" resultType="com.yourcompany.salesagent.auth.infrastructure.AuthAccountRow">
+        SELECT u.id AS user_id,
+               u.email,
+               u.display_name,
+               c.password_hash,
+               c.failed_attempts,
+               c.locked_until,
+               m.id AS member_id,
+               m.organization_id,
+               o.name AS organization_name,
+               m.role
+        FROM app_user u
+        JOIN local_user_credential c ON c.user_id = u.id
+        JOIN organization_member m ON m.user_id = u.id
+        JOIN organization o ON o.id = m.organization_id
+        WHERE lower(u.email) = lower(#{email})
+          AND m.organization_id = #{organizationId}
+          AND u.auth_provider = 'LOCAL'
+          AND u.status = 'ACTIVE'
+          AND m.status = 'ACTIVE'
+          AND o.status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <select id="selectActiveSession" resultType="com.yourcompany.salesagent.auth.infrastructure.AuthSessionRow">
+        SELECT s.id AS session_id,
+               s.user_id,
+               s.organization_id,
+               s.member_id,
+               u.email,
+               u.display_name,
+               o.name AS organization_name,
+               m.role,
+               s.expires_at
+        FROM auth_session s
+        JOIN app_user u ON u.id = s.user_id
+        JOIN organization_member m ON m.id = s.member_id AND m.organization_id = s.organization_id
+        JOIN organization o ON o.id = s.organization_id
+        WHERE s.token_hash = #{tokenHash}
+          AND s.expires_at &gt; #{now}
+          AND s.revoked_at IS NULL
+          AND u.status = 'ACTIVE'
+          AND m.status = 'ACTIVE'
+          AND o.status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <update id="recordLoginFailure">
+        UPDATE local_user_credential
+        SET failed_attempts = #{failedAttempts},
+            locked_until = #{lockedUntil}
+        WHERE user_id = #{userId}
+    </update>
+
+    <update id="recordLoginSuccess">
+        WITH reset_credential AS (
+            UPDATE local_user_credential
+            SET failed_attempts = 0,
+                locked_until = NULL
+            WHERE user_id = #{userId}
+            RETURNING user_id
+        )
+        UPDATE app_user
+        SET last_login_at = #{now},
+            updated_at = #{now}
+        WHERE id IN (SELECT user_id FROM reset_credential)
+    </update>
+
+    <update id="touchSession">
+        UPDATE auth_session
+        SET last_seen_at = #{now}
+        WHERE id = #{sessionId}
+          AND last_seen_at &lt; #{seenBefore}
+    </update>
+
+    <update id="revokeSession">
+        UPDATE auth_session
+        SET revoked_at = #{now}
+        WHERE id = #{sessionId}
+          AND revoked_at IS NULL
+    </update>
+
+</mapper>

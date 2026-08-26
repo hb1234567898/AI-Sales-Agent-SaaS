@@ -22,4 +22,10 @@
         ON CONFLICT (id) DO NOTHING
     </insert>
 
+    <insert id="insertCredential">
+        INSERT INTO local_user_credential (user_id, password_hash)
+        VALUES (#{userId}, #{passwordHash})
+        ON CONFLICT (user_id) DO NOTHING
+    </insert>
+
 </mapper>

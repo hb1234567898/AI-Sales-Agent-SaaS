@@ -82,9 +82,10 @@ interface CustomerDrawerProps {
   error?: string | null
   onClose: () => void
   onSubmit: (input: CustomerUpsertInput) => Promise<void>
+  readOnly?: boolean
 }
 
-export function CustomerDrawer({ customer, mode, owners, pending, loading, error, onClose, onSubmit }: CustomerDrawerProps) {
+export function CustomerDrawer({ customer, mode, owners, pending, loading, error, onClose, onSubmit, readOnly = false }: CustomerDrawerProps) {
   const dialogRef = useRef<HTMLElement>(null)
   const [form, setForm] = useState<CustomerFormState>(() => fromCustomer(customer))
   const [localError, setLocalError] = useState<string | null>(null)
@@ -110,6 +111,7 @@ export function CustomerDrawer({ customer, mode, owners, pending, loading, error
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (readOnly) return
     if (!form.name.trim()) {
       setLocalError('请填写客户名称')
       return
@@ -163,7 +165,9 @@ export function CustomerDrawer({ customer, mode, owners, pending, loading, error
         ) : null}
 
         {loading ? <div className="drawer-loading">正在读取客户资料…</div> : (
-          activeTab === 'interactions' && customer ? <CustomerInteractionsPanel customerId={customer.id} /> : <form className="customer-form" onSubmit={(event) => void handleSubmit(event)}>
+          activeTab === 'interactions' && customer ? <CustomerInteractionsPanel customerId={customer.id} readOnly={readOnly} /> : <form className={`customer-form${readOnly ? ' is-readonly' : ''}`} onSubmit={(event) => void handleSubmit(event)}>
+            {readOnly ? <p className="drawer-readonly-note">游客模式下客户资料仅供查看</p> : null}
+            <fieldset className="customer-form-fields" disabled={readOnly}>
             <section className="form-section">
               <div className="form-section-title"><Buildings size={15} /><span>企业信息</span></div>
               <div className="customer-form-grid">
@@ -195,11 +199,13 @@ export function CustomerDrawer({ customer, mode, owners, pending, loading, error
               </div>
             </section>
 
+            </fieldset>
+
             {(localError || error) ? <p className="form-error" role="alert">{localError ?? error}</p> : null}
 
             <footer className="customer-form-actions">
-              <button className="button button-secondary" type="button" onClick={onClose} disabled={pending}>取消</button>
-              <button className="button button-primary" type="submit" disabled={pending}>{pending ? '保存中…' : mode === 'create' ? '创建客户' : '保存修改'}</button>
+              <button className="button button-secondary" type="button" onClick={onClose} disabled={pending}>{readOnly ? '关闭' : '取消'}</button>
+              {!readOnly ? <button className="button button-primary" type="submit" disabled={pending}>{pending ? '保存中…' : mode === 'create' ? '创建客户' : '保存修改'}</button> : null}
             </footer>
           </form>
         )}

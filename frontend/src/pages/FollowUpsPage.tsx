@@ -2,10 +2,12 @@ import { CalendarCheck, Check, FunnelSimple, Plus } from '@phosphor-icons/react'
 import { useMemo, useState } from 'react'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 import { mockFollowUps } from '../data/mock-sales-data'
+import { useIsGuest } from '../auth/use-auth'
 
 const filters = ['全部', '今天', '已逾期']
 
 export function FollowUpsPage() {
+  const isGuest = useIsGuest()
   const [filter, setFilter] = useState('全部')
   const [completed, setCompleted] = useState<string[]>([])
   const tasks = useMemo(() => mockFollowUps.filter((task) => {
@@ -50,6 +52,8 @@ export function FollowUpsPage() {
                   className="task-check"
                   type="button"
                   aria-label={isCompleted ? `恢复 ${task.title}` : `完成 ${task.title}`}
+                  disabled={isGuest}
+                  title={isGuest ? '游客模式不能修改任务状态' : undefined}
                   onClick={() => setCompleted((current) => isCompleted ? current.filter((id) => id !== task.id) : [...current, task.id])}
                 >
                   {isCompleted ? <Check size={13} weight="bold" /> : null}
