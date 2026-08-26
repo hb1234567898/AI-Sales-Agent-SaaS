@@ -4,8 +4,9 @@
 
 SET TIME ZONE 'UTC';
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS citext;
+-- PostgreSQL 15+ 已原生提供 gen_random_uuid()，无需依赖 pgcrypto。
+-- 为兼容宝塔等精简版 PostgreSQL，大小写不敏感唯一性使用 lower(...) 函数索引实现，
+-- 避免依赖可能未随服务端安装的 citext 扩展。
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS trigger
@@ -23,7 +24,7 @@ $$;
 
 CREATE TABLE organization (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    slug                citext NOT NULL UNIQUE,
+    slug                varchar(64) NOT NULL,
     name                varchar(200) NOT NULL,
     timezone            varchar(64) NOT NULL DEFAULT 'UTC',
     locale              varchar(16) NOT NULL DEFAULT 'zh-CN',
@@ -38,9 +39,12 @@ CREATE TABLE organization (
     CONSTRAINT ck_organization_settings_object CHECK (jsonb_typeof(settings) = 'object')
 );
 
+CREATE UNIQUE INDEX uq_organization_slug_ci
+    ON organization (lower(slug));
+
 CREATE TABLE app_user (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    email               citext NOT NULL UNIQUE,
+    email               varchar(320) NOT NULL,
     display_name        varchar(120) NOT NULL,
     auth_provider       varchar(50) NOT NULL,
     auth_subject        varchar(255) NOT NULL,
@@ -53,6 +57,9 @@ CREATE TABLE app_user (
     CONSTRAINT uq_app_user_auth_subject UNIQUE (auth_provider, auth_subject),
     CONSTRAINT ck_app_user_status CHECK (status IN ('INVITED', 'ACTIVE', 'DISABLED'))
 );
+
+CREATE UNIQUE INDEX uq_app_user_email_ci
+    ON app_user (lower(email));
 
 CREATE TABLE organization_member (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -195,7 +202,7 @@ CREATE TABLE customer_contact (
     first_name          varchar(100),
     last_name           varchar(100),
     full_name           varchar(220) NOT NULL,
-    email               citext,
+    email               varchar(320),
     phone               varchar(50),
     job_title           varchar(120),
     is_primary          boolean NOT NULL DEFAULT false,
