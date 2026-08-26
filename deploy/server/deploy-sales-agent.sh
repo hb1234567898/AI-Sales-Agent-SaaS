@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_ROOT="${APP_ROOT:-/opt/ai-sales-agent}"
+APP_ROOT="${APP_ROOT:-/www/wwwroot/ai.likeasuka.icu}"
 APP_USER="${APP_USER:-sales-agent}"
 APP_GROUP="${APP_GROUP:-sales-agent}"
 SERVICE_NAME="${SERVICE_NAME:-ai-sales-agent.service}"
@@ -12,9 +12,9 @@ archive="${1:-}"
 release_id="${2:-}"
 
 case "$APP_ROOT" in
-  /opt/* | /srv/*) ;;
+  /www/wwwroot/ai.likeasuka.icu | /opt/* | /srv/*) ;;
   *)
-    echo "APP_ROOT must be an application directory below /opt or /srv" >&2
+    echo "APP_ROOT must be /www/wwwroot/ai.likeasuka.icu or an application directory below /opt or /srv" >&2
     exit 2
     ;;
 esac

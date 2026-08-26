@@ -14,9 +14,9 @@
 服务器需要 Java 17、Nginx、curl、tar、systemd、`runuser`（通常由 `util-linux` 提供），以及一套可用的 PostgreSQL。以下命令以具备 sudo 权限的管理员执行：
 
 ```bash
-sudo useradd --system --home /opt/ai-sales-agent --shell /usr/sbin/nologin sales-agent
-sudo install -d -m 0755 -o root -g root /opt/ai-sales-agent /opt/ai-sales-agent/releases
-sudo install -d -m 0755 -o sales-agent -g sales-agent /opt/ai-sales-agent/logs
+sudo useradd --system --home /www/wwwroot/ai.likeasuka.icu --shell /usr/sbin/nologin sales-agent
+sudo install -d -m 0755 -o root -g root /www/wwwroot/ai.likeasuka.icu /www/wwwroot/ai.likeasuka.icu/releases
+sudo install -d -m 0755 -o sales-agent -g sales-agent /www/wwwroot/ai.likeasuka.icu/logs
 sudo install -d -m 0750 -o root -g sales-agent /etc/ai-sales-agent
 
 sudo install -m 0755 deploy/server/deploy-sales-agent.sh /usr/local/sbin/deploy-sales-agent
@@ -84,17 +84,17 @@ ssh-keyscan -p 22 117.72.109.112
 
 模板默认监听 80 端口，前端由 Nginx 直接提供，`/api/` 和 `/actuator/health` 代理到 `127.0.0.1:8080`。配置域名后应申请证书并启用 HTTPS，同时保持 `AUTH_COOKIE_SECURE=true`。
 
-如果使用宝塔 Nginx，请把 `deploy/server/nginx.conf` 中的 `location` 段复制到对应站点配置，而不是直接覆盖宝塔生成的主配置。
+如果使用宝塔 Nginx，请把站点运行目录设置为 `/www/wwwroot/ai.likeasuka.icu/current/frontend`，再把 `deploy/server/nginx.conf` 中的 `location` 段复制到对应站点配置；不要直接覆盖宝塔生成的 Nginx 主配置。
 
 ## 发布与回滚
 
 发布包会解压到：
 
 ```text
-/opt/ai-sales-agent/releases/<commit-sha>
+/www/wwwroot/ai.likeasuka.icu/releases/<commit-sha>
 ```
 
-部署脚本通过 `/opt/ai-sales-agent/current` 软链接原子切换版本，重启 systemd 后最多检查健康状态 60 秒。检查失败会恢复上一个应用版本，并保留最近 5 个发布目录。
+部署脚本通过 `/www/wwwroot/ai.likeasuka.icu/current` 软链接原子切换版本，重启 systemd 后最多检查健康状态 60 秒。检查失败会恢复上一个应用版本，并保留最近 5 个发布目录。
 
 Flyway 数据库迁移不会自动回滚。因此数据库变更必须向后兼容，生产部署前也必须备份数据库；应用回滚不能替代数据库回滚方案。
 
