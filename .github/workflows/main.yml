@@ -1,0 +1,167 @@
+name: CI and release
+
+on:
+  pull_request:
+    branches: [develop, staging, main]
+  push:
+    branches: [develop, staging, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend test and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - name: Test and package backend
+        working-directory: backend
+        run: |
+          chmod +x mvnw
+          ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Prepare backend artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/backend"
+          find backend/target -maxdepth 1 -type f -name '*.jar' ! -name '*.original' -exec cp '{}' "$RUNNER_TEMP/backend/sales-agent.jar" \;
+          test -s "$RUNNER_TEMP/backend/sales-agent.jar"
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-package
+          path: ${{ runner.temp }}/backend/sales-agent.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  frontend:
+    name: Frontend check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: Test frontend
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-package
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Assemble release bundle
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v6
+
+      - name: Validate deployment script
+        run: bash -n deploy/server/deploy-sales-agent.sh
+
+      - name: Download backend artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: backend-package
+          path: release/backend
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: frontend-package
+          path: release/frontend
+
+      - name: Assemble release archive
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref_name }}
+          RELEASE_RUN: ${{ github.run_id }}
+        run: |
+          mkdir -p release/deploy
+          cp deploy/server/deploy-sales-agent.sh release/deploy/
+          cp deploy/server/ai-sales-agent.service release/deploy/
+          cp deploy/server/nginx.conf release/deploy/
+          cp deploy/server/backend.env.example release/deploy/
+          printf 'commit=%s\nref=%s\nrun=%s\n' "$RELEASE_SHA" "$RELEASE_REF" "$RELEASE_RUN" > release/BUILD_INFO
+          tar -czf "sales-agent-${RELEASE_SHA:0:12}.tar.gz" -C release .
+          sha256sum "sales-agent-${RELEASE_SHA:0:12}.tar.gz" > "sales-agent-${RELEASE_SHA:0:12}.tar.gz.sha256"
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: sales-agent-${{ github.sha }}
+          path: |
+            sales-agent-*.tar.gz
+            sales-agent-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy-staging:
+    name: Deploy staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    needs: release
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      artifact_name: sales-agent-${{ github.sha }}
+      release_sha: ${{ github.sha }}
+    secrets: inherit
+
+  deploy-production:
+    name: Deploy production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: release
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      artifact_name: sales-agent-${{ github.sha }}
+      release_sha: ${{ github.sha }}
+    secrets: inherit
