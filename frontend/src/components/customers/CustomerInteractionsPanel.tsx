@@ -1,5 +1,7 @@
 import {
+  Brain,
   ChatCircleDots,
+  CheckCircle,
   ClockCounterClockwise,
   EnvelopeSimple,
   NotePencil,
@@ -14,9 +16,13 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import {
+  analyzeCustomerChat,
+  applyCustomerChatAnalysis,
   createCustomerInteraction,
+  getCustomerChatAnalyses,
   getCustomerInteractions,
   importCustomerChat,
+  type ChatAnalysis,
   type ChatImportInput,
   type ChatPlatform,
   type InteractionCreateInput,
@@ -53,6 +59,57 @@ const directionLabels: Record<InteractionDirection, string> = {
   NONE: '双向/不区分',
 }
 
+const intentLabels = { LOW: '低意向', MEDIUM: '中意向', HIGH: '高意向' } as const
+const sentimentLabels = { NEGATIVE: '偏负面', NEUTRAL: '中性', POSITIVE: '积极', MIXED: '情绪混合' } as const
+
+interface ChatAnalysisCardProps {
+  analysis: ChatAnalysis
+  analyzing: boolean
+  applying: boolean
+  onAnalyze: () => void
+  onApply: () => void
+  readOnly: boolean
+}
+
+function AnalysisList({ label, values }: { label: string; values: string[] }) {
+  if (!values.length) return null
+  return <div className="chat-analysis-list"><strong>{label}</strong><ul>{values.map((value) => <li key={value}>{value}</li>)}</ul></div>
+}
+
+function ChatAnalysisCard({ analysis, analyzing, applying, onAnalyze, onApply, readOnly }: ChatAnalysisCardProps) {
+  return (
+    <section className="chat-analysis-card" aria-label="AI 聊天分析结果">
+      <header>
+        <div><Brain size={17} /><strong>AI 分析</strong><span>v{analysis.version} · {analysis.model}</span></div>
+        <div className={`intent-score is-${analysis.intentLevel.toLowerCase()}`}><b>{analysis.intentScore}</b><span>{intentLabels[analysis.intentLevel]}</span></div>
+      </header>
+      <p className="chat-analysis-summary">{analysis.summary}</p>
+      <div className="chat-analysis-signals">
+        <span>客户情绪：<b>{sentimentLabels[analysis.sentiment]}</b></span>
+        {analysis.budgetSignal ? <span>预算：<b>{analysis.budgetSignal}</b></span> : null}
+        {analysis.timelineSignal ? <span>时间：<b>{analysis.timelineSignal}</b></span> : null}
+        {analysis.decisionMakerSignal ? <span>决策：<b>{analysis.decisionMakerSignal}</b></span> : null}
+      </div>
+      <div className="chat-analysis-grid">
+        <AnalysisList label="明确需求" values={analysis.needs} />
+        <AnalysisList label="客户痛点" values={analysis.painPoints} />
+        <AnalysisList label="异议" values={analysis.objections} />
+        <AnalysisList label="推进风险" values={analysis.risks} />
+      </div>
+      <AnalysisList label="建议动作" values={analysis.recommendedActions} />
+      {analysis.suggestedNextAction ? <div className="chat-analysis-next"><strong>建议下一步</strong><p>{analysis.suggestedNextAction}</p></div> : null}
+      <AnalysisList label="分析依据" values={analysis.evidence} />
+      <footer>
+        <span>{analysis.status === 'APPLIED' ? <><CheckCircle size={15} />已更新客户评分与下一步动作</> : 'AI 结果仅供参考，确认后才会更新客户资料'}</span>
+        <div>
+          <button className="button button-secondary" type="button" onClick={onAnalyze} disabled={readOnly || analyzing || applying}>{analyzing ? '重新分析中…' : '重新分析'}</button>
+          {analysis.status === 'DRAFT' ? <button className="button button-primary" type="button" onClick={onApply} disabled={readOnly || analyzing || applying}>{applying ? '更新中…' : '确认并更新客户'}</button> : null}
+        </div>
+      </footer>
+    </section>
+  )
+}
+
 function nowForInput() {
   const now = new Date()
   const offset = now.getTimezoneOffset() * 60_000
@@ -82,9 +139,10 @@ function interactionIcon(type: InteractionType) {
 
 interface CustomerInteractionsPanelProps {
   customerId: string
+  readOnly?: boolean
 }
 
-export function CustomerInteractionsPanel({ customerId }: CustomerInteractionsPanelProps) {
+export function CustomerInteractionsPanel({ customerId, readOnly = false }: CustomerInteractionsPanelProps) {
   const queryClient = useQueryClient()
   const [composer, setComposer] = useState<ComposerMode>(null)
   const [manual, setManual] = useState({
@@ -107,10 +165,15 @@ export function CustomerInteractionsPanel({ customerId }: CustomerInteractionsPa
     queryKey: ['customer-interactions', customerId],
     queryFn: () => getCustomerInteractions(customerId),
   })
+  const analysesQuery = useQuery({
+    queryKey: ['customer-chat-analyses', customerId],
+    queryFn: () => getCustomerChatAnalyses(customerId),
+  })
 
   async function refreshCustomerData() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['customer-interactions', customerId] }),
+      queryClient.invalidateQueries({ queryKey: ['customer-chat-analyses', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customers'] }),
     ])
@@ -124,6 +187,18 @@ export function CustomerInteractionsPanel({ customerId }: CustomerInteractionsPa
   const chatMutation = useMutation({
     mutationFn: (input: ChatImportInput) => importCustomerChat(customerId, input),
     onSuccess: refreshCustomerData,
+  })
+  const analyzeMutation = useMutation({
+    mutationFn: (interactionId: string) => analyzeCustomerChat(customerId, interactionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customer-chat-analyses', customerId] }),
+  })
+  const applyMutation = useMutation({
+    mutationFn: ({ interactionId, analysisId }: { interactionId: string; analysisId: string }) => applyCustomerChatAnalysis(customerId, interactionId, analysisId),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['customer-chat-analyses', customerId] }),
+      queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
+      queryClient.invalidateQueries({ queryKey: ['customers'] }),
+    ]),
   })
 
   async function submitManual(event: FormEvent<HTMLFormElement>) {
@@ -157,16 +232,19 @@ export function CustomerInteractionsPanel({ customerId }: CustomerInteractionsPa
   }
 
   const mutationError = manualMutation.error?.message ?? chatMutation.error?.message
+  const analysisError = analyzeMutation.error?.message ?? applyMutation.error?.message ?? analysesQuery.error?.message
   const pending = manualMutation.isPending || chatMutation.isPending
   const interactions = interactionsQuery.data?.content ?? []
+  const analysisRecords = Array.isArray(analysesQuery.data) ? analysesQuery.data : []
+  const analyses = new Map(analysisRecords.map((analysis) => [analysis.interactionId, analysis]))
 
   return (
     <div className="customer-interactions-panel">
       <div className="interaction-toolbar">
         <div><strong>客户时间线</strong><span>{interactionsQuery.data ? `${interactionsQuery.data.totalElements} 条互动记录` : '正在读取记录'}</span></div>
         <div>
-          <button className="button button-secondary" type="button" onClick={() => { setComposer('manual'); manualMutation.reset(); chatMutation.reset() }}><Plus size={14} />记录互动</button>
-          <button className="button button-primary" type="button" onClick={() => { setComposer('chat'); manualMutation.reset(); chatMutation.reset() }}><UploadSimple size={14} />导入聊天</button>
+          <button className="button button-secondary" type="button" disabled={readOnly} onClick={() => { setComposer('manual'); manualMutation.reset(); chatMutation.reset() }}><Plus size={14} />记录互动</button>
+          <button className="button button-primary" type="button" disabled={readOnly} onClick={() => { setComposer('chat'); manualMutation.reset(); chatMutation.reset() }}><UploadSimple size={14} />导入聊天</button>
         </div>
       </div>
 
@@ -202,6 +280,8 @@ export function CustomerInteractionsPanel({ customerId }: CustomerInteractionsPa
         </form>
       ) : null}
 
+      {analysisError ? <div className="interaction-analysis-error" role="alert"><WarningCircle size={16} /><span>{analysisError}</span><button type="button" onClick={() => { analyzeMutation.reset(); applyMutation.reset(); void analysesQuery.refetch() }}>关闭</button></div> : null}
+
       {interactionsQuery.isPending ? (
         <div className="interaction-state"><SpinnerGap className="is-spinning" size={20} /><span>正在加载客户时间线…</span></div>
       ) : interactionsQuery.isError ? (
@@ -211,13 +291,33 @@ export function CustomerInteractionsPanel({ customerId }: CustomerInteractionsPa
       ) : (
         <ol className="interaction-timeline">
           {interactions.map((interaction) => (
-            <li key={interaction.id}>
+            <li key={interaction.id} className={interaction.type === 'CHAT_IMPORT' ? 'has-chat-analysis' : undefined}>
               <span className="interaction-timeline-icon">{interactionIcon(interaction.type)}</span>
               <article>
                 <header><div><strong>{interaction.subject ?? typeLabels[interaction.type]}</strong><span>{typeLabels[interaction.type]} · {sourceLabels[interaction.source] ?? interaction.source}</span></div><time>{formatOccurredAt(interaction.occurredAt)}</time></header>
                 {interaction.participants.length ? <div className="interaction-participants"><UsersThree size={13} />{interaction.participants.join('、')}</div> : null}
                 <p>{interaction.bodyPreview}</p>
                 {interaction.bodyText.length > interaction.bodyPreview.length ? <details><summary>查看完整原文</summary><pre>{interaction.bodyText}</pre></details> : null}
+                {interaction.type === 'CHAT_IMPORT' ? (
+                  analyses.get(interaction.id) ? (
+                    <ChatAnalysisCard
+                      analysis={analyses.get(interaction.id)!}
+                      analyzing={analyzeMutation.isPending && analyzeMutation.variables === interaction.id}
+                      applying={applyMutation.isPending && applyMutation.variables?.interactionId === interaction.id}
+                      onAnalyze={() => analyzeMutation.mutate(interaction.id)}
+                      onApply={() => {
+                        const analysis = analyses.get(interaction.id)
+                        if (analysis) applyMutation.mutate({ interactionId: interaction.id, analysisId: analysis.id })
+                      }}
+                      readOnly={readOnly}
+                    />
+                  ) : (
+                    <div className="chat-analysis-empty">
+                      <div><Brain size={18} /><span><strong>尚未分析这段聊天</strong><small>识别需求、意向、风险和下一步动作</small></span></div>
+                      <button className="button button-primary" type="button" onClick={() => analyzeMutation.mutate(interaction.id)} disabled={readOnly || analyzeMutation.isPending}>{analyzeMutation.isPending && analyzeMutation.variables === interaction.id ? '分析中…' : 'AI 分析'}</button>
+                    </div>
+                  )
+                ) : null}
               </article>
             </li>
           ))}
