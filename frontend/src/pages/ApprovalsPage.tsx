@@ -2,8 +2,10 @@ import { Check, Clock, ShieldCheck, X } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 import { mockApprovals } from '../data/mock-sales-data'
+import { useIsGuest } from '../auth/use-auth'
 
 export function ApprovalsPage() {
+  const isGuest = useIsGuest()
   const [decisions, setDecisions] = useState<Record<string, 'approved' | 'rejected'>>({})
   const pending = mockApprovals.filter((approval) => !decisions[approval.id])
 
@@ -34,8 +36,8 @@ export function ApprovalsPage() {
                   <div><dt>编号</dt><dd>{approval.id}</dd></div>
                 </dl>
                 <div className="approval-actions">
-                  <button className="button button-secondary" type="button" onClick={() => setDecisions((current) => ({ ...current, [approval.id]: 'rejected' }))}><X size={15} />拒绝</button>
-                  <button className="button button-primary" type="button" onClick={() => setDecisions((current) => ({ ...current, [approval.id]: 'approved' }))}><Check size={15} />批准</button>
+                  <button className="button button-secondary" type="button" disabled={isGuest} title={isGuest ? '游客模式不能处理审批' : undefined} onClick={() => setDecisions((current) => ({ ...current, [approval.id]: 'rejected' }))}><X size={15} />拒绝</button>
+                  <button className="button button-primary" type="button" disabled={isGuest} title={isGuest ? '游客模式不能处理审批' : undefined} onClick={() => setDecisions((current) => ({ ...current, [approval.id]: 'approved' }))}><Check size={15} />批准</button>
                 </div>
               </article>
             ))}

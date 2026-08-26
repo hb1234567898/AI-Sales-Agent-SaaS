@@ -1,9 +1,25 @@
 import { CheckCircle, Database, WarningCircle } from '@phosphor-icons/react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { getAiModelStatus, testAiModelConnection } from '../api/ai-settings-api'
 import { getSystemHealth } from '../api/system-api'
+import { SelectField } from '../components/forms/SelectField'
+import { useIsGuest } from '../auth/use-auth'
 
 export function SettingsPage() {
+  const isGuest = useIsGuest()
   const healthQuery = useQuery({ queryKey: ['system-health'], queryFn: getSystemHealth })
+  const modelQuery = useQuery({ queryKey: ['ai-model-status'], queryFn: getAiModelStatus })
+  const modelTest = useMutation({ mutationFn: testAiModelConnection })
+  const [provider, setProvider] = useState('qwen')
+  const modelStatus = modelQuery.data
+  const modelStatusLabel = modelQuery.isPending
+    ? '检查中'
+    : modelStatus?.ready
+      ? '已就绪'
+      : modelStatus?.apiKeyConfigured
+        ? '未启用'
+        : '待配置'
 
   return (
     <section className="module-page settings-page">
@@ -31,21 +47,32 @@ export function SettingsPage() {
           </section>
 
           <section className="surface settings-section" id="model">
-            <div className="panel-header"><div><h2>AI 模型</h2><p>控制分析与动作生成使用的模型</p></div></div>
-            <form className="settings-form">
-              <label><span>模型提供商</span><select defaultValue=""><option value="" disabled>请选择模型提供商</option><option>OpenAI</option><option>通义千问</option><option>本地模型</option></select><small>保存后会用于新的 Agent 运行。</small></label>
-              <label><span>模型名称</span><input type="text" placeholder="例如 qwen-plus" /><small>请输入提供商支持的模型标识。</small></label>
-              <label><span>API Key</span><input type="password" placeholder="输入密钥" /><small>密钥将由后端加密保存。</small></label>
-              <div className="settings-form-actions"><button className="button button-primary" type="button" disabled>保存模型配置</button></div>
-            </form>
+            <div className="panel-header">
+              <div><h2>AI 模型</h2><p>当前通过阿里云百炼的 OpenAI 兼容接口接入</p></div>
+              <span className={`status-badge ${modelStatus?.ready ? 'status-success' : modelQuery.isError ? 'status-error' : 'status-muted'}`}>
+                {modelStatus?.ready ? <CheckCircle size={11} /> : null}{modelStatusLabel}
+              </span>
+            </div>
+            <div className="settings-form">
+              <div className="settings-field"><span>模型提供商</span><SelectField value={provider} onChange={setProvider} ariaLabel="模型提供商" disabled={isGuest} options={[{ value: 'qwen', label: '通义千问（百炼）' }]} /><small>初版固定使用千问，后续通过模型适配层扩展。</small></div>
+              <label><span>模型名称</span><input type="text" value={modelStatus?.model ?? 'qwen-plus'} readOnly /><small>由后端环境变量 QWEN_MODEL 配置。</small></label>
+              <label><span>API Key</span><input type="password" value={modelStatus?.apiKeyConfigured ? '********' : ''} placeholder="由服务器环境变量提供" readOnly /><small>{modelStatus?.apiKeyConfigured ? '后端已读取 QWEN_API_KEY，密钥不会返回浏览器。' : '请在后端设置 QWEN_API_KEY，并重启服务。'}</small></label>
+              <label><span>API 地址</span><input type="text" value={modelStatus?.baseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1'} readOnly /><small>默认使用百炼中国大陆兼容端点。</small></label>
+              <div className="settings-form-actions">
+                <span className={`model-test-result${modelTest.isError ? ' is-error' : ''}`} role="status">
+                  {modelTest.isSuccess ? `连接成功 · ${modelTest.data.latencyMs} ms · ${modelTest.data.responsePreview}` : modelTest.isError ? modelTest.error.message : '测试会产生一次极少量模型调用。'}
+                </span>
+                <button className="button button-primary" type="button" disabled={isGuest || modelTest.isPending || modelQuery.isPending} title={isGuest ? '游客模式不能调用模型' : undefined} onClick={() => modelTest.mutate()}>{modelTest.isPending ? '正在连接…' : '测试连接'}</button>
+              </div>
+            </div>
           </section>
 
           <section className="surface settings-section" id="approval-policy">
             <div className="panel-header"><div><h2>审批策略</h2><p>确定哪些 Agent 动作必须经过人工确认</p></div></div>
             <div className="setting-switch-list">
-              <label><span><strong>发送客户消息</strong><small>邮件、短信和企业微信消息</small></span><input type="checkbox" defaultChecked /></label>
-              <label><span><strong>更新敏感 CRM 字段</strong><small>商机金额、阶段和关闭原因</small></span><input type="checkbox" defaultChecked /></label>
-              <label><span><strong>创建内部跟进任务</strong><small>仅影响工作区内部数据</small></span><input type="checkbox" /></label>
+              <label><span><strong>发送客户消息</strong><small>邮件、短信和企业微信消息</small></span><input type="checkbox" defaultChecked disabled={isGuest} /></label>
+              <label><span><strong>更新敏感 CRM 字段</strong><small>商机金额、阶段和关闭原因</small></span><input type="checkbox" defaultChecked disabled={isGuest} /></label>
+              <label><span><strong>创建内部跟进任务</strong><small>仅影响工作区内部数据</small></span><input type="checkbox" disabled={isGuest} /></label>
             </div>
           </section>
 

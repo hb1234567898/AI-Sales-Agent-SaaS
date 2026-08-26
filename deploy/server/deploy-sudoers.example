@@ -1,0 +1,3 @@
+# 将 sales-deploy 替换为 GitHub Actions 使用的 SSH 部署账号。
+# 使用 visudo -cf 校验后安装到 /etc/sudoers.d/ai-sales-agent-deploy。
+sales-deploy ALL=(root) NOPASSWD: /usr/local/sbin/deploy-sales-agent

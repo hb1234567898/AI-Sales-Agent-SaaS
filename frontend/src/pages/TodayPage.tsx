@@ -38,6 +38,8 @@ const recentRuns = [
   { id: 'RUN-0241', name: '高意向客户分析', scope: '42 个客户', time: '10:24', duration: '34 秒', status: '已完成' },
   { id: 'RUN-0240', name: '跟进动作生成', scope: '8 个客户', time: '09:48', duration: '21 秒', status: '待审核' },
   { id: 'RUN-0239', name: '沉默客户识别', scope: '126 个客户', time: '08:35', duration: '1 分 12 秒', status: '已完成' },
+  { id: 'RUN-0238', name: '商机阶段校验', scope: '23 个客户', time: '07:50', duration: '48 秒', status: '已完成' },
+  { id: 'RUN-0237', name: '跟进效果归因', scope: '64 个客户', time: '17:20', duration: '2 分 03 秒', status: '已完成' },
 ]
 
 function StatusBadge({ status }: { status: 'success' | 'error' | 'muted' | 'loading' }) {
@@ -120,7 +122,12 @@ export function TodayPage() {
               </div>
             </div>
 
-            <div className="table-scroll">
+            <div
+              className="table-scroll"
+              role="region"
+              aria-label="优先跟进客户列表"
+              tabIndex={0}
+            >
               <table className="data-table">
                 <thead>
                   <tr>

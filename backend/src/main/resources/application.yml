@@ -13,16 +13,27 @@ spring:
     enabled: true
     locations: classpath:db/migration
     validate-migration-naming: true
-  jpa:
-    open-in-view: false
-    hibernate:
-      ddl-auto: validate
-    properties:
-      hibernate:
-        jdbc:
-          time_zone: UTC
   jackson:
     time-zone: UTC
+  ai:
+    # 默认关闭，未配置千问 Key 时后端仍可独立启动。
+    model:
+      chat: ${AI_CHAT_PROVIDER:none}
+      embedding: none
+    openai:
+      api-key: ${QWEN_API_KEY:}
+      base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      chat:
+        model: ${QWEN_MODEL:qwen-plus}
+        temperature: ${QWEN_TEMPERATURE:0.2}
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-handlers-package: com.yourcompany.salesagent.shared.persistence
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
 
 server:
   port: ${SERVER_PORT:8080}
@@ -41,3 +52,20 @@ info:
   app:
     name: ${spring.application.name}
     description: AI Sales Follow-up Agent API
+
+app:
+  auth:
+    cookie-name: ${AUTH_COOKIE_NAME:SALES_AGENT_SESSION}
+    cookie-secure: ${AUTH_COOKIE_SECURE:false}
+    session-duration: ${AUTH_SESSION_DURATION:PT12H}
+    remember-duration: ${AUTH_REMEMBER_DURATION:P30D}
+  ai:
+    qwen:
+      api-key: ${QWEN_API_KEY:}
+      base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      model: ${QWEN_MODEL:qwen-plus}
+  demo:
+    # 登录与租户解析完成前使用的开发租户；正式环境应关闭演示数据初始化。
+    organization-id: ${DEMO_ORGANIZATION_ID:00000000-0000-0000-0000-000000000001}
+    seed-enabled: ${DEMO_SEED_ENABLED:true}
+    login-password: ${DEMO_LOGIN_PASSWORD:Demo@123456}
