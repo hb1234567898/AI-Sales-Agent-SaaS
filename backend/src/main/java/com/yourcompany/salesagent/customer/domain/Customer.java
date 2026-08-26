@@ -108,6 +108,16 @@ public class Customer {
 		this.lastInteractionAt = interactionAt;
 	}
 
+	public void applyAiSuggestion(int score, String nextAction, Instant now) {
+		var updatedAttributes = new HashMap<>(attributes);
+		updatedAttributes.put("score", score);
+		if (nextAction != null && !nextAction.isBlank()) {
+			updatedAttributes.put("nextAction", nextAction);
+		}
+		attributes = updatedAttributes;
+		updatedAt = now;
+	}
+
 	public UUID getId() {
 		return id;
 	}
