@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 APP_ROOT="${APP_ROOT:-/www/wwwroot/ai.likeasuka.icu}"
-APP_USER="${APP_USER:-sales-agent}"
-APP_GROUP="${APP_GROUP:-sales-agent}"
+APP_USER="${APP_USER:-root}"
+APP_GROUP="${APP_GROUP:-root}"
 SERVICE_NAME="${SERVICE_NAME:-ai-sales-agent.service}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/actuator/health}"
 MAX_RELEASES="${MAX_RELEASES:-5}"
@@ -76,7 +76,7 @@ if [[ -e "$release_dir" ]]; then
 fi
 
 install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$release_dir"
-runuser -u "$APP_USER" -- tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$release_dir"
+tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$release_dir"
 test -s "$release_dir/backend/sales-agent.jar"
 test -s "$release_dir/frontend/index.html"
 chown -R root:root "$release_dir"
