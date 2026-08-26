@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.customer.infrastructure.CustomerMapper">
+
+    <select id="selectMetrics" resultType="com.yourcompany.salesagent.customer.api.CustomerMetricsResponse">
+        SELECT count(*) AS total,
+               count(*) FILTER (WHERE score >= 80) AS high_intent,
+               count(*) FILTER (
+                   WHERE status = 'ACTIVE'
+                     AND stage IN ('QUALIFIED', 'DISCOVERY', 'DEMO', 'PROPOSAL', 'NEGOTIATION')
+               ) AS active_opportunities,
+               round(coalesce(avg(score), 0), 1) AS average_score
+        FROM (
+            SELECT status,
+                   stage,
+                   CASE
+                       WHEN coalesce(attributes ->> 'score', '') ~ '^[0-9]+$'
+                       THEN (attributes ->> 'score')::integer
+                       ELSE 0
+                   END AS score
+            FROM customer
+            WHERE organization_id = #{organizationId}
+              AND deleted_at IS NULL
+        ) scoped_customer
+    </select>
+
+    <select id="selectOwners" resultType="com.yourcompany.salesagent.customer.api.OwnerOptionResponse">
+        SELECT member.id,
+               app_user.display_name AS name
+        FROM organization_member member
+        JOIN app_user ON app_user.id = member.user_id
+        WHERE member.organization_id = #{organizationId}
+          AND member.status = 'ACTIVE'
+          AND app_user.status = 'ACTIVE'
+        ORDER BY app_user.display_name
+    </select>
+
+</mapper>
