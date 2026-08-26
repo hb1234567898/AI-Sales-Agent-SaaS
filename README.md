@@ -80,3 +80,4 @@ $env:OPENAI_API_KEY = "your-key"
 - [前端设计](./docs/frontend-design.md)
 - [数据库迁移](./db/migration/V1__initial_schema.sql)
 - [分支与发布规范](./docs/branching-strategy.md)
+- [CI/CD 与服务器部署](./docs/deployment.md)

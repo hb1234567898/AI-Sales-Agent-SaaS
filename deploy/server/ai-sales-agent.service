@@ -1,0 +1,24 @@
+[Unit]
+Description=AI Sales Agent backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sales-agent
+Group=sales-agent
+WorkingDirectory=/opt/ai-sales-agent/current/backend
+EnvironmentFile=/etc/ai-sales-agent/backend.env
+ExecStart=/usr/bin/java -XX:MaxRAMPercentage=75 -jar /opt/ai-sales-agent/current/backend/sales-agent.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ai-sales-agent/logs
+
+[Install]
+WantedBy=multi-user.target
