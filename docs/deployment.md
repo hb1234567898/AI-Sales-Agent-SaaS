@@ -6,8 +6,11 @@
 - 推送到 `develop`：运行检查并生成发布包，不部署。
 - 推送到 `staging`：构建后自动部署到 GitHub `staging` Environment。
 - 推送到 `main`：构建后进入 GitHub `production` Environment；建议配置 Required reviewers，批准后才部署。
+- 手动运行：选择 `build-only` 时只构建；选择 `staging` 时必须从 `staging` 分支运行；选择 `production` 时必须从 `main` 分支运行。
 
 构建产物包含后端可执行 JAR、前端静态文件以及服务器部署模板。业务密钥不会写入产物。
+
+手动部署生产环境时，在 Actions → CI and release → Run workflow 中将分支选为 `main`，并将 `deploy_environment` 选为 `production`。仅重新运行旧的 `workflow_dispatch` 记录不会获得新增参数，需要从工作流页面发起一次新的运行。
 
 ## 首次准备服务器
 
