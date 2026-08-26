@@ -14,9 +14,23 @@ import com.yourcompany.salesagent.customer.application.CustomerValidationExcepti
 import com.yourcompany.salesagent.ai.application.AiModelConnectionException;
 import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
 import com.yourcompany.salesagent.interaction.application.InteractionValidationException;
+import com.yourcompany.salesagent.auth.application.InvalidCredentialsException;
+import com.yourcompany.salesagent.auth.application.LoginLockedException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+	@ExceptionHandler(InvalidCredentialsException.class)
+	ProblemDetail handleInvalidCredentials(InvalidCredentialsException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
+	}
+
+	@ExceptionHandler(LoginLockedException.class)
+	ProblemDetail handleLoginLocked(LoginLockedException exception) {
+		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+		problem.setProperty("lockedUntil", exception.getLockedUntil());
+		return problem;
+	}
 
 	@ExceptionHandler(AiModelNotConfiguredException.class)
 	ProblemDetail handleAiModelNotConfigured(AiModelNotConfiguredException exception) {

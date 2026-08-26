@@ -9,13 +9,19 @@ import {
   List,
   MagnifyingGlass,
   Robot,
+  SignOut,
+  Eye,
   Target,
   UsersThree,
   X,
   type IconProps,
 } from '@phosphor-icons/react'
 import { useState, type ComponentType } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { logout } from '../../api/auth-api'
+import { useAuth } from '../../auth/use-auth'
+import { leaveGuestMode } from '../../auth/guest-session'
 
 interface NavItem {
   to: string
@@ -65,7 +71,27 @@ function NavigationGroup({
   )
 }
 
-function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+function Sidebar({
+  open,
+  onClose,
+  organizationName,
+  displayName,
+  email,
+  role,
+  onLogout,
+  logoutPending,
+}: {
+  open: boolean
+  onClose: () => void
+  organizationName: string
+  displayName: string
+  email: string
+  role: string
+  onLogout: () => void
+  logoutPending: boolean
+}) {
+  const roleLabel = role === 'GUEST' ? '只读浏览' : role === 'OWNER' ? '所有者' : role === 'ADMIN' ? '管理员' : '销售成员'
+
   return (
     <aside className={`app-sidebar${open ? ' is-open' : ''}`} aria-label="应用导航">
       <div className="sidebar-brand">
@@ -82,10 +108,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       </div>
 
       <button className="workspace-switcher" type="button" disabled title="多工作区即将开放">
-        <span className="workspace-avatar">默</span>
+        <span className="workspace-avatar">{organizationName.slice(0, 1)}</span>
         <span>
           <small>当前工作区</small>
-          <strong>默认工作区</strong>
+          <strong>{organizationName}</strong>
         </span>
         <CaretDown size={14} aria-hidden />
       </button>
@@ -96,11 +122,19 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       </div>
 
       <div className="sidebar-footer">
-        <span className="user-avatar" aria-hidden>管</span>
-        <span>
-          <strong>系统管理员</strong>
-          <small>管理员</small>
+        <span className="user-avatar" aria-hidden>{displayName.slice(0, 1)}</span>
+        <span className="sidebar-user-copy" title={email}>
+          <strong>{displayName}</strong>
+          <small>{roleLabel}</small>
         </span>
+        <button
+          className="sidebar-logout"
+          type="button"
+          onClick={onLogout}
+          disabled={logoutPending}
+          aria-label={role === 'GUEST' ? '退出游客模式' : '退出登录'}
+          title={role === 'GUEST' ? '退出游客模式' : '退出登录'}
+        ><SignOut size={17} /></button>
       </div>
     </aside>
   )
@@ -108,10 +142,40 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const session = useAuth()
+  const guestMode = session.role === 'GUEST'
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ['auth-session'] })
+      navigate('/login', { replace: true })
+    },
+  })
+
+  function exitSession() {
+    if (guestMode) {
+      leaveGuestMode()
+      queryClient.removeQueries({ queryKey: ['auth-session'] })
+      navigate('/login', { replace: true })
+      return
+    }
+    logoutMutation.mutate()
+  }
 
   return (
-    <div className="app-shell">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className={`app-shell${guestMode ? ' is-guest' : ''}`}>
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        organizationName={session.organizationName}
+        displayName={session.displayName}
+        email={session.email}
+        role={session.role}
+        onLogout={exitSession}
+        logoutPending={logoutMutation.isPending}
+      />
       {sidebarOpen ? (
         <button
           className="sidebar-backdrop"
@@ -139,13 +203,22 @@ export function AppShell() {
           </label>
 
           <div className="topbar-actions">
-            <span className="environment-pill"><i />生产环境</span>
+            <span className={`environment-pill${guestMode ? ' is-guest' : ''}`}>
+              {guestMode ? <Eye size={14} /> : <i />}{guestMode ? '游客只读' : '生产环境'}
+            </span>
             <button className="icon-button" type="button" disabled aria-label="通知" title="通知中心即将开放">
               <Bell size={19} />
             </button>
-            <span className="topbar-avatar" aria-label="系统管理员">管</span>
+            <span className="topbar-avatar" aria-label={session.displayName}>{session.displayName.slice(0, 1)}</span>
           </div>
         </header>
+
+        {guestMode ? (
+          <div className="guest-readonly-banner" role="status">
+            <span><Eye size={15} />你正在以游客身份浏览，新增、编辑、审批和 Agent 执行均已禁用。</span>
+            <button type="button" onClick={exitSession}>登录后使用完整功能</button>
+          </div>
+        ) : null}
 
         <main className="app-main">
           <Outlet />

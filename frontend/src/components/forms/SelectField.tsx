@@ -14,9 +14,10 @@ interface SelectFieldProps {
   ariaLabel: string
   placeholder?: string
   className?: string
+  disabled?: boolean
 }
 
-export function SelectField({ value, options, onChange, ariaLabel, placeholder = '请选择', className = '' }: SelectFieldProps) {
+export function SelectField({ value, options, onChange, ariaLabel, placeholder = '请选择', className = '', disabled = false }: SelectFieldProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -55,7 +56,7 @@ export function SelectField({ value, options, onChange, ariaLabel, placeholder =
   }
 
   return (
-    <div className={`select-field${isOpen ? ' is-open' : ''}${className ? ` ${className}` : ''}`} ref={rootRef}>
+    <div className={`select-field${isOpen ? ' is-open' : ''}${disabled ? ' is-disabled' : ''}${className ? ` ${className}` : ''}`} ref={rootRef}>
       <button
         className="select-trigger"
         type="button"
@@ -64,6 +65,7 @@ export function SelectField({ value, options, onChange, ariaLabel, placeholder =
         aria-expanded={isOpen}
         aria-controls={listboxId}
         aria-activedescendant={isOpen ? `${listboxId}-option-${activeIndex}` : undefined}
+        disabled={disabled}
         onClick={() => isOpen ? setIsOpen(false) : openMenu()}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

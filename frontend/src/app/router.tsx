@@ -1,5 +1,5 @@
 import { Navigate, createBrowserRouter } from 'react-router'
-import { AppShell } from '../components/layout/AppShell'
+import { ProtectedApp } from '../auth/ProtectedApp'
 import { RouteErrorPage } from '../pages/RouteErrorPage'
 import { RouteLoadingPage } from '../pages/RouteLoadingPage'
 
@@ -10,8 +10,14 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorPage />,
   },
   {
+    path: '/login',
+    lazy: async () => ({ Component: (await import('../pages/LoginPage')).LoginPage }),
+    errorElement: <RouteErrorPage />,
+    hydrateFallbackElement: <RouteLoadingPage />,
+  },
+  {
     path: '/app',
-    element: <AppShell />,
+    element: <ProtectedApp />,
     errorElement: <RouteErrorPage />,
     hydrateFallbackElement: <RouteLoadingPage />,
     children: [
