@@ -70,6 +70,52 @@ describe('http client JWT refresh', () => {
 
     expect(getAuthTokens()).toBeNull()
   })
+
+  it('刷新成功后业务接口仍返回 401 时保留登录状态', async () => {
+    saveAuthTokens({
+      accessToken: 'old-access.jwt',
+      accessTokenExpiresAt: '2026-08-26T02:00:00Z',
+      refreshToken: 'old-refresh.jwt',
+      refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+    }, true)
+    const unauthorizedListener = vi.fn()
+    window.addEventListener('sales-agent:unauthorized', unauthorizedListener)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (String(input) === '/api/v1/auth/refresh') {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          accessToken: 'new-access.jwt',
+          accessTokenExpiresAt: '2026-08-26T02:15:00Z',
+          refreshToken: 'new-refresh.jwt',
+          refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+          session: {},
+        })
+      }
+      return problemResponse(401)
+    })
+
+    await expect(requestJson('/api/v1/ai/model', { method: 'PUT' })).rejects.toMatchObject({ status: 401 })
+
+    expect(getAuthTokens()?.accessToken).toBe('new-access.jwt')
+    expect(unauthorizedListener).not.toHaveBeenCalled()
+    window.removeEventListener('sales-agent:unauthorized', unauthorizedListener)
+  })
+
+  it('刷新服务暂时异常时不删除本地 Token', async () => {
+    saveAuthTokens({
+      accessToken: 'old-access.jwt',
+      accessTokenExpiresAt: '2026-08-26T02:00:00Z',
+      refreshToken: 'old-refresh.jwt',
+      refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+    }, false)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => (
+      String(input) === '/api/v1/auth/refresh' ? problemResponse(503) : problemResponse(401)
+    ))
+
+    await expect(requestJson('/api/v1/ai/model', { method: 'PUT' })).rejects.toMatchObject({ status: 503 })
+
+    expect(getAuthTokens()?.refreshToken).toBe('old-refresh.jwt')
+  })
 })
 
 function jsonResponse(body: unknown) {
