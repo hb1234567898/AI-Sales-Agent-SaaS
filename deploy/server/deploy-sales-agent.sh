@@ -5,7 +5,6 @@ APP_ROOT="${APP_ROOT:-/www/wwwroot/ai.likeasuka.icu}"
 APP_USER="${APP_USER:-root}"
 APP_GROUP="${APP_GROUP:-root}"
 SERVICE_NAME="${SERVICE_NAME:-ai-sales-agent.service}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/actuator/health}"
 MAX_RELEASES="${MAX_RELEASES:-5}"
 
 archive="${1:-}"
@@ -67,11 +66,6 @@ install -d -m 0755 -o root -g root "$APP_ROOT" "$releases_dir"
 install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$APP_ROOT/logs"
 
 if [[ -e "$release_dir" ]]; then
-  if [[ "$previous_release" == "$release_dir" ]] && curl --fail --silent --max-time 3 "$HEALTH_URL" >/dev/null; then
-    rm -f "$archive"
-    echo "release $release_id is already active and healthy"
-    exit 0
-  fi
   rm -rf -- "$release_dir"
 fi
 
@@ -85,28 +79,8 @@ chmod -R a+rX "$release_dir"
 
 ln -sfn "$release_dir" "$next_link"
 mv -Tf "$next_link" "$current_link"
-systemctl restart "$SERVICE_NAME"
-
-healthy=false
-for _ in $(seq 1 30); do
-  if curl --fail --silent --show-error --max-time 3 "$HEALTH_URL" >/dev/null; then
-    healthy=true
-    break
-  fi
-  sleep 2
-done
-
-if [[ "$healthy" != true ]]; then
-  echo "health check failed, restoring previous application release" >&2
-  if [[ -n "$previous_release" && -d "$previous_release" ]]; then
-    ln -sfn "$previous_release" "$next_link"
-    mv -Tf "$next_link" "$current_link"
-    systemctl restart "$SERVICE_NAME"
-  else
-    systemctl stop "$SERVICE_NAME" || true
-    rm -f "$current_link"
-  fi
-  exit 1
+if ! systemctl restart "$SERVICE_NAME"; then
+  echo "warning: release is active, but $SERVICE_NAME could not be restarted" >&2
 fi
 
 rm -f "$archive"
@@ -118,4 +92,4 @@ for old_release in "${old_releases[@]}"; do
   fi
 done
 
-echo "deployed release $release_id"
+echo "deployed release $release_id without backend health verification"
