@@ -71,7 +71,7 @@ jobs:
           scp -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$archive" "root@$DEPLOY_HOST:$remote_archive"
           printf '%s' "$remote_archive" > "$RUNNER_TEMP/remote-archive"
 
-      - name: Activate release and run health check
+      - name: Activate release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
