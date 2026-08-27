@@ -15,8 +15,9 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 @Configuration
 @EnableMethodSecurity
@@ -43,9 +44,12 @@ public class SecurityConfiguration {
 	SecurityFilterChain securityFilterChain(HttpSecurity http, SessionAuthenticationFilter sessionFilter) throws Exception {
 		var csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
 		csrfRepository.setCookiePath("/");
+		var csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
 
 		http
-				.csrf(csrf -> csrf.csrfTokenRepository(csrfRepository))
+				.csrf(csrf -> csrf
+						.csrfTokenRepository(csrfRepository)
+						.csrfTokenRequestHandler(csrfRequestHandler))
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(authorize -> authorize
 						.requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/login", "/actuator/health", "/actuator/info").permitAll()
@@ -61,7 +65,7 @@ public class SecurityConfiguration {
 				.formLogin(form -> form.disable())
 				.httpBasic(basic -> basic.disable())
 				.logout(logout -> logout.disable())
-				.addFilterBefore(sessionFilter, AnonymousAuthenticationFilter.class);
+				.addFilterBefore(sessionFilter, CsrfFilter.class);
 
 		return http.build();
 	}
