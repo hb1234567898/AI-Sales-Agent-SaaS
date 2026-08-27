@@ -1,24 +1,71 @@
 import { CheckCircle, Database, WarningCircle } from '@phosphor-icons/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { getAiModelStatus, testAiModelConnection } from '../api/ai-settings-api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type FormEvent, useState } from 'react'
+import { getAiModelStatus, saveAiModelConfiguration, testAiModelConnection, type AiModelStatus } from '../api/ai-settings-api'
 import { getSystemHealth } from '../api/system-api'
 import { SelectField } from '../components/forms/SelectField'
 import { useIsGuest } from '../auth/use-auth'
+
+interface AiModelSettingsFormProps {
+  status?: AiModelStatus
+  isGuest: boolean
+}
+
+function AiModelSettingsForm({ status, isGuest }: AiModelSettingsFormProps) {
+  const queryClient = useQueryClient()
+  const [provider, setProvider] = useState<string>(status?.provider ?? 'QWEN')
+  const [model, setModel] = useState(status?.model ?? 'qwen-plus')
+  const [baseUrl, setBaseUrl] = useState(status?.baseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+  const [apiKey, setApiKey] = useState('')
+  const modelTest = useMutation({ mutationFn: testAiModelConnection })
+  const modelSave = useMutation({
+    mutationFn: saveAiModelConfiguration,
+    onSuccess: (savedStatus) => {
+      queryClient.setQueryData(['ai-model-status'], savedStatus)
+      setApiKey('')
+      modelTest.reset()
+    },
+  })
+
+  function saveModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    modelSave.mutate({
+      provider: 'QWEN',
+      model: model.trim(),
+      baseUrl: baseUrl.trim(),
+      apiKey: apiKey.trim() || undefined,
+    })
+  }
+
+  return (
+    <form className="settings-form" onSubmit={saveModel}>
+      <div className="settings-field"><span>模型提供商</span><SelectField value={provider} onChange={setProvider} ariaLabel="模型提供商" disabled={isGuest || modelSave.isPending} options={[{ value: 'QWEN', label: '通义千问（百炼）' }]} /><small>初版固定使用千问，后续通过模型适配层扩展。</small></div>
+      <label><span>模型名称</span><input aria-label="模型名称" type="text" required maxLength={120} value={model} disabled={isGuest || modelSave.isPending} onChange={(event) => setModel(event.target.value)} placeholder="例如：qwen3.7-plus" /><small>保存后立即用于新的模型调用，无需重启服务。</small></label>
+      <label><span>API Key</span><input aria-label="API Key" type="password" maxLength={500} autoComplete="new-password" value={apiKey} disabled={isGuest || modelSave.isPending} onChange={(event) => setApiKey(event.target.value)} placeholder={status?.apiKeyConfigured ? '已加密保存，留空表示不修改' : '请输入百炼 API Key'} /><small>{status?.apiKeyConfigured ? '密钥已加密保存，页面不会读取或回显原文。' : '首次保存必须输入 Key，数据库只保存 AES-GCM 密文。'}</small></label>
+      <label><span>API 地址</span><input aria-label="API 地址" type="url" required maxLength={500} value={baseUrl} disabled={isGuest || modelSave.isPending} onChange={(event) => setBaseUrl(event.target.value)} /><small>仅接受 HTTPS 地址，默认使用百炼中国大陆兼容端点。</small></label>
+      <div className="settings-form-actions">
+        <span className={`model-test-result${modelTest.isError || modelSave.isError ? ' is-error' : ''}`} role="status">
+          {modelTest.isSuccess ? `连接成功 · ${modelTest.data.latencyMs} ms · ${modelTest.data.responsePreview}` : modelTest.isError ? modelTest.error.message : modelSave.isSuccess ? '配置已加密保存。' : modelSave.isError ? modelSave.error.message : '请先保存配置，再测试连接。测试会产生一次极少量模型调用。'}
+        </span>
+        <button className="button button-secondary" type="button" disabled={isGuest || !status?.apiKeyConfigured || modelTest.isPending || modelSave.isPending} title={isGuest ? '游客模式不能调用模型' : undefined} onClick={() => modelTest.mutate()}>{modelTest.isPending ? '正在连接…' : '测试连接'}</button>
+        <button className="button button-primary" type="submit" disabled={isGuest || modelSave.isPending || !model.trim() || !baseUrl.trim() || (!status?.apiKeyConfigured && !apiKey.trim())}>{modelSave.isPending ? '保存中…' : '保存配置'}</button>
+      </div>
+    </form>
+  )
+}
 
 export function SettingsPage() {
   const isGuest = useIsGuest()
   const healthQuery = useQuery({ queryKey: ['system-health'], queryFn: getSystemHealth })
   const modelQuery = useQuery({ queryKey: ['ai-model-status'], queryFn: getAiModelStatus })
-  const modelTest = useMutation({ mutationFn: testAiModelConnection })
-  const [provider, setProvider] = useState('qwen')
   const modelStatus = modelQuery.data
+
   const modelStatusLabel = modelQuery.isPending
     ? '检查中'
     : modelStatus?.ready
       ? '已就绪'
       : modelStatus?.apiKeyConfigured
-        ? '未启用'
+        ? '主密钥不可用'
         : '待配置'
 
   return (
@@ -53,18 +100,9 @@ export function SettingsPage() {
                 {modelStatus?.ready ? <CheckCircle size={11} /> : null}{modelStatusLabel}
               </span>
             </div>
-            <div className="settings-form">
-              <div className="settings-field"><span>模型提供商</span><SelectField value={provider} onChange={setProvider} ariaLabel="模型提供商" disabled={isGuest} options={[{ value: 'qwen', label: '通义千问（百炼）' }]} /><small>初版固定使用千问，后续通过模型适配层扩展。</small></div>
-              <label><span>模型名称</span><input type="text" value={modelStatus?.model ?? 'qwen-plus'} readOnly /><small>由后端环境变量 QWEN_MODEL 配置。</small></label>
-              <label><span>API Key</span><input type="password" value={modelStatus?.apiKeyConfigured ? '********' : ''} placeholder="由服务器环境变量提供" readOnly /><small>{modelStatus?.apiKeyConfigured ? '后端已读取 QWEN_API_KEY，密钥不会返回浏览器。' : '请在后端设置 QWEN_API_KEY，并重启服务。'}</small></label>
-              <label><span>API 地址</span><input type="text" value={modelStatus?.baseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1'} readOnly /><small>默认使用百炼中国大陆兼容端点。</small></label>
-              <div className="settings-form-actions">
-                <span className={`model-test-result${modelTest.isError ? ' is-error' : ''}`} role="status">
-                  {modelTest.isSuccess ? `连接成功 · ${modelTest.data.latencyMs} ms · ${modelTest.data.responsePreview}` : modelTest.isError ? modelTest.error.message : '测试会产生一次极少量模型调用。'}
-                </span>
-                <button className="button button-primary" type="button" disabled={isGuest || modelTest.isPending || modelQuery.isPending} title={isGuest ? '游客模式不能调用模型' : undefined} onClick={() => modelTest.mutate()}>{modelTest.isPending ? '正在连接…' : '测试连接'}</button>
-              </div>
-            </div>
+            {modelQuery.isPending
+              ? <div className="settings-form" role="status">正在读取模型配置…</div>
+              : <AiModelSettingsForm status={modelStatus} isGuest={isGuest} />}
           </section>
 
           <section className="surface settings-section" id="approval-policy">

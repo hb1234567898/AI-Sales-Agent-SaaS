@@ -14,9 +14,8 @@ import org.springframework.util.StringUtils;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.yourcompany.salesagent.ai.application.AiModelConnectionException;
-import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
+import com.yourcompany.salesagent.ai.application.AiModelService;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
 import com.yourcompany.salesagent.customer.application.CustomerNotFoundException;
 import com.yourcompany.salesagent.customer.domain.Customer;
 import com.yourcompany.salesagent.customer.infrastructure.CustomerMapper;
@@ -43,7 +42,7 @@ public class ChatAnalysisService {
 	private final InteractionMapper interactionMapper;
 	private final CustomerMapper customerMapper;
 	private final QwenModelClient modelClient;
-	private final QwenModelProperties modelProperties;
+	private final AiModelService modelService;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
 	private final UUID organizationId;
@@ -53,7 +52,7 @@ public class ChatAnalysisService {
 			InteractionMapper interactionMapper,
 			CustomerMapper customerMapper,
 			QwenModelClient modelClient,
-			QwenModelProperties modelProperties,
+			AiModelService modelService,
 			ObjectMapper objectMapper,
 			Clock clock,
 			@Value("${app.demo.organization-id}") UUID organizationId) {
@@ -61,7 +60,7 @@ public class ChatAnalysisService {
 		this.interactionMapper = interactionMapper;
 		this.customerMapper = customerMapper;
 		this.modelClient = modelClient;
-		this.modelProperties = modelProperties;
+		this.modelService = modelService;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
 		this.organizationId = organizationId;
@@ -84,11 +83,14 @@ public class ChatAnalysisService {
 	public ChatAnalysisResponse analyze(UUID customerId, UUID interactionId) {
 		var customer = requireCustomer(customerId);
 		var interaction = requireChatInteraction(customerId, interactionId);
-		requireModelReady();
+		var modelConfiguration = modelService.requireRuntimeConfiguration(organizationId);
 
 		String rawOutput;
 		try {
-			rawOutput = modelClient.analyzeChat(customerContext(customer), limitChatContent(interaction.getBodyText()));
+			rawOutput = modelClient.analyzeChat(
+					modelConfiguration,
+					customerContext(customer),
+					limitChatContent(interaction.getBodyText()));
 		}
 		catch (RuntimeException exception) {
 			throw new AiModelConnectionException("千问聊天分析失败，请检查模型配置和服务器网络", exception);
@@ -103,7 +105,7 @@ public class ChatAnalysisService {
 				customerId,
 				interactionId,
 				version,
-				modelProperties.model(),
+				modelConfiguration.model(),
 				PROMPT_VERSION,
 				output,
 				now);
@@ -175,15 +177,6 @@ public class ChatAnalysisService {
 				.eq(ChatAnalysis::getInteractionId, interactionId)
 				.orderByDesc(ChatAnalysis::getAnalysisVersion)
 				.last("LIMIT 1"));
-	}
-
-	private void requireModelReady() {
-		if (!StringUtils.hasText(modelProperties.apiKey())) {
-			throw new AiModelNotConfiguredException("尚未配置 QWEN_API_KEY");
-		}
-		if (!modelClient.isAvailable()) {
-			throw new AiModelNotConfiguredException("模型客户端未启用，请设置 AI_CHAT_PROVIDER=openai 后重启后端");
-		}
 	}
 
 	private ChatAnalysisModelOutput parseAndValidate(String rawOutput) {
