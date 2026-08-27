@@ -49,10 +49,11 @@ info:
 
 app:
   auth:
-    cookie-name: ${AUTH_COOKIE_NAME:SALES_AGENT_SESSION}
-    cookie-secure: ${AUTH_COOKIE_SECURE:false}
+    access-token-duration: ${AUTH_ACCESS_TOKEN_DURATION:PT15M}
     session-duration: ${AUTH_SESSION_DURATION:PT12H}
     remember-duration: ${AUTH_REMEMBER_DURATION:P30D}
+    jwt-issuer: ${AUTH_JWT_ISSUER:ai-sales-agent}
+    jwt-signing-key: ${AUTH_JWT_SIGNING_KEY:}
   ai:
     qwen:
       base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}

@@ -148,7 +148,7 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const logoutMutation = useMutation({
     mutationFn: logout,
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.removeQueries({ queryKey: ['auth-session'] })
       navigate('/login', { replace: true })
     },
