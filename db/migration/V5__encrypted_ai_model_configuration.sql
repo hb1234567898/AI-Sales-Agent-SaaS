@@ -1,4 +1,4 @@
--- 组织级 AI 模型配置。API Key 仅保存 AES-GCM 密文，解密主密钥由服务器环境变量提供。
+-- V5：组织级 AI 模型配置。API Key 仅保存 AES-GCM 密文，解密主密钥由服务器环境变量提供。
 CREATE TABLE ai_model_configuration (
     organization_id     uuid PRIMARY KEY REFERENCES organization(id),
     provider            varchar(40) NOT NULL DEFAULT 'QWEN',
@@ -19,4 +19,3 @@ CREATE TABLE ai_model_configuration (
 COMMENT ON TABLE ai_model_configuration IS '组织级大模型连接配置；每个组织当前只保留一个启用配置。';
 COMMENT ON COLUMN ai_model_configuration.encrypted_api_key IS '使用服务器 APP_ENCRYPTION_KEY 进行 AES-256-GCM 加密后的 API Key，禁止保存明文。';
 COMMENT ON COLUMN ai_model_configuration.encryption_version IS '密文格式版本，用于后续轮换算法或主密钥。';
-
