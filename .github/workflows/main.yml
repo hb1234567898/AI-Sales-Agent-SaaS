@@ -6,13 +6,23 @@ on:
   push:
     branches: [develop, staging, main]
   workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: Select a deployment target or only build the release
+        required: true
+        default: build-only
+        type: choice
+        options:
+          - build-only
+          - staging
+          - production
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -146,7 +156,11 @@ jobs:
 
   deploy-staging:
     name: Deploy staging
-    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/staging') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/staging' &&
+       inputs.deploy_environment == 'staging')
     needs: release
     uses: ./.github/workflows/deploy.yml
     with:
@@ -157,7 +171,11 @@ jobs:
 
   deploy-production:
     name: Deploy production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       inputs.deploy_environment == 'production')
     needs: release
     uses: ./.github/workflows/deploy.yml
     with:

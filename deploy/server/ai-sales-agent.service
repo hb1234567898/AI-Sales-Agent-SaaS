@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=sales-agent
-Group=sales-agent
+User=root
+Group=root
 WorkingDirectory=/www/wwwroot/ai.likeasuka.icu/current/backend
 EnvironmentFile=/etc/ai-sales-agent/backend.env
 ExecStart=/usr/bin/java -XX:MaxRAMPercentage=75 -jar /www/wwwroot/ai.likeasuka.icu/current/backend/sales-agent.jar
