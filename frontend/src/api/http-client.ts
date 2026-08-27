@@ -43,6 +43,7 @@ async function executeRequest<T>(path: string, init: RequestInit, allowRefresh: 
   const tokens = getAuthTokens()
   if (!unauthenticatedPaths.has(path) && tokens?.accessToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${tokens.accessToken}`)
+    headers.set('X-Sales-Agent-Access-Token', tokens.accessToken)
   }
 
   const response = await fetch(path, {

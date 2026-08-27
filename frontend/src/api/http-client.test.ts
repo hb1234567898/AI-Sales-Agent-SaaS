@@ -17,8 +17,10 @@ describe('http client JWT refresh', () => {
       refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
     }, false)
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const authorization = new Headers(init?.headers).get('Authorization')
+      const requestHeaders = new Headers(init?.headers)
+      const authorization = requestHeaders.get('Authorization')
       if (String(input) === '/api/v1/ai/model' && authorization === 'Bearer expired-access.jwt') {
+        expect(requestHeaders.get('X-Sales-Agent-Access-Token')).toBe('expired-access.jwt')
         return problemResponse(401)
       }
       if (String(input) === '/api/v1/auth/refresh') {
@@ -34,6 +36,7 @@ describe('http client JWT refresh', () => {
         })
       }
       if (String(input) === '/api/v1/ai/model' && authorization === 'Bearer new-access.jwt') {
+        expect(requestHeaders.get('X-Sales-Agent-Access-Token')).toBe('new-access.jwt')
         expect(init?.credentials).toBe('omit')
         return jsonResponse({ configured: true })
       }
