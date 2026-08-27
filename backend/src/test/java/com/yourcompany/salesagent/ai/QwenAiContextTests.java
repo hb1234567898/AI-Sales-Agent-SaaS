@@ -6,28 +6,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import com.yourcompany.salesagent.ai.application.AiModelService;
+import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 
 @SpringBootTest(properties = {
 		"spring.flyway.enabled=false",
 		"app.demo.seed-enabled=false",
 		"spring.datasource.url=jdbc:postgresql://127.0.0.1:1/unused",
-		"spring.datasource.hikari.initialization-fail-timeout=-1",
-		"spring.ai.model.chat=openai",
-		"spring.ai.openai.api-key=sk-context-test",
-		"app.ai.qwen.api-key=sk-context-test"
+		"spring.datasource.hikari.initialization-fail-timeout=-1"
 })
 class QwenAiContextTests {
 
 	@Autowired
-	private AiModelService modelService;
+	private QwenModelClient modelClient;
 
 	@Test
-	void createsChatClientWhenQwenIsEnabled() {
-		var status = modelService.status();
-
-		assertThat(status.apiKeyConfigured()).isTrue();
-		assertThat(status.ready()).isTrue();
-		assertThat(status.model()).isEqualTo("qwen-plus");
+	void createsDynamicQwenClientWithoutStartupApiKey() {
+		assertThat(modelClient).isNotNull();
 	}
 }

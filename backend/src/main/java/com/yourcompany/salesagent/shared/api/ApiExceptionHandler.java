@@ -12,10 +12,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.yourcompany.salesagent.customer.application.CustomerNotFoundException;
 import com.yourcompany.salesagent.customer.application.CustomerValidationException;
 import com.yourcompany.salesagent.ai.application.AiModelConnectionException;
+import com.yourcompany.salesagent.ai.application.AiModelConfigurationException;
 import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
 import com.yourcompany.salesagent.interaction.application.InteractionValidationException;
 import com.yourcompany.salesagent.auth.application.InvalidCredentialsException;
 import com.yourcompany.salesagent.auth.application.LoginLockedException;
+import com.yourcompany.salesagent.shared.security.SecretEncryptionException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -40,6 +42,16 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(AiModelConnectionException.class)
 	ProblemDetail handleAiModelConnection(AiModelConnectionException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+	}
+
+	@ExceptionHandler(AiModelConfigurationException.class)
+	ProblemDetail handleAiModelConfiguration(AiModelConfigurationException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler(SecretEncryptionException.class)
+	ProblemDetail handleSecretEncryption(SecretEncryptionException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
 	}
 
 	@ExceptionHandler(CustomerNotFoundException.class)
