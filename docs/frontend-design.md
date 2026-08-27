@@ -740,14 +740,7 @@ export const queryKeys = {
 
 ### 12.1 认证选择
 
-原生 EventSource 不能方便地添加 Bearer Authorization header。MVP 推荐：
-
-- Web 与 API 使用同一站点。
-- 认证使用 `HttpOnly + Secure + SameSite=Lax` Cookie。
-- EventSource 自动携带同源 Cookie。
-- 所有写请求额外校验 CSRF token。
-
-如果必须使用 Bearer token，则改为 `fetch()` 流式读取或由后端签发一次性短期 SSE ticket，不能把长期 access token 放 URL。
+系统认证统一使用 JWT Bearer Token。原生 EventSource 不能方便地添加 Authorization header，因此实时流采用 `fetch()` 流式读取并携带 Access Token，或者由后端签发一次性短期 SSE ticket；禁止把 Access Token 或 Refresh Token 放入 URL。
 
 ### 12.2 客户端状态机
 
@@ -912,13 +905,14 @@ type Permission =
 
 ## 18. 前端安全
 
-- 认证 Cookie 设置 HttpOnly、Secure、SameSite；前端 JavaScript 不读取 session token。
-- 写操作携带 CSRF token，并验证 Origin/Referer。
+- API 不依赖认证 Cookie，Access Token 只通过 `Authorization: Bearer` 发送；所有生产流量强制 HTTPS。
+- Access Token 默认 15 分钟有效，Refresh Token 每次使用后轮换，退出登录时撤销服务端刷新会话。
+- “记住我”把双 Token 保存到 localStorage，否则保存到 sessionStorage。由于 Token 可被 JavaScript 读取，必须使用严格 CSP、禁止不可信脚本并把 XSS 防护列为上线阻断项。
 - 不使用 `dangerouslySetInnerHTML` 渲染邮件正文。
 - 邮件 HTML 在隔离 sandbox iframe 中显示；默认禁止脚本、表单和顶级导航。
 - 外链添加安全属性并清晰标识离开应用。
 - CSV 预览将以 `= + - @` 开头的内容按普通文本处理，防止公式注入传播。
-- 不把 Customer、Email、Prompt、Token 写入 localStorage、analytics payload 或前端错误日志。
+- 除认证模块管理的双 Token 外，不把 Customer、Email、Prompt 或 Token 写入 localStorage、analytics payload 或前端错误日志。
 - URL 中只放资源 ID 和过滤条件，不放邮件正文、联系人邮箱等敏感字段。
 - 组织切换必须销毁旧组织缓存和 SSE。
 - CSP 至少限制 script、frame、connect、img 来源；邮件预览使用更严格独立策略。
