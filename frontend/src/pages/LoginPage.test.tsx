@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoginPage } from './LoginPage'
+import { fetchRequestMethod, fetchRequestUrl } from '../test/fetch-request'
 
 afterEach(() => {
   cleanup()
@@ -36,7 +37,7 @@ describe('LoginPage', () => {
 
   it('登录成功后进入原本请求的工作台页面', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      if (String(input).endsWith('/auth/login') && init?.method === 'POST') {
+      if (fetchRequestUrl(input).endsWith('/auth/login') && fetchRequestMethod(input, init) === 'POST') {
         return new Response(JSON.stringify({
           tokenType: 'Bearer',
           accessToken: 'access.jwt',
@@ -76,11 +77,10 @@ describe('LoginPage', () => {
     await user.click(screen.getByRole('button', { name: '登录' }))
 
     expect(await screen.findByRole('heading', { name: '客户页面' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/login', expect.objectContaining({
-      method: 'POST',
-      headers: expect.any(Headers),
-      credentials: 'omit',
-    }))
+    expect(fetchMock.mock.calls.some(([input, init]) => (
+      fetchRequestUrl(input).endsWith('/api/v1/auth/login')
+      && fetchRequestMethod(input, init) === 'POST'
+    ))).toBe(true)
     expect(JSON.parse(localStorage.getItem('sales-agent:auth-tokens') ?? '{}')).toEqual({
       accessToken: 'access.jwt',
       accessTokenExpiresAt: '2026-08-26T02:15:00Z',

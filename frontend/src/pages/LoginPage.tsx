@@ -11,7 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { login } from '../api/auth-api'
-import { ApiError } from '../api/http-client'
+import { ApiError } from '../api/axios-client'
 import { enterGuestMode, leaveGuestMode } from '../auth/guest-session'
 
 interface LoginLocationState {

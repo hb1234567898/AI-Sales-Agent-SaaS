@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getAuthSession, type AuthSession } from '../api/auth-api'
-import { ApiError } from '../api/http-client'
+import { ApiError } from '../api/axios-client'
 import { clearAuthTokens, saveAuthTokens } from './auth-token-storage'
 import { ProtectedApp } from './ProtectedApp'
 

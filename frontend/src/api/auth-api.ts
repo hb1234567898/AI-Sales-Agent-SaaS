@@ -1,5 +1,5 @@
 import { clearAuthTokens, saveAuthTokens, type AuthTokens } from '../auth/auth-token-storage'
-import { getJson, requestJson } from './http-client'
+import { getJson, requestJson } from './axios-client'
 
 export interface AuthSession {
   userId: string
@@ -30,7 +30,7 @@ export async function getAuthSession() {
 export async function login(input: LoginInput) {
   const result = await requestJson<AuthTokenResponse>('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify(input),
+    data: input,
   })
   saveAuthTokens(result, input.rememberMe)
   return result.session
