@@ -104,6 +104,32 @@ describe('http client JWT refresh', () => {
     window.removeEventListener('sales-agent:unauthorized', unauthorizedListener)
   })
 
+  it('Session 探测请求在刷新后仍返回 401 时不主动清理 Token', async () => {
+    saveAuthTokens({
+      accessToken: 'old-access.jwt',
+      accessTokenExpiresAt: '2026-08-26T02:00:00Z',
+      refreshToken: 'old-refresh.jwt',
+      refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+    }, false)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (String(input) === '/api/v1/auth/refresh') {
+        return jsonResponse({
+          tokenType: 'Bearer',
+          accessToken: 'new-access.jwt',
+          accessTokenExpiresAt: '2026-08-26T02:15:00Z',
+          refreshToken: 'new-refresh.jwt',
+          refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+          session: {},
+        })
+      }
+      return problemResponse(401)
+    })
+
+    await expect(requestJson('/api/v1/auth/session')).rejects.toMatchObject({ status: 401 })
+
+    expect(getAuthTokens()?.accessToken).toBe('new-access.jwt')
+  })
+
   it('刷新服务暂时异常时不删除本地 Token', async () => {
     saveAuthTokens({
       accessToken: 'old-access.jwt',

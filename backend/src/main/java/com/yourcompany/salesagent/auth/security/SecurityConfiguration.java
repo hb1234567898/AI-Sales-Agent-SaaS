@@ -48,6 +48,9 @@ public class SecurityConfiguration {
 					response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 					response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 					response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+					response.setHeader("X-Sales-Agent-Auth-Token", String.valueOf(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)));
+					response.setHeader("X-Sales-Agent-Auth-Authorization", String.valueOf(request.getAttribute(BearerTokenAuthenticationFilter.AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE)));
+					response.setHeader("X-Sales-Agent-Auth-Fallback", String.valueOf(request.getAttribute(BearerTokenAuthenticationFilter.FALLBACK_HEADER_PRESENT_ATTRIBUTE)));
 					response.getWriter().write("{\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"登录状态已失效，请重新登录\"}");
 				}))
 				.formLogin(form -> form.disable())

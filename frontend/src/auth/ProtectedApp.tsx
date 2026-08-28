@@ -6,6 +6,7 @@ import { ApiError } from '../api/http-client'
 import { AppShell } from '../components/layout/AppShell'
 import { RouteLoadingPage } from '../pages/RouteLoadingPage'
 import { AuthProvider } from './AuthProvider'
+import { getAuthTokens } from './auth-token-storage'
 import { guestSession, isGuestMode } from './guest-session'
 
 export function ProtectedApp() {
@@ -40,17 +41,21 @@ export function ProtectedApp() {
     return <RouteLoadingPage />
   }
 
-  if (sessionQuery.error instanceof ApiError && sessionQuery.error.status === 401) {
+  if (sessionQuery.error instanceof ApiError && sessionQuery.error.status === 401 && !getAuthTokens()) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+
+  if (sessionQuery.data) {
+    return (
+      <AuthProvider session={sessionQuery.data}>
+        <AppShell />
+      </AuthProvider>
+    )
   }
 
   if (sessionQuery.isError) {
     throw sessionQuery.error
   }
 
-  return (
-    <AuthProvider session={sessionQuery.data}>
-      <AppShell />
-    </AuthProvider>
-  )
+  return <RouteLoadingPage />
 }
