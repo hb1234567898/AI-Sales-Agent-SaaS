@@ -31,6 +31,7 @@ const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS'])
 const unauthenticatedPaths = new Set(['/api/v1/auth/login', '/api/v1/auth/refresh'])
 const authenticationWritePaths = new Set([...unauthenticatedPaths, '/api/v1/auth/logout'])
 const sameOriginBaseUrl = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+const fetchAdapter = axios.getAdapter('fetch')
 let refreshPromise: Promise<RefreshResult> | null = null
 
 type RefreshResult = 'refreshed' | 'invalid'
@@ -41,6 +42,7 @@ type RefreshResult = 'refreshed' | 'invalid'
  */
 export const apiClient = axios.create({
   baseURL: sameOriginBaseUrl,
+  adapter: fetchAdapter,
   timeout: 60_000,
   withCredentials: false,
   headers: { Accept: 'application/json' },
@@ -49,6 +51,7 @@ export const apiClient = axios.create({
 // 刷新 Token 使用无业务拦截器的独立实例，避免刷新接口 401 时递归调用自身。
 export const authRefreshClient = axios.create({
   baseURL: sameOriginBaseUrl,
+  adapter: fetchAdapter,
   timeout: 15_000,
   withCredentials: false,
   headers: { Accept: 'application/json' },
