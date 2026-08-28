@@ -1623,13 +1623,16 @@ input:focus-visible {
 .status-badge {
   min-width: 50px;
   height: 21px;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   padding: 0 7px;
   border: 1px solid transparent;
   border-radius: 999px;
   font-size: 9px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .status-success {
@@ -2874,13 +2877,6 @@ input:focus-visible {
   margin-top: 3px;
   color: var(--muted-light);
   font-size: 8px;
-}
-
-.integration-list .status-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
 }
 
 .settings-form {
