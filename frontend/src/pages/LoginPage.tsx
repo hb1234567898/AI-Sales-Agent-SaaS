@@ -1,7 +1,6 @@
 import {
   ArrowRight,
   CheckCircle,
-  CirclesThreePlus,
   Eye,
   EyeSlash,
   LockKey,
@@ -58,7 +57,7 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-story" aria-label="产品介绍">
         <div className="login-brand">
-          <span className="brand-symbol" aria-hidden><CirclesThreePlus size={20} weight="fill" /></span>
+          <span className="brand-symbol" aria-hidden><img src="/favicon.svg" alt="" /></span>
           <span>
             <strong>Sales Agent</strong>
             <small>销售运营工作台</small>
@@ -82,7 +81,7 @@ export function LoginPage() {
 
       <section className="login-form-side">
         <div className="login-mobile-brand">
-          <span className="brand-symbol" aria-hidden><CirclesThreePlus size={20} weight="fill" /></span>
+          <span className="brand-symbol" aria-hidden><img src="/favicon.svg" alt="" /></span>
           <strong>Sales Agent</strong>
         </div>
 

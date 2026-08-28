@@ -522,6 +522,13 @@ input:focus-visible {
   border-radius: var(--radius);
 }
 
+.brand-symbol img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+}
+
 .sidebar-brand > div {
   min-width: 0;
   display: flex;
