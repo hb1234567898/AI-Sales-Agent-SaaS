@@ -11,6 +11,7 @@ import {
   Robot,
   SignOut,
   Eye,
+  FileText,
   Target,
   UsersThree,
   X,
@@ -39,6 +40,7 @@ const workNavigation: NavItem[] = [
 const insightNavigation: NavItem[] = [
   { to: '/app/agent-runs', label: 'Agent 运行', icon: Robot },
   { to: '/app/analytics', label: '效果分析', icon: ChartLineUp },
+  { to: '/app/audit-logs', label: '日志管理', icon: FileText },
   { to: '/app/settings', label: '设置', icon: GearSix },
 ]
 
