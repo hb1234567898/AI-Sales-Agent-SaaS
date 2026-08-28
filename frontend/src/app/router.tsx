@@ -1,5 +1,6 @@
 import { Navigate, createBrowserRouter } from 'react-router'
 import { ProtectedApp } from '../auth/ProtectedApp'
+import { AdminRoute } from '../auth/AdminRoute'
 import { RouteErrorPage } from '../pages/RouteErrorPage'
 import { RouteLoadingPage } from '../pages/RouteLoadingPage'
 
@@ -57,16 +58,27 @@ export const router = createBrowserRouter([
         }),
       },
       {
-        path: 'audit-logs',
-        lazy: async () => ({
-          Component: (await import('../pages/AuditLogsPage')).AuditLogsPage,
-        }),
-      },
-      {
         path: 'settings',
         lazy: async () => ({
           Component: (await import('../pages/SettingsPage')).SettingsPage,
         }),
+      },
+      {
+        element: <AdminRoute />,
+        children: [
+          {
+            path: 'admin/members',
+            lazy: async () => ({ Component: (await import('../pages/AdminMembersPage')).AdminMembersPage }),
+          },
+          {
+            path: 'admin/team',
+            lazy: async () => ({ Component: (await import('../pages/AdminTeamPage')).AdminTeamPage }),
+          },
+          {
+            path: 'audit-logs',
+            lazy: async () => ({ Component: (await import('../pages/AuditLogsPage')).AuditLogsPage }),
+          },
+        ],
       },
     ],
   },

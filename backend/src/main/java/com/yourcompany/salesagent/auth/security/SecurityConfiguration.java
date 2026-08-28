@@ -41,7 +41,7 @@ public class SecurityConfiguration {
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(authorize -> authorize
 						.requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/actuator/health", "/actuator/info").permitAll()
-						.requestMatchers("/api/v1/audit-events/**").authenticated()
+						.requestMatchers("/api/v1/audit-events/**", "/api/v1/admin/**").authenticated()
 						.requestMatchers("/api/v1/auth/session").authenticated()
 						.requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
 						.anyRequest().authenticated())
