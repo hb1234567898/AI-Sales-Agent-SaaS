@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.yourcompany.salesagent.auth.application.AuthService;
@@ -70,6 +73,25 @@ class BearerTokenAuthenticationFilterTests {
 		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)).isEqualTo("invalid");
 		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(true);
 		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.FALLBACK_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(false);
+	}
+
+	@Test
+	void replacesAnonymousAuthenticationWithResolvedBearerPrincipal() throws Exception {
+		var authService = mock(AuthService.class);
+		var principal = principal();
+		when(authService.resolveAccessToken("access.jwt")).thenReturn(Optional.of(principal));
+		var anonymous = new AnonymousAuthenticationToken(
+				"anonymous", "anonymousUser", List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS")));
+		SecurityContextHolder.getContext().setAuthentication(anonymous);
+		var filter = new BearerTokenAuthenticationFilter(authService);
+		var request = new MockHttpServletRequest("PUT", "/api/v1/ai/model");
+		request.addHeader("Authorization", "Bearer access.jwt");
+
+		filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotSameAs(anonymous);
+		assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)).isEqualTo("accepted");
 	}
 
 	private static AuthPrincipal principal() {

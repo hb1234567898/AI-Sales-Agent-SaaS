@@ -9,8 +9,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -37,7 +39,7 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 			FilterChain filterChain) throws ServletException, IOException {
 		request.setAttribute(AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE, hasTextHeader(request, HttpHeaders.AUTHORIZATION));
 		request.setAttribute(FALLBACK_HEADER_PRESENT_ATTRIBUTE, hasTextHeader(request, FALLBACK_ACCESS_TOKEN_HEADER));
-		if (SecurityContextHolder.getContext().getAuthentication() == null) {
+		if (shouldResolveToken(SecurityContextHolder.getContext().getAuthentication())) {
 			var token = readBearerToken(request);
 			if (token.isEmpty()) {
 				request.setAttribute(AUTH_TOKEN_STATUS_ATTRIBUTE, "missing");
@@ -74,5 +76,9 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 	private static boolean hasTextHeader(HttpServletRequest request, String name) {
 		var value = request.getHeader(name);
 		return value != null && !value.isBlank();
+	}
+
+	private static boolean shouldResolveToken(Authentication authentication) {
+		return authentication == null || authentication instanceof AnonymousAuthenticationToken;
 	}
 }

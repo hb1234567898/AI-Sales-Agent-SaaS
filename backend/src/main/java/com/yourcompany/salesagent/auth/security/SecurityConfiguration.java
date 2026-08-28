@@ -15,7 +15,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 
 @Configuration
 @EnableMethodSecurity
@@ -56,7 +56,7 @@ public class SecurityConfiguration {
 				.formLogin(form -> form.disable())
 				.httpBasic(basic -> basic.disable())
 				.logout(logout -> logout.disable())
-				.addFilterBefore(bearerTokenFilter, AuthorizationFilter.class);
+				.addFilterBefore(bearerTokenFilter, AnonymousAuthenticationFilter.class);
 
 		return http.build();
 	}
