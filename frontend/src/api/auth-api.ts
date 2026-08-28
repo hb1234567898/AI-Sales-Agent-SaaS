@@ -1,4 +1,5 @@
-import { getJson, requestJson } from './http-client'
+import { clearAuthTokens, saveAuthTokens, type AuthTokens } from '../auth/auth-token-storage'
+import { getJson, requestJson } from './axios-client'
 
 export interface AuthSession {
   userId: string
@@ -11,42 +12,35 @@ export interface AuthSession {
   expiresAt: string
 }
 
-interface CsrfTokenResponse {
-  headerName: string
-  token: string
-}
-
 export interface LoginInput {
   email: string
   password: string
   rememberMe: boolean
 }
 
-let csrfToken: CsrfTokenResponse | null = null
-
-export async function ensureCsrfToken() {
-  csrfToken ??= await getJson<CsrfTokenResponse>('/api/v1/auth/csrf')
-  return csrfToken
+interface AuthTokenResponse extends AuthTokens {
+  tokenType: 'Bearer'
+  session: AuthSession
 }
 
 export async function getAuthSession() {
-  await ensureCsrfToken()
   return getJson<AuthSession>('/api/v1/auth/session')
 }
 
 export async function login(input: LoginInput) {
-  const csrf = await ensureCsrfToken()
-  return requestJson<AuthSession>('/api/v1/auth/login', {
+  const result = await requestJson<AuthTokenResponse>('/api/v1/auth/login', {
     method: 'POST',
-    headers: { [csrf.headerName]: csrf.token },
-    body: JSON.stringify(input),
+    data: input,
   })
+  saveAuthTokens(result, input.rememberMe)
+  return result.session
 }
 
 export async function logout() {
-  const csrf = await ensureCsrfToken()
-  await requestJson<void>('/api/v1/auth/logout', {
-    method: 'POST',
-    headers: { [csrf.headerName]: csrf.token },
-  })
+  try {
+    await requestJson<void>('/api/v1/auth/logout', { method: 'POST' })
+  }
+  finally {
+    clearAuthTokens()
+  }
 }

@@ -48,6 +48,7 @@ public class AuthSession {
 	}
 
 	public static AuthSession create(
+			UUID sessionId,
 			UUID userId,
 			UUID organizationId,
 			UUID memberId,
@@ -57,7 +58,7 @@ public class AuthSession {
 			String ipAddress,
 			Instant now) {
 		var session = new AuthSession();
-		session.id = UUID.randomUUID();
+		session.id = sessionId;
 		session.userId = userId;
 		session.organizationId = organizationId;
 		session.memberId = memberId;

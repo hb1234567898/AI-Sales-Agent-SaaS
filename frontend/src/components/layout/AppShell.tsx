@@ -1,5 +1,6 @@
 import {
   Bell,
+  Buildings,
   CaretDown,
   ChartLineUp,
   CheckSquareOffset,
@@ -11,8 +12,10 @@ import {
   Robot,
   SignOut,
   Eye,
+  FileText,
   Target,
   UsersThree,
+  UserList,
   X,
   type IconProps,
 } from '@phosphor-icons/react'
@@ -40,6 +43,12 @@ const insightNavigation: NavItem[] = [
   { to: '/app/agent-runs', label: 'Agent 运行', icon: Robot },
   { to: '/app/analytics', label: '效果分析', icon: ChartLineUp },
   { to: '/app/settings', label: '设置', icon: GearSix },
+]
+
+const adminNavigation: NavItem[] = [
+  { to: '/app/admin/members', label: '成员管理', icon: UserList },
+  { to: '/app/admin/team', label: '团队管理', icon: Buildings },
+  { to: '/app/audit-logs', label: '日志管理', icon: FileText },
 ]
 
 function NavigationGroup({
@@ -119,6 +128,9 @@ function Sidebar({
       <div className="sidebar-navigation">
         <NavigationGroup label="销售工作" items={workNavigation} onNavigate={onClose} />
         <NavigationGroup label="运营与配置" items={insightNavigation} onNavigate={onClose} />
+        {role === 'OWNER' || role === 'ADMIN' ? (
+          <NavigationGroup label="管理员" items={adminNavigation} onNavigate={onClose} />
+        ) : null}
       </div>
 
       <div className="sidebar-footer">
@@ -148,7 +160,7 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const logoutMutation = useMutation({
     mutationFn: logout,
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.removeQueries({ queryKey: ['auth-session'] })
       navigate('/login', { replace: true })
     },

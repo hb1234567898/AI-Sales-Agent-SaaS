@@ -1,6 +1,6 @@
-import { getJson, requestJson } from './http-client'
+import { getJson, requestJson } from './axios-client'
 
-export type AiModelStatusCode = 'READY' | 'DISABLED' | 'MISSING_API_KEY'
+export type AiModelStatusCode = 'READY' | 'MISSING_API_KEY' | 'ENCRYPTION_KEY_UNAVAILABLE'
 
 export interface AiModelStatus {
   provider: 'QWEN'
@@ -19,8 +19,22 @@ export interface AiModelTestResult {
   latencyMs: number
 }
 
+export interface AiModelUpdateInput {
+  provider: 'QWEN'
+  model: string
+  baseUrl: string
+  apiKey?: string
+}
+
 export function getAiModelStatus() {
   return getJson<AiModelStatus>('/api/v1/ai/model')
+}
+
+export function saveAiModelConfiguration(input: AiModelUpdateInput) {
+  return requestJson<AiModelStatus>('/api/v1/ai/model', {
+    method: 'PUT',
+    data: input,
+  })
 }
 
 export function testAiModelConnection() {

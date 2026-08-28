@@ -11,7 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { login } from '../api/auth-api'
-import { ApiError } from '../api/http-client'
+import { ApiError } from '../api/axios-client'
 import { enterGuestMode, leaveGuestMode } from '../auth/guest-session'
 
 interface LoginLocationState {
@@ -154,7 +154,7 @@ export function LoginPage() {
 
           <div className="login-security-note">
             <ShieldCheck size={17} />
-            <span>采用安全会话与请求防伪保护，退出后会立即撤销当前会话。</span>
+            <span>采用 JWT 双令牌与 Refresh Token 轮换，退出后会撤销当前刷新会话。</span>
           </div>
         </form>
 

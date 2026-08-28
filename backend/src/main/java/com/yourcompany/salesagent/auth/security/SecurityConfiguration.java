@@ -16,7 +16,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 @Configuration
 @EnableMethodSecurity
@@ -27,28 +26,22 @@ public class SecurityConfiguration {
 		return new BCryptPasswordEncoder();
 	}
 
-	/**
-	 * 该过滤器只允许由 Spring Security 管理。关闭 Servlet 容器自动注册，
-	 * 避免它在 SecurityContextHolderFilter 之前执行后又被空上下文覆盖。
-	 */
 	@Bean
-	FilterRegistrationBean<SessionAuthenticationFilter> sessionAuthenticationFilterRegistration(
-			SessionAuthenticationFilter sessionFilter) {
-		var registration = new FilterRegistrationBean<>(sessionFilter);
+	FilterRegistrationBean<BearerTokenAuthenticationFilter> bearerTokenAuthenticationFilterRegistration(
+			BearerTokenAuthenticationFilter bearerTokenFilter) {
+		var registration = new FilterRegistrationBean<>(bearerTokenFilter);
 		registration.setEnabled(false);
 		return registration;
 	}
 
 	@Bean
-	SecurityFilterChain securityFilterChain(HttpSecurity http, SessionAuthenticationFilter sessionFilter) throws Exception {
-		var csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
-		csrfRepository.setCookiePath("/");
-
+	SecurityFilterChain securityFilterChain(HttpSecurity http, BearerTokenAuthenticationFilter bearerTokenFilter) throws Exception {
 		http
-				.csrf(csrf -> csrf.csrfTokenRepository(csrfRepository))
+				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(authorize -> authorize
-						.requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/login", "/actuator/health", "/actuator/info").permitAll()
+						.requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/actuator/health", "/actuator/info").permitAll()
+						.requestMatchers("/api/v1/audit-events/**", "/api/v1/admin/**").authenticated()
 						.requestMatchers("/api/v1/auth/session").authenticated()
 						.requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
 						.anyRequest().authenticated())
@@ -56,12 +49,15 @@ public class SecurityConfiguration {
 					response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 					response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 					response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+					response.setHeader("X-Sales-Agent-Auth-Token", String.valueOf(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)));
+					response.setHeader("X-Sales-Agent-Auth-Authorization", String.valueOf(request.getAttribute(BearerTokenAuthenticationFilter.AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE)));
+					response.setHeader("X-Sales-Agent-Auth-Fallback", String.valueOf(request.getAttribute(BearerTokenAuthenticationFilter.FALLBACK_HEADER_PRESENT_ATTRIBUTE)));
 					response.getWriter().write("{\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"登录状态已失效，请重新登录\"}");
 				}))
 				.formLogin(form -> form.disable())
 				.httpBasic(basic -> basic.disable())
 				.logout(logout -> logout.disable())
-				.addFilterBefore(sessionFilter, AnonymousAuthenticationFilter.class);
+				.addFilterBefore(bearerTokenFilter, AnonymousAuthenticationFilter.class);
 
 		return http.build();
 	}

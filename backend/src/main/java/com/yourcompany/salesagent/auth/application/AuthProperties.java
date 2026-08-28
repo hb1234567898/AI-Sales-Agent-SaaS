@@ -6,8 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("app.auth")
 public record AuthProperties(
-		String cookieName,
-		boolean cookieSecure,
+		Duration accessTokenDuration,
 		Duration sessionDuration,
-		Duration rememberDuration) {
+		Duration rememberDuration,
+		String jwtIssuer,
+		String jwtSigningKey) {
 }

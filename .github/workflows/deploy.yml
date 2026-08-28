@@ -20,8 +20,6 @@ on:
         required: true
       DEPLOY_PORT:
         required: false
-      DEPLOY_USER:
-        required: true
       DEPLOY_SSH_KEY:
         required: true
       DEPLOY_KNOWN_HOSTS:
@@ -64,27 +62,25 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           port="${DEPLOY_PORT:-22}"
           archive="$(find package -maxdepth 1 -type f -name 'sales-agent-*.tar.gz' -print -quit)"
           test -n "$archive"
           remote_archive="/tmp/sales-agent-${RELEASE_SHA}.tar.gz"
-          scp -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$archive" "$DEPLOY_USER@$DEPLOY_HOST:$remote_archive"
+          scp -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$archive" "root@$DEPLOY_HOST:$remote_archive"
           printf '%s' "$remote_archive" > "$RUNNER_TEMP/remote-archive"
 
       - name: Activate release and run health check
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           port="${DEPLOY_PORT:-22}"
           remote_archive="$(cat "$RUNNER_TEMP/remote-archive")"
-          ssh -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sudo /usr/local/sbin/deploy-sales-agent '$remote_archive' '$RELEASE_SHA'"
+          ssh -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "root@$DEPLOY_HOST" \
+            "/usr/local/sbin/deploy-sales-agent '$remote_archive' '$RELEASE_SHA'"
 
       - name: Remove temporary SSH identity
         if: always()
