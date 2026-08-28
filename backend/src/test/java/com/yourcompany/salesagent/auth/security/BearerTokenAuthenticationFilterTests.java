@@ -37,6 +37,39 @@ class BearerTokenAuthenticationFilterTests {
 
 		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
 		assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(principal);
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)).isEqualTo("accepted");
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(false);
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.FALLBACK_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(true);
+	}
+
+	@Test
+	void recordsMissingTokenWhenNoAccessTokenHeaderExists() throws Exception {
+		var authService = mock(AuthService.class);
+		var filter = new BearerTokenAuthenticationFilter(authService);
+		var request = new MockHttpServletRequest("PUT", "/api/v1/ai/model");
+
+		filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)).isEqualTo("missing");
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(false);
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.FALLBACK_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(false);
+	}
+
+	@Test
+	void recordsInvalidTokenWhenAccessTokenCannotBeResolved() throws Exception {
+		var authService = mock(AuthService.class);
+		when(authService.resolveAccessToken("invalid.jwt")).thenReturn(Optional.empty());
+		var filter = new BearerTokenAuthenticationFilter(authService);
+		var request = new MockHttpServletRequest("PUT", "/api/v1/ai/model");
+		request.addHeader("Authorization", "Bearer invalid.jwt");
+
+		filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTH_TOKEN_STATUS_ATTRIBUTE)).isEqualTo("invalid");
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(true);
+		assertThat(request.getAttribute(BearerTokenAuthenticationFilter.FALLBACK_HEADER_PRESENT_ATTRIBUTE)).isEqualTo(false);
 	}
 
 	private static AuthPrincipal principal() {

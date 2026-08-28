@@ -59,9 +59,6 @@ async function executeRequest<T>(path: string, init: RequestInit, allowRefresh: 
       window.dispatchEvent(new CustomEvent('sales-agent:unauthorized'))
     }
     const problem = await response.json().catch(() => null) as ProblemResponse | null
-    if (response.status === 401 && path === '/api/v1/auth/session') {
-      clearAuthTokens()
-    }
     throw new ApiError(problem?.detail ?? problem?.title ?? `请求失败，状态码 ${response.status}`, response.status)
   }
 

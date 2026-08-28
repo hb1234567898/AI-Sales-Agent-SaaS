@@ -21,6 +21,9 @@ import com.yourcompany.salesagent.auth.application.AuthService;
 public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 
 	private static final String FALLBACK_ACCESS_TOKEN_HEADER = "X-Sales-Agent-Access-Token";
+	public static final String AUTH_TOKEN_STATUS_ATTRIBUTE = "salesAgent.authTokenStatus";
+	public static final String AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE = "salesAgent.authorizationHeaderPresent";
+	public static final String FALLBACK_HEADER_PRESENT_ATTRIBUTE = "salesAgent.fallbackAccessTokenHeaderPresent";
 	private final AuthService authService;
 
 	public BearerTokenAuthenticationFilter(AuthService authService) {
@@ -32,14 +35,24 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 			HttpServletRequest request,
 			HttpServletResponse response,
 			FilterChain filterChain) throws ServletException, IOException {
+		request.setAttribute(AUTHORIZATION_HEADER_PRESENT_ATTRIBUTE, hasTextHeader(request, HttpHeaders.AUTHORIZATION));
+		request.setAttribute(FALLBACK_HEADER_PRESENT_ATTRIBUTE, hasTextHeader(request, FALLBACK_ACCESS_TOKEN_HEADER));
 		if (SecurityContextHolder.getContext().getAuthentication() == null) {
-			readBearerToken(request).flatMap(authService::resolveAccessToken).ifPresent(principal -> {
-				var authority = new SimpleGrantedAuthority("ROLE_" + principal.role());
-				var authentication = new UsernamePasswordAuthenticationToken(principal, null, List.of(authority));
-				var context = SecurityContextHolder.createEmptyContext();
-				context.setAuthentication(authentication);
-				SecurityContextHolder.setContext(context);
-			});
+			var token = readBearerToken(request);
+			if (token.isEmpty()) {
+				request.setAttribute(AUTH_TOKEN_STATUS_ATTRIBUTE, "missing");
+			}
+			else {
+				var principal = authService.resolveAccessToken(token.get());
+				request.setAttribute(AUTH_TOKEN_STATUS_ATTRIBUTE, principal.isPresent() ? "accepted" : "invalid");
+				principal.ifPresent(value -> {
+					var authority = new SimpleGrantedAuthority("ROLE_" + value.role());
+					var authentication = new UsernamePasswordAuthenticationToken(value, null, List.of(authority));
+					var context = SecurityContextHolder.createEmptyContext();
+					context.setAuthentication(authentication);
+					SecurityContextHolder.setContext(context);
+				});
+			}
 		}
 		filterChain.doFilter(request, response);
 	}
@@ -56,5 +69,10 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 		return fallbackToken == null || fallbackToken.isBlank()
 				? java.util.Optional.empty()
 				: java.util.Optional.of(fallbackToken.strip());
+	}
+
+	private static boolean hasTextHeader(HttpServletRequest request, String name) {
+		var value = request.getHeader(name);
+		return value != null && !value.isBlank();
 	}
 }
