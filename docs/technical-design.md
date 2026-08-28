@@ -4,6 +4,7 @@
 > 技术栈：React + TypeScript、Spring Boot、Spring AI、PostgreSQL、Redis（可选）、SSE
 > 配套数据库迁移：[`V1__initial_schema.sql`](../db/migration/V1__initial_schema.sql)
 > 配套前端设计：[`frontend-design.md`](./frontend-design.md)
+> 配套认证设计：[`jwt-dual-token-auth.md`](./jwt-dual-token-auth.md)
 
 ## 1. 产品边界
 
