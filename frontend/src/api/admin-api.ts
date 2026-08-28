@@ -1,4 +1,4 @@
-import { getJson, requestJson } from './http-client'
+import { getJson, requestJson } from './axios-client'
 
 export type MemberRole = 'OWNER' | 'ADMIN' | 'MANAGER' | 'SALES' | 'VIEWER'
 export type MemberStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'LEFT'
@@ -81,14 +81,14 @@ export function getMembers(query: MemberQuery) {
 export function createMember(input: CreateMemberInput) {
   return requestJson<AdminMember>('/api/v1/admin/members', {
     method: 'POST',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
 
 export function updateMember(memberId: string, input: UpdateMemberInput) {
   return requestJson<AdminMember>(`/api/v1/admin/members/${memberId}`, {
     method: 'PUT',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
 
@@ -99,6 +99,6 @@ export function getTeam() {
 export function updateTeam(input: UpdateTeamInput) {
   return requestJson<AdminTeam>('/api/v1/admin/team', {
     method: 'PUT',
-    body: JSON.stringify(input),
+    data: input,
   })
 }

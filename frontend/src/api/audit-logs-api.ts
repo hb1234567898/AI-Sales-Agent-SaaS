@@ -1,4 +1,4 @@
-import { getJson } from './http-client'
+import { getJson } from './axios-client'
 
 export type AuditResult = 'SUCCEEDED' | 'FAILED' | 'DENIED'
 

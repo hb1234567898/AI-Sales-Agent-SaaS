@@ -1,4 +1,4 @@
-import { getJson, requestJson } from './http-client'
+import { getJson, requestJson } from './axios-client'
 
 export type AiModelStatusCode = 'READY' | 'MISSING_API_KEY' | 'ENCRYPTION_KEY_UNAVAILABLE'
 
@@ -33,7 +33,7 @@ export function getAiModelStatus() {
 export function saveAiModelConfiguration(input: AiModelUpdateInput) {
   return requestJson<AiModelStatus>('/api/v1/ai/model', {
     method: 'PUT',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
 

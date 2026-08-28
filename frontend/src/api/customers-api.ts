@@ -1,4 +1,4 @@
-import { getJson, requestJson } from './http-client'
+import { getJson, requestJson } from './axios-client'
 
 export type CustomerStage = 'LEAD' | 'QUALIFIED' | 'DISCOVERY' | 'DEMO' | 'PROPOSAL' | 'NEGOTIATION' | 'WON' | 'LOST'
 export type CustomerStatus = 'ACTIVE' | 'ARCHIVED'
@@ -105,13 +105,13 @@ export function getCustomerOwners() {
 export function createCustomer(input: CustomerUpsertInput) {
   return requestJson<Customer>('/api/v1/customers', {
     method: 'POST',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
 
 export function updateCustomer(customerId: string, input: CustomerUpsertInput) {
   return requestJson<Customer>(`/api/v1/customers/${customerId}`, {
     method: 'PUT',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
