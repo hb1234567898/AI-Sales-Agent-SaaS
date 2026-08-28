@@ -54,6 +54,21 @@ current_link="$APP_ROOT/current"
 next_link="$APP_ROOT/current.next"
 previous_release=""
 
+cleanup_old_release() {
+  local old_release="$1"
+
+  if [[ ! -d "$old_release" ]]; then
+    return 0
+  fi
+
+  find "$old_release" -mindepth 1 \( -type f -o -type l \) ! -name 'usi.ini' ! -name '.user.ini' -delete || true
+  find "$old_release" -mindepth 1 -type d -empty -delete || true
+
+  if [[ -d "$old_release" ]]; then
+    echo "warning: old release cleanup left server-managed files in $old_release" >&2
+  fi
+}
+
 if [[ -L "$current_link" ]]; then
   previous_release="$(readlink -f "$current_link")"
   if [[ "$previous_release" != "$releases_dir/"* ]]; then
@@ -88,7 +103,7 @@ rm -f "$archive"
 mapfile -t old_releases < <(find "$releases_dir" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | tail -n "+$((MAX_RELEASES + 1))" | cut -d' ' -f2-)
 for old_release in "${old_releases[@]}"; do
   if [[ "$old_release" != "$previous_release" && "$old_release" != "$release_dir" ]]; then
-    rm -rf -- "$old_release"
+    cleanup_old_release "$old_release"
   fi
 done
 
