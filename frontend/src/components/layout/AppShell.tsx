@@ -4,7 +4,6 @@ import {
   CaretDown,
   ChartLineUp,
   CheckSquareOffset,
-  CirclesThreePlus,
   GearSix,
   House,
   List,
@@ -105,7 +104,7 @@ function Sidebar({
     <aside className={`app-sidebar${open ? ' is-open' : ''}`} aria-label="应用导航">
       <div className="sidebar-brand">
         <span className="brand-symbol" aria-hidden>
-          <CirclesThreePlus size={20} weight="fill" />
+          <img src="/favicon.svg" alt="" />
         </span>
         <div>
           <strong>Sales Agent</strong>
