@@ -24,21 +24,26 @@ export async function encryptPasswordIfAvailable(password: string): Promise<Pass
     throw new Error('服务器登录密码公钥配置不完整')
   }
 
-  const key = await globalThis.crypto.subtle.importKey(
-    'spki',
-    fromBase64(passwordKey.publicKey),
-    { name: 'RSA-OAEP', hash: 'SHA-256' },
-    false,
-    ['encrypt'],
-  )
-  const encrypted = await globalThis.crypto.subtle.encrypt(
-    { name: 'RSA-OAEP' },
-    key,
-    textEncoder.encode(password),
-  )
-  return {
-    passwordCiphertext: toBase64Url(new Uint8Array(encrypted)),
-    passwordKeyId: passwordKey.keyId,
+  try {
+    const key = await globalThis.crypto.subtle.importKey(
+      'spki',
+      fromBase64(passwordKey.publicKey),
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      false,
+      ['encrypt'],
+    )
+    const encrypted = await globalThis.crypto.subtle.encrypt(
+      { name: 'RSA-OAEP' },
+      key,
+      textEncoder.encode(password),
+    )
+    return {
+      passwordCiphertext: toBase64Url(new Uint8Array(encrypted)),
+      passwordKeyId: passwordKey.keyId,
+    }
+  } catch (error) {
+    publicKeyPromise = null
+    throw error
   }
 }
 
@@ -50,6 +55,10 @@ async function getPasswordKey() {
     publicKey: null,
   }))
   return publicKeyPromise
+}
+
+export function clearPasswordPublicKeyCache() {
+  publicKeyPromise = null
 }
 
 function fromBase64(value: string) {

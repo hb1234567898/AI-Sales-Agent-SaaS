@@ -39,6 +39,7 @@ export function LoginPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    loginMutation.reset()
     loginMutation.mutate({ email: email.trim(), password, rememberMe })
   }
 
