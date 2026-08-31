@@ -89,7 +89,7 @@ public class SecretCipher {
 		if (!StringUtils.hasText(properties.encryptionKey())) {
 			throw new SecretEncryptionException("服务器尚未配置 APP_ENCRYPTION_KEY");
 		}
-		return Base64.getDecoder().decode(properties.encryptionKey().strip());
+		return Base64KeyDecoder.decode(properties.encryptionKey());
 	}
 }
 

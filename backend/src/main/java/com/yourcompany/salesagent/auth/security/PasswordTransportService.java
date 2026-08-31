@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 import com.yourcompany.salesagent.auth.api.LoginRequest;
 import com.yourcompany.salesagent.auth.api.PasswordPublicKeyResponse;
 import com.yourcompany.salesagent.auth.application.AuthProperties;
+import com.yourcompany.salesagent.shared.security.Base64KeyDecoder;
 
 @Service
 public class PasswordTransportService {
@@ -43,7 +44,7 @@ public class PasswordTransportService {
 				true,
 				keyId(),
 				ALGORITHM,
-				cleanPemOrBase64(properties.passwordEncryptionPublicKey()));
+				Base64KeyDecoder.withPadding(cleanPemOrBase64(properties.passwordEncryptionPublicKey())));
 	}
 
 	public String resolvePassword(LoginRequest request) {
@@ -85,7 +86,7 @@ public class PasswordTransportService {
 	}
 
 	private PrivateKey privateKey() throws GeneralSecurityException {
-		var keySpec = new PKCS8EncodedKeySpec(Base64.getDecoder().decode(
+		var keySpec = new PKCS8EncodedKeySpec(Base64KeyDecoder.decode(
 				cleanPemOrBase64(properties.passwordEncryptionPrivateKey())));
 		return KeyFactory.getInstance("RSA").generatePrivate(keySpec);
 	}
