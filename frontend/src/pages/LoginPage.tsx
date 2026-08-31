@@ -49,6 +49,8 @@ export function LoginPage() {
 
   const errorMessage = loginMutation.error instanceof ApiError
     ? loginMutation.error.message
+    : loginMutation.error instanceof Error
+      ? loginMutation.error.message
     : loginMutation.isError
       ? '暂时无法连接登录服务，请稍后重试'
       : null

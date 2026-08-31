@@ -40,11 +40,16 @@ public class PasswordTransportService {
 		if (!isEnabled()) {
 			return new PasswordPublicKeyResponse(false, null, ALGORITHM, null);
 		}
-		return new PasswordPublicKeyResponse(
-				true,
-				keyId(),
-				ALGORITHM,
-				Base64KeyDecoder.withPadding(cleanPemOrBase64(properties.passwordEncryptionPublicKey())));
+		try {
+			return new PasswordPublicKeyResponse(
+					true,
+					keyId(),
+					ALGORITHM,
+					Base64.getEncoder().encodeToString(publicKeyBytes()));
+		}
+		catch (IllegalArgumentException exception) {
+			throw new PasswordTransportException("登录密码加密公钥配置无效", exception);
+		}
 	}
 
 	public String resolvePassword(LoginRequest request) {
@@ -86,18 +91,47 @@ public class PasswordTransportService {
 	}
 
 	private PrivateKey privateKey() throws GeneralSecurityException {
-		var keySpec = new PKCS8EncodedKeySpec(Base64KeyDecoder.decode(
-				cleanPemOrBase64(properties.passwordEncryptionPrivateKey())));
+		var keySpec = new PKCS8EncodedKeySpec(privateKeyBytes());
 		return KeyFactory.getInstance("RSA").generatePrivate(keySpec);
 	}
 
-	private static String cleanPemOrBase64(String value) {
-		return value.strip()
-				.replace("\\n", "\n")
-				.replace("-----BEGIN PUBLIC KEY-----", "")
-				.replace("-----END PUBLIC KEY-----", "")
-				.replace("-----BEGIN PRIVATE KEY-----", "")
-				.replace("-----END PRIVATE KEY-----", "")
+	private byte[] publicKeyBytes() {
+		return decodeConfiguredKey(
+				properties.passwordEncryptionPublicKey(),
+				"-----BEGIN PUBLIC KEY-----",
+				"-----END PUBLIC KEY-----");
+	}
+
+	private byte[] privateKeyBytes() {
+		return decodeConfiguredKey(
+				properties.passwordEncryptionPrivateKey(),
+				"-----BEGIN PRIVATE KEY-----",
+				"-----END PRIVATE KEY-----");
+	}
+
+	private static byte[] decodeConfiguredKey(String value, String beginMarker, String endMarker) {
+		var normalized = normalizeKeyText(value);
+		if (normalized.contains(beginMarker)) {
+			return Base64KeyDecoder.decode(stripPem(normalized, beginMarker, endMarker));
+		}
+
+		var decoded = Base64KeyDecoder.decode(normalized);
+		var decodedText = new String(decoded, StandardCharsets.UTF_8);
+		if (decodedText.contains(beginMarker)) {
+			return Base64KeyDecoder.decode(stripPem(decodedText, beginMarker, endMarker));
+		}
+		return decoded;
+	}
+
+	private static String stripPem(String value, String beginMarker, String endMarker) {
+		return normalizeKeyText(value)
+				.replace(beginMarker, "")
+				.replace(endMarker, "")
 				.replaceAll("\\s+", "");
+	}
+
+	private static String normalizeKeyText(String value) {
+		return value.strip()
+				.replace("\\n", "\n");
 	}
 }
