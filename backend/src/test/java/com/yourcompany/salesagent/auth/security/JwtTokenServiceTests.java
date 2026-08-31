@@ -74,7 +74,10 @@ class JwtTokenServiceTests {
 						Duration.ofHours(12),
 						Duration.ofDays(30),
 						"ai-sales-agent",
-						SIGNING_KEY),
+						SIGNING_KEY,
+						"",
+						"",
+						""),
 				new ObjectMapper(),
 				Clock.fixed(now, ZoneOffset.UTC));
 	}

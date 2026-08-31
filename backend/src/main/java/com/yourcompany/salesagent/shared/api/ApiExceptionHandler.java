@@ -19,6 +19,7 @@ import com.yourcompany.salesagent.auth.application.InvalidCredentialsException;
 import com.yourcompany.salesagent.auth.application.InvalidRefreshTokenException;
 import com.yourcompany.salesagent.auth.application.LoginLockedException;
 import com.yourcompany.salesagent.auth.security.JwtConfigurationException;
+import com.yourcompany.salesagent.auth.security.PasswordTransportException;
 import com.yourcompany.salesagent.shared.security.SecretEncryptionException;
 import com.yourcompany.salesagent.admin.application.AdminResourceNotFoundException;
 import com.yourcompany.salesagent.admin.application.AdminValidationException;
@@ -66,6 +67,11 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(JwtConfigurationException.class)
 	ProblemDetail handleJwtConfiguration(JwtConfigurationException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+	}
+
+	@ExceptionHandler(PasswordTransportException.class)
+	ProblemDetail handlePasswordTransport(PasswordTransportException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
 	}
 
 	@ExceptionHandler(AiModelConfigurationException.class)

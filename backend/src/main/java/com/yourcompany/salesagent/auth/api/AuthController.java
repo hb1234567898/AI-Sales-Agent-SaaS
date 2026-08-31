@@ -14,22 +14,30 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.yourcompany.salesagent.auth.application.AuthService;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.auth.security.PasswordTransportService;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
 	private final AuthService authService;
+	private final PasswordTransportService passwordTransportService;
 
-	public AuthController(AuthService authService) {
+	public AuthController(AuthService authService, PasswordTransportService passwordTransportService) {
 		this.authService = authService;
+		this.passwordTransportService = passwordTransportService;
+	}
+
+	@GetMapping("/password-key")
+	PasswordPublicKeyResponse passwordKey() {
+		return passwordTransportService.publicKey();
 	}
 
 	@PostMapping("/login")
 	AuthTokenResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
 		var result = authService.login(
 				request.email(),
-				request.password(),
+				passwordTransportService.resolvePassword(request),
 				request.rememberMe(),
 				servletRequest.getHeader(HttpHeaders.USER_AGENT),
 				servletRequest.getRemoteAddr());

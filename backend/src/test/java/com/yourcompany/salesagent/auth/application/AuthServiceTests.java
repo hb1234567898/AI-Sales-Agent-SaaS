@@ -160,7 +160,10 @@ class AuthServiceTests {
 						Duration.ofHours(12),
 						Duration.ofDays(30),
 						"ai-sales-agent",
-						"unused-in-mocked-service"),
+						"unused-in-mocked-service",
+						"",
+						"",
+						""),
 				ORGANIZATION_ID);
 	}
 
