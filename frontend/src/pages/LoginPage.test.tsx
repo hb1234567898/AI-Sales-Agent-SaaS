@@ -5,10 +5,12 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoginPage } from './LoginPage'
 import { fetchRequestJson, fetchRequestMethod, fetchRequestUrl } from '../test/fetch-request'
+import { clearPasswordPublicKeyCache } from '../auth/password-transport'
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  clearPasswordPublicKeyCache()
   localStorage.clear()
   sessionStorage.clear()
 })
@@ -105,6 +107,70 @@ describe('LoginPage', () => {
       refreshToken: 'refresh.jwt',
       refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
     })
+  })
+
+  it('登录加密失败后可以再次点击并重新获取公钥', async () => {
+    const publicKey = await generatePublicKeyForTest()
+    let passwordKeyRequests = 0
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (fetchRequestUrl(input).endsWith('/auth/password-key') && fetchRequestMethod(input, init) === 'GET') {
+        passwordKeyRequests += 1
+        return new Response(JSON.stringify({
+          enabled: true,
+          keyId: 'login-key-1',
+          algorithm: 'RSA-OAEP-256',
+          publicKey: passwordKeyRequests === 1 ? btoa('-----BEGIN PUBLIC KEY-----\ninvalid\n-----END PUBLIC KEY-----') : publicKey,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (fetchRequestUrl(input).endsWith('/auth/login') && fetchRequestMethod(input, init) === 'POST') {
+        return new Response(JSON.stringify({
+          tokenType: 'Bearer',
+          accessToken: 'access.jwt',
+          accessTokenExpiresAt: '2026-08-26T02:15:00Z',
+          refreshToken: 'refresh.jwt',
+          refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+          session: {
+            userId: '10000000-0000-0000-0000-000000000001',
+            memberId: '20000000-0000-0000-0000-000000000001',
+            organizationId: '00000000-0000-0000-0000-000000000001',
+            email: 'chen.mo@demo.local',
+            displayName: '陈默',
+            organizationName: '演示销售团队',
+            role: 'SALES',
+            expiresAt: '2026-09-25T02:00:00Z',
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(null, { status: 404 })
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const user = userEvent.setup()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/login']}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/app/today" element={<h1>今日工作台</h1>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    await user.type(screen.getByLabelText('邮箱'), 'chen.mo@demo.local')
+    await user.type(screen.getByLabelText('密码'), 'Demo@123456')
+    await user.click(screen.getByRole('button', { name: '登录' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '登录' }))
+
+    expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
+    expect(passwordKeyRequests).toBe(2)
+    expect(fetchMock.mock.calls.filter(([input, init]) => (
+      fetchRequestUrl(input).endsWith('/api/v1/auth/login')
+      && fetchRequestMethod(input, init) === 'POST'
+    ))).toHaveLength(1)
   })
 })
 
