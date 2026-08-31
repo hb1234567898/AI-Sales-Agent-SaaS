@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoginPage } from './LoginPage'
-import { fetchRequestMethod, fetchRequestUrl } from '../test/fetch-request'
+import { fetchRequestJson, fetchRequestMethod, fetchRequestUrl } from '../test/fetch-request'
 
 afterEach(() => {
   cleanup()
@@ -36,8 +36,19 @@ describe('LoginPage', () => {
   })
 
   it('登录成功后进入原本请求的工作台页面', async () => {
+    const publicKey = await generatePublicKeyForTest()
+    let loginBody: Record<string, unknown> = {}
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (fetchRequestUrl(input).endsWith('/auth/password-key') && fetchRequestMethod(input, init) === 'GET') {
+        return new Response(JSON.stringify({
+          enabled: true,
+          keyId: 'login-key-1',
+          algorithm: 'RSA-OAEP-256',
+          publicKey,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
       if (fetchRequestUrl(input).endsWith('/auth/login') && fetchRequestMethod(input, init) === 'POST') {
+        loginBody = await fetchRequestJson(input, init)
         return new Response(JSON.stringify({
           tokenType: 'Bearer',
           accessToken: 'access.jwt',
@@ -81,6 +92,13 @@ describe('LoginPage', () => {
       fetchRequestUrl(input).endsWith('/api/v1/auth/login')
       && fetchRequestMethod(input, init) === 'POST'
     ))).toBe(true)
+    expect(loginBody).toMatchObject({
+      email: 'chen.mo@demo.local',
+      rememberMe: true,
+      passwordKeyId: 'login-key-1',
+    })
+    expect(loginBody.password).toBeUndefined()
+    expect(typeof loginBody.passwordCiphertext).toBe('string')
     expect(JSON.parse(localStorage.getItem('sales-agent:auth-tokens') ?? '{}')).toEqual({
       accessToken: 'access.jwt',
       accessTokenExpiresAt: '2026-08-26T02:15:00Z',
@@ -89,3 +107,18 @@ describe('LoginPage', () => {
     })
   })
 })
+
+async function generatePublicKeyForTest() {
+  const keyPair = await globalThis.crypto.subtle.generateKey(
+    {
+      name: 'RSA-OAEP',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['encrypt', 'decrypt'],
+  )
+  const spki = await globalThis.crypto.subtle.exportKey('spki', keyPair.publicKey)
+  return btoa(String.fromCharCode(...new Uint8Array(spki)))
+}
