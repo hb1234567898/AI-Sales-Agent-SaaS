@@ -104,7 +104,7 @@ function Sidebar({
     <aside className={`app-sidebar${open ? ' is-open' : ''}`} aria-label="应用导航">
       <div className="sidebar-brand">
         <span className="brand-symbol" aria-hidden>
-          <img src="/favicon.svg" alt="" />
+          <img src="/brand-logo.png" alt="" />
         </span>
         <div>
           <strong>Sales Agent</strong>
