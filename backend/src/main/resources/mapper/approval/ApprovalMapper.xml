@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.approval.infrastructure.ApprovalMapper">
+
+    <resultMap id="ApprovalMap" type="com.yourcompany.salesagent.approval.infrastructure.ApprovalRow" autoMapping="true">
+        <id property="id" column="approval_id" />
+        <result property="actionRequestId" column="action_request_id" />
+        <result property="runId" column="run_id" />
+        <result property="customerId" column="customer_id" />
+        <result property="customerName" column="customer_name" />
+        <result property="actionType" column="action_type" />
+        <result property="riskLevel" column="risk_level" />
+        <result property="preview" column="preview" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+        <result property="requestedAt" column="requested_at" />
+        <result property="expiresAt" column="expires_at" />
+    </resultMap>
+
+    <sql id="ApprovalSelect">
+        SELECT a.id AS approval_id,
+               a.action_request_id,
+               a.status,
+               a.version,
+               a.requested_at,
+               a.expires_at,
+               ar.run_id,
+               ar.customer_id,
+               ar.action_type,
+               ar.risk_level,
+               ar.reason,
+               ar.preview,
+               c.name AS customer_name,
+               coalesce(u.email::text, 'Agent') AS requester
+        FROM approval a
+        JOIN action_request ar
+          ON ar.organization_id = a.organization_id
+         AND ar.id = a.action_request_id
+        JOIN customer c
+          ON c.organization_id = ar.organization_id
+         AND c.id = ar.customer_id
+        LEFT JOIN organization_member m
+          ON m.organization_id = a.organization_id
+         AND m.id = a.requested_by_member_id
+        LEFT JOIN app_user u ON u.id = m.user_id
+    </sql>
+
+    <select id="selectApprovals" resultMap="ApprovalMap">
+        <include refid="ApprovalSelect" />
+        WHERE a.organization_id = #{organizationId}
+        <if test="status != null and status != ''">
+          AND a.status = #{status}
+        </if>
+        ORDER BY a.requested_at DESC, a.id DESC
+    </select>
+
+    <select id="selectApproval" resultMap="ApprovalMap">
+        <include refid="ApprovalSelect" />
+        WHERE a.organization_id = #{organizationId}
+          AND a.id = #{approvalId}
+        LIMIT 1
+    </select>
+
+    <update id="updateDecision">
+        UPDATE approval
+        SET status = #{status},
+            decided_by_member_id = #{deciderMemberId},
+            decision_comment = #{comment},
+            decided_at = #{now},
+            updated_at = #{now},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{approvalId}
+          AND status = 'PENDING'
+        <if test="expectedVersion != null">
+          AND version = #{expectedVersion}
+        </if>
+    </update>
+
+    <insert id="insertFollowUpFromApprovedAction">
+        INSERT INTO follow_up (
+            organization_id,
+            customer_id,
+            owner_member_id,
+            agent_config_id,
+            source_run_id,
+            origin,
+            status,
+            due_at,
+            priority,
+            ai_score,
+            score_version,
+            score_breakdown,
+            intent_level,
+            risk_level,
+            reason,
+            recommended_action_type,
+            recommended_action,
+            evidence,
+            created_at,
+            updated_at
+        )
+        SELECT ar.organization_id,
+               ar.customer_id,
+               nullif(ar.payload -&gt;&gt; 'ownerMemberId', '')::uuid,
+               run.agent_config_id,
+               ar.run_id,
+               'AI',
+               'OPEN',
+               (ar.payload -&gt;&gt; 'dueAt')::timestamptz,
+               (ar.payload -&gt;&gt; 'priority')::smallint,
+               (ar.payload -&gt;&gt; 'aiScore')::smallint,
+               coalesce(ar.payload -&gt;&gt; 'scoreVersion', 'sales-follow-up-v1'),
+               jsonb_build_object('source', 'minimal-agent-workflow'),
+               nullif(ar.payload -&gt;&gt; 'intentLevel', ''),
+               nullif(ar.payload -&gt;&gt; 'riskLevel', ''),
+               coalesce(nullif(ar.payload -&gt;&gt; 'reason', ''), ar.reason),
+               coalesce(nullif(ar.payload -&gt;&gt; 'recommendedActionType', ''), 'ADD_NOTE'),
+               coalesce(ar.payload -&gt; 'recommendedAction', '{}'::jsonb),
+               coalesce(ar.payload -&gt; 'evidence', '[]'::jsonb),
+               #{now},
+               #{now}
+        FROM action_request ar
+        JOIN agent_run run
+          ON run.organization_id = ar.organization_id
+         AND run.id = ar.run_id
+        WHERE ar.organization_id = #{organizationId}
+          AND ar.id = #{actionRequestId}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM follow_up existing
+            WHERE existing.organization_id = ar.organization_id
+              AND existing.customer_id = ar.customer_id
+              AND existing.origin = 'AI'
+              AND existing.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
+          )
+    </insert>
+
+    <update id="markActionSucceeded">
+        UPDATE action_request
+        SET status = 'SUCCEEDED',
+            approved_at = coalesce(approved_at, #{now}),
+            completed_at = #{now},
+            updated_at = #{now},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{actionRequestId}
+    </update>
+
+    <update id="markActionRejected">
+        UPDATE action_request
+        SET status = 'REJECTED',
+            completed_at = #{now},
+            updated_at = #{now},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{actionRequestId}
+    </update>
+</mapper>

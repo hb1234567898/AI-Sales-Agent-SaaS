@@ -145,6 +145,15 @@ public class AuditLogAspect {
 		if (path.startsWith("/api/v1/admin/team")) {
 			return new Target("TEAM", principal.organizationId().toString());
 		}
+		if (path.startsWith("/api/v1/agent-runs")) {
+			return new Target("AGENT_RUN", firstNonBlank(variables.get("runId"), returnedId, "N/A"));
+		}
+		if (path.startsWith("/api/v1/approvals")) {
+			return new Target("APPROVAL", firstNonBlank(variables.get("approvalId"), returnedId, "N/A"));
+		}
+		if (path.startsWith("/api/v1/follow-ups")) {
+			return new Target("FOLLOW_UP", firstNonBlank(variables.get("followUpId"), returnedId, "N/A"));
+		}
 		if (path.startsWith("/api/v1/ai/model/test")) {
 			return new Target("AI_MODEL_TEST", principal.organizationId().toString());
 		}
