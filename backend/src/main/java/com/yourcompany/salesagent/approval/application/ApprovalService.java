@@ -41,8 +41,10 @@ public class ApprovalService {
 	public ApprovalResponse approve(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
 		decide(principal, approvalId, request, "APPROVED");
 		var approval = requireApproval(approvalId);
-		mapper.insertFollowUpFromApprovedAction(organizationId, approval.actionRequestId(), clock.instant());
-		mapper.markActionSucceeded(organizationId, approval.actionRequestId(), clock.instant());
+		var now = clock.instant();
+		mapper.insertFollowUpFromApprovedAction(organizationId, approval.actionRequestId(), now);
+		mapper.markActionSucceeded(organizationId, approval.actionRequestId(), now);
+		mapper.refreshRunApprovalState(organizationId, approval.runId(), now);
 		return requireApproval(approvalId);
 	}
 
@@ -50,7 +52,9 @@ public class ApprovalService {
 	public ApprovalResponse reject(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
 		decide(principal, approvalId, request, "REJECTED");
 		var approval = requireApproval(approvalId);
-		mapper.markActionRejected(organizationId, approval.actionRequestId(), clock.instant());
+		var now = clock.instant();
+		mapper.markActionRejected(organizationId, approval.actionRequestId(), now);
+		mapper.refreshRunApprovalState(organizationId, approval.runId(), now);
 		return requireApproval(approvalId);
 	}
 
