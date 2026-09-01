@@ -31,4 +31,6 @@ public interface ApprovalMapper {
 	int markActionSucceeded(@Param("organizationId") UUID organizationId, @Param("actionRequestId") UUID actionRequestId, @Param("now") Instant now);
 
 	int markActionRejected(@Param("organizationId") UUID organizationId, @Param("actionRequestId") UUID actionRequestId, @Param("now") Instant now);
+
+	int refreshRunApprovalState(@Param("organizationId") UUID organizationId, @Param("runId") UUID runId, @Param("now") Instant now);
 }

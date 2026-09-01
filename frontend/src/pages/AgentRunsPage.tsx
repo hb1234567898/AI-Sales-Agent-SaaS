@@ -1,14 +1,21 @@
 import { ArrowClockwise, CheckCircle, Clock, Robot, WarningCircle } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { createAgentRun, getAgentRuns, getAgentRunSteps, type AgentRun } from '../api/agent-runs-api'
+import { createAgentRun, getAgentRuns, getAgentRunSteps, type AgentRun, type AgentRunPage } from '../api/agent-runs-api'
 import { useIsGuest } from '../auth/use-auth'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 
 export function AgentRunsPage() {
   const isGuest = useIsGuest()
   const queryClient = useQueryClient()
-  const runsQuery = useQuery({ queryKey: ['agent-runs'], queryFn: getAgentRuns })
+  const runsQuery = useQuery({
+    queryKey: ['agent-runs'],
+    queryFn: getAgentRuns,
+    refetchInterval: (query) => {
+      const runs = (query.state.data as AgentRunPage | undefined)?.content ?? []
+      return runs.some((run) => run.status === 'RUNNING' || run.status === 'WAITING_APPROVAL') ? 3000 : false
+    },
+  })
   const runs = useMemo(() => runsQuery.data?.content ?? [], [runsQuery.data])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selectedRun = runs.find((run) => run.id === selectedId) ?? runs[0]
@@ -16,6 +23,7 @@ export function AgentRunsPage() {
     queryKey: ['agent-run-steps', selectedRun?.id],
     queryFn: () => getAgentRunSteps(selectedRun.id),
     enabled: Boolean(selectedRun?.id),
+    refetchInterval: selectedRun?.status === 'RUNNING' ? 3000 : false,
   })
   const createMutation = useMutation({
     mutationFn: createAgentRun,
