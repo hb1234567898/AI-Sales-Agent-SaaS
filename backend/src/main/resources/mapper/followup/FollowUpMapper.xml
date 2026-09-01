@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.followup.infrastructure.FollowUpMapper">
+
+    <resultMap id="FollowUpMap" type="com.yourcompany.salesagent.followup.infrastructure.FollowUpRow" autoMapping="true">
+        <id property="id" column="follow_up_id" />
+        <result property="customerId" column="customer_id" />
+        <result property="customerName" column="customer_name" />
+        <result property="ownerMemberId" column="owner_member_id" />
+        <result property="ownerName" column="owner_name" />
+        <result property="dueAt" column="due_at" />
+        <result property="intentLevel" column="intent_level" />
+        <result property="riskLevel" column="risk_level" />
+        <result property="recommendedActionType" column="recommended_action_type" />
+        <result property="recommendedAction" column="recommended_action" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+    </resultMap>
+
+    <sql id="FollowUpSelect">
+        SELECT f.id AS follow_up_id,
+               f.customer_id,
+               c.name AS customer_name,
+               f.owner_member_id,
+               owner.display_name AS owner_name,
+               f.status,
+               f.due_at,
+               f.priority,
+               f.intent_level,
+               f.risk_level,
+               f.reason,
+               f.recommended_action_type,
+               f.recommended_action
+        FROM follow_up f
+        JOIN customer c
+          ON c.organization_id = f.organization_id
+         AND c.id = f.customer_id
+        LEFT JOIN organization_member member
+          ON member.organization_id = f.organization_id
+         AND member.id = f.owner_member_id
+        LEFT JOIN app_user owner ON owner.id = member.user_id
+    </sql>
+
+    <select id="selectFollowUps" resultMap="FollowUpMap">
+        <include refid="FollowUpSelect" />
+        WHERE f.organization_id = #{organizationId}
+          AND f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
+          AND c.deleted_at IS NULL
+        <if test="filter == 'TODAY'">
+          AND f.due_at &lt; #{now} + interval '1 day'
+        </if>
+        <if test="filter == 'OVERDUE'">
+          AND f.due_at &lt; #{now}
+        </if>
+        ORDER BY f.due_at ASC, f.priority DESC, f.id
+    </select>
+
+    <select id="selectFollowUp" resultMap="FollowUpMap">
+        <include refid="FollowUpSelect" />
+        WHERE f.organization_id = #{organizationId}
+          AND f.id = #{followUpId}
+        LIMIT 1
+    </select>
+
+    <update id="completeFollowUp">
+        UPDATE follow_up
+        SET status = 'COMPLETED',
+            completed_at = #{now},
+            updated_at = #{now},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{followUpId}
+          AND status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
+          AND (owner_member_id IS NULL OR owner_member_id = #{memberId})
+    </update>
+</mapper>

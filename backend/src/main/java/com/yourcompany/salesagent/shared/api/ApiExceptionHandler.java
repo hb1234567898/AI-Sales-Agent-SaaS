@@ -23,6 +23,9 @@ import com.yourcompany.salesagent.auth.security.PasswordTransportException;
 import com.yourcompany.salesagent.shared.security.SecretEncryptionException;
 import com.yourcompany.salesagent.admin.application.AdminResourceNotFoundException;
 import com.yourcompany.salesagent.admin.application.AdminValidationException;
+import com.yourcompany.salesagent.agent.application.AgentWorkflowException;
+import com.yourcompany.salesagent.approval.application.ApprovalWorkflowException;
+import com.yourcompany.salesagent.followup.application.FollowUpWorkflowException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -34,6 +37,15 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(AdminValidationException.class)
 	ProblemDetail handleAdminValidation(AdminValidationException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler({
+			AgentWorkflowException.class,
+			ApprovalWorkflowException.class,
+			FollowUpWorkflowException.class
+	})
+	ProblemDetail handleWorkflow(RuntimeException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
 	}
 

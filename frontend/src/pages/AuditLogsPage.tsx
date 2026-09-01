@@ -23,6 +23,9 @@ const targetOptions = [
   { value: 'AI_MODEL_TEST', label: '模型连接测试' },
   { value: 'TEAM_MEMBER', label: '成员管理' },
   { value: 'TEAM', label: '团队管理' },
+  { value: 'AGENT_RUN', label: 'Agent 运行' },
+  { value: 'APPROVAL', label: '审批' },
+  { value: 'FOLLOW_UP', label: '跟进任务' },
   { value: 'AUTH_SESSION', label: '登录会话' },
   { value: 'API', label: '其他接口' },
 ]
@@ -49,6 +52,9 @@ const targetLabels: Record<string, string> = {
   AI_MODEL_TEST: '模型连接测试',
   TEAM_MEMBER: '成员管理',
   TEAM: '团队管理',
+  AGENT_RUN: 'Agent 运行',
+  APPROVAL: '审批',
+  FOLLOW_UP: '跟进任务',
   AUTH_SESSION: '登录会话',
   API: '其他接口',
 }
@@ -212,6 +218,9 @@ function auditRoute(event: AuditEvent) {
 function inferTargetTypeFromRoute(route: string) {
   if (route.startsWith('/api/v1/admin/members')) return 'TEAM_MEMBER'
   if (route.startsWith('/api/v1/admin/team')) return 'TEAM'
+  if (route.startsWith('/api/v1/agent-runs')) return 'AGENT_RUN'
+  if (route.startsWith('/api/v1/approvals')) return 'APPROVAL'
+  if (route.startsWith('/api/v1/follow-ups')) return 'FOLLOW_UP'
   if (route.startsWith('/api/v1/ai/model/test')) return 'AI_MODEL_TEST'
   if (route.startsWith('/api/v1/ai/model')) return 'AI_MODEL'
   if (route === '/api/v1/auth/logout') return 'AUTH_SESSION'

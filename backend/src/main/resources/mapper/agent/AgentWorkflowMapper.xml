@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.agent.infrastructure.AgentWorkflowMapper">
+
+    <resultMap id="AgentRunMap" type="com.yourcompany.salesagent.agent.infrastructure.AgentRunRow" autoMapping="true">
+        <id property="id" column="id" />
+        <result property="businessDate" column="business_date" />
+        <result property="triggerType" column="trigger_type" />
+        <result property="totalCandidates" column="total_candidates" />
+        <result property="processedCount" column="processed_count" />
+        <result property="succeededCount" column="succeeded_count" />
+        <result property="skippedCount" column="skipped_count" />
+        <result property="failedCount" column="failed_count" />
+        <result property="pendingApprovalCount" column="pending_approval_count" />
+        <result property="errorMessage" column="error_message" />
+        <result property="queuedAt" column="queued_at" />
+        <result property="startedAt" column="started_at" />
+        <result property="completedAt" column="completed_at" />
+        <result property="createdAt" column="created_at" />
+        <result property="scope" column="scope" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+        <result property="outputSummary" column="output_summary" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+    </resultMap>
+
+    <resultMap id="AgentStepMap" type="com.yourcompany.salesagent.agent.infrastructure.AgentStepRow" autoMapping="true">
+        <id property="id" column="id" />
+        <result property="customerId" column="customer_id" />
+        <result property="sequenceNo" column="sequence_no" />
+        <result property="stepType" column="step_type" />
+        <result property="inputSnapshot" column="input_snapshot" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+        <result property="outputSnapshot" column="output_snapshot" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+        <result property="errorMessage" column="error_message" />
+        <result property="startedAt" column="started_at" />
+        <result property="completedAt" column="completed_at" />
+        <result property="durationMs" column="duration_ms" />
+    </resultMap>
+
+    <insert id="insertDefaultConfigIfAbsent">
+        INSERT INTO agent_config (
+            organization_id,
+            agent_type,
+            name,
+            enabled,
+            model_profile,
+            prompt_version,
+            schema_version,
+            config,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            #{organizationId},
+            'SALES_FOLLOW_UP',
+            '客户跟进建议 Agent',
+            true,
+            'default',
+            'sales-follow-up-v1',
+            'sales-follow-up-v1',
+            '{"recentDays":30,"maxCustomers":5}'::jsonb,
+            #{now},
+            #{now}
+        )
+        ON CONFLICT (organization_id, agent_type, name) DO NOTHING
+    </insert>
+
+    <select id="selectDefaultConfigId" resultType="java.util.UUID">
+        SELECT id
+        FROM agent_config
+        WHERE organization_id = #{organizationId}
+          AND agent_type = 'SALES_FOLLOW_UP'
+        ORDER BY created_at
+        LIMIT 1
+    </select>
+
+    <insert id="insertRun">
+        INSERT INTO agent_run (
+            id,
+            organization_id,
+            agent_config_id,
+            initiated_by_member_id,
+            trigger_type,
+            status,
+            business_date,
+            deduplication_key,
+            scope,
+            input_snapshot,
+            queued_at,
+            started_at,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            #{id},
+            #{organizationId},
+            #{agentConfigId},
+            #{initiatedByMemberId},
+            #{triggerType},
+            #{status},
+            #{businessDate},
+            #{deduplicationKey},
+            #{scope,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            #{inputSnapshot,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            #{queuedAt},
+            #{startedAt},
+            #{startedAt},
+            #{startedAt}
+        )
+    </insert>
+
+    <insert id="insertStep">
+        INSERT INTO agent_step (
+            id,
+            organization_id,
+            run_id,
+            customer_id,
+            sequence_no,
+            step_type,
+            name,
+            status,
+            input_snapshot,
+            output_snapshot,
+            error_message,
+            started_at,
+            completed_at,
+            duration_ms,
+            created_at
+        )
+        VALUES (
+            #{id},
+            #{organizationId},
+            #{runId},
+            #{customerId},
+            #{sequenceNo},
+            #{stepType},
+            #{name},
+            #{status},
+            #{inputSnapshot,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            #{outputSnapshot,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            #{errorMessage},
+            #{startedAt},
+            #{completedAt},
+            #{durationMs},
+            #{startedAt}
+        )
+    </insert>
+
+    <update id="completeRun">
+        UPDATE agent_run
+        SET status = #{status},
+            total_candidates = #{totalCandidates},
+            processed_count = #{processedCount},
+            succeeded_count = #{succeededCount},
+            skipped_count = #{skippedCount},
+            failed_count = #{failedCount},
+            pending_approval_count = #{pendingApprovalCount},
+            output_summary = #{outputSummary,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            error_message = #{errorMessage},
+            completed_at = CASE WHEN #{status} IN ('COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED') THEN #{completedAt} ELSE NULL END,
+            updated_at = #{completedAt},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{id}
+    </update>
+
+    <select id="selectCandidates" resultType="com.yourcompany.salesagent.agent.infrastructure.AgentCandidateRow">
+        SELECT c.id AS customer_id,
+               c.name AS customer_name,
+               c.owner_member_id,
+               latest_interaction.id AS interaction_id,
+               latest_interaction.occurred_at AS interaction_at,
+               latest_interaction.body_preview AS interaction_preview
+        FROM customer c
+        JOIN LATERAL (
+            SELECT i.id,
+                   i.occurred_at,
+                   i.body_preview
+            FROM interaction i
+            WHERE i.organization_id = c.organization_id
+              AND i.customer_id = c.id
+              AND i.type = 'CHAT_IMPORT'
+              AND i.occurred_at &gt;= #{since}
+            ORDER BY i.occurred_at DESC, i.created_at DESC
+            LIMIT 1
+        ) latest_interaction ON true
+        WHERE c.organization_id = #{organizationId}
+          AND c.deleted_at IS NULL
+        <if test="customerIds != null and customerIds.size() > 0">
+          AND c.id IN
+          <foreach collection="customerIds" item="customerId" open="(" separator="," close=")">
+            #{customerId}
+          </foreach>
+        </if>
+          AND NOT EXISTS (
+            SELECT 1
+            FROM approval a
+            JOIN action_request ar
+              ON ar.organization_id = a.organization_id
+             AND ar.id = a.action_request_id
+            WHERE a.organization_id = c.organization_id
+              AND ar.customer_id = c.id
+              AND a.status = 'PENDING'
+              AND ar.status = 'AWAITING_APPROVAL'
+          )
+        ORDER BY latest_interaction.occurred_at DESC, c.updated_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectRuns" resultMap="AgentRunMap">
+        SELECT run.id,
+               config.name,
+               run.trigger_type,
+               run.status,
+               run.business_date,
+               run.scope,
+               run.output_summary,
+               run.total_candidates,
+               run.processed_count,
+               run.succeeded_count,
+               run.skipped_count,
+               run.failed_count,
+               run.pending_approval_count,
+               run.error_message,
+               run.queued_at,
+               run.started_at,
+               run.completed_at,
+               run.created_at
+        FROM agent_run run
+        JOIN agent_config config
+          ON config.organization_id = run.organization_id
+         AND config.id = run.agent_config_id
+        WHERE run.organization_id = #{organizationId}
+        ORDER BY run.created_at DESC, run.id DESC
+    </select>
+
+    <select id="selectRun" resultMap="AgentRunMap">
+        SELECT run.id,
+               config.name,
+               run.trigger_type,
+               run.status,
+               run.business_date,
+               run.scope,
+               run.output_summary,
+               run.total_candidates,
+               run.processed_count,
+               run.succeeded_count,
+               run.skipped_count,
+               run.failed_count,
+               run.pending_approval_count,
+               run.error_message,
+               run.queued_at,
+               run.started_at,
+               run.completed_at,
+               run.created_at
+        FROM agent_run run
+        JOIN agent_config config
+          ON config.organization_id = run.organization_id
+         AND config.id = run.agent_config_id
+        WHERE run.organization_id = #{organizationId}
+          AND run.id = #{runId}
+        LIMIT 1
+    </select>
+
+    <select id="selectSteps" resultMap="AgentStepMap">
+        SELECT id,
+               customer_id,
+               sequence_no,
+               step_type,
+               name,
+               status,
+               input_snapshot,
+               output_snapshot,
+               error_message,
+               started_at,
+               completed_at,
+               duration_ms
+        FROM agent_step
+        WHERE organization_id = #{organizationId}
+          AND run_id = #{runId}
+        ORDER BY sequence_no
+    </select>
+
+    <insert id="insertActionRequest">
+        INSERT INTO action_request (
+            id,
+            organization_id,
+            run_id,
+            step_id,
+            customer_id,
+            requested_by_member_id,
+            action_type,
+            risk_level,
+            status,
+            tool_name,
+            tool_version,
+            reason,
+            payload,
+            payload_hash,
+            preview,
+            requires_approval,
+            policy_decision,
+            policy_snapshot,
+            idempotency_key,
+            expires_at
+        )
+        VALUES (
+            #{id},
+            #{organizationId},
+            #{runId},
+            #{stepId},
+            #{customerId},
+            #{requestedByMemberId},
+            #{actionType},
+            #{riskLevel},
+            #{status},
+            'internal.follow_up.create',
+            'v1',
+            #{reason},
+            #{payload,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            #{payloadHash},
+            #{preview,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            true,
+            'REQUIRE_APPROVAL',
+            '{"policy":"manual-review-for-ai-follow-up"}'::jsonb,
+            #{idempotencyKey},
+            #{expiresAt}
+        )
+    </insert>
+
+    <insert id="insertApproval">
+        INSERT INTO approval (
+            id,
+            organization_id,
+            action_request_id,
+            requested_by_member_id,
+            status,
+            request_reason,
+            content_hash,
+            requested_at,
+            expires_at
+        )
+        VALUES (
+            #{id},
+            #{organizationId},
+            #{actionRequestId},
+            #{requestedByMemberId},
+            'PENDING',
+            #{requestReason},
+            #{contentHash},
+            #{requestedAt},
+            #{expiresAt}
+        )
+    </insert>
+</mapper>
