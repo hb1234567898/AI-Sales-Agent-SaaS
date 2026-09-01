@@ -17,7 +17,12 @@ const targetOptions = [
   { value: '', label: '全部资源' },
   { value: 'CUSTOMER', label: '客户' },
   { value: 'INTERACTION', label: '互动记录' },
+  { value: 'CHAT_IMPORT', label: '聊天导入' },
+  { value: 'CHAT_ANALYSIS', label: '聊天分析' },
   { value: 'AI_MODEL', label: 'AI 模型配置' },
+  { value: 'AI_MODEL_TEST', label: '模型连接测试' },
+  { value: 'TEAM_MEMBER', label: '成员管理' },
+  { value: 'TEAM', label: '团队管理' },
   { value: 'AUTH_SESSION', label: '登录会话' },
   { value: 'API', label: '其他接口' },
 ]
@@ -38,7 +43,12 @@ const resultLabels = {
 const targetLabels: Record<string, string> = {
   CUSTOMER: '客户',
   INTERACTION: '互动记录',
+  CHAT_IMPORT: '聊天导入',
+  CHAT_ANALYSIS: '聊天分析',
   AI_MODEL: 'AI 模型配置',
+  AI_MODEL_TEST: '模型连接测试',
+  TEAM_MEMBER: '成员管理',
+  TEAM: '团队管理',
   AUTH_SESSION: '登录会话',
   API: '其他接口',
 }
@@ -128,16 +138,17 @@ function AuditRow({ event }: { event: AuditEvent }) {
   const duration = typeof event.metadata.durationMs === 'number' ? `${event.metadata.durationMs} ms` : '-'
   const route = typeof event.metadata.routePattern === 'string' ? event.metadata.routePattern : event.metadata.path
   const status = typeof event.metadata.status === 'number' ? event.metadata.status : null
+  const resource = resourceLabel(event)
 
   return (
     <tr>
       <td>
-        <strong>{actionLabel(event.action)}</strong>
+        <strong>{actionLabel(event)}</strong>
         <small>{typeof route === 'string' ? route : event.action}</small>
       </td>
       <td>
-        <span>{targetLabels[event.targetType] ?? event.targetType}</span>
-        <small title={event.targetId}>{shortId(event.targetId)}</small>
+        <span>{resource.label}</span>
+        <small title={resource.detail}>{resource.detail}</small>
       </td>
       <td>
         <span>{event.actorIdentifier ?? '未知用户'}</span>
@@ -168,12 +179,48 @@ function AuditState({ text, tone }: { text: string; tone?: 'error' }) {
   )
 }
 
-function actionLabel(action: string) {
+function actionLabel(event: AuditEvent) {
+  const route = auditRoute(event)
+  if (route.endsWith('/chat-import')) return '导入聊天'
+  if (route.endsWith('/analysis')) return 'AI 分析'
+  if (route.includes('/analysis/') && route.endsWith('/apply')) return '确认分析'
+  if (route.endsWith('/ai/model/test')) return '测试连接'
+
+  const action = event.action
   if (action === 'HTTP_POST') return '新增 / 执行'
   if (action === 'HTTP_PUT') return '修改'
   if (action === 'HTTP_PATCH') return '局部修改'
   if (action === 'HTTP_DELETE') return '删除'
   return action
+}
+
+function resourceLabel(event: AuditEvent) {
+  const inferredType = event.targetType === 'API' ? inferTargetTypeFromRoute(auditRoute(event)) : event.targetType
+  const label = targetLabels[inferredType] ?? inferredType
+  const route = auditRoute(event)
+  const detail = event.targetId && event.targetId !== 'N/A'
+    ? shortId(event.targetId)
+    : route || '未记录资源 ID'
+  return { label, detail }
+}
+
+function auditRoute(event: AuditEvent) {
+  const route = typeof event.metadata.routePattern === 'string' ? event.metadata.routePattern : event.metadata.path
+  return typeof route === 'string' ? route : ''
+}
+
+function inferTargetTypeFromRoute(route: string) {
+  if (route.startsWith('/api/v1/admin/members')) return 'TEAM_MEMBER'
+  if (route.startsWith('/api/v1/admin/team')) return 'TEAM'
+  if (route.startsWith('/api/v1/ai/model/test')) return 'AI_MODEL_TEST'
+  if (route.startsWith('/api/v1/ai/model')) return 'AI_MODEL'
+  if (route === '/api/v1/auth/logout') return 'AUTH_SESSION'
+  if (route.endsWith('/chat-import')) return 'CHAT_IMPORT'
+  if (route.includes('/analysis/')) return 'CHAT_ANALYSIS'
+  if (route.endsWith('/analysis')) return 'CHAT_ANALYSIS'
+  if (route.includes('/interactions')) return 'INTERACTION'
+  if (route.startsWith('/api/v1/customers')) return 'CUSTOMER'
+  return 'API'
 }
 
 function shortId(value: string) {
