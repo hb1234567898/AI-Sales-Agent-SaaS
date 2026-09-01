@@ -156,8 +156,12 @@
             pending_approval_count = #{pendingApprovalCount},
             output_summary = #{outputSummary,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
             error_message = #{errorMessage},
-            completed_at = CASE WHEN #{status} IN ('COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED') THEN #{completedAt} ELSE NULL END,
-            updated_at = #{completedAt},
+            completed_at = CASE
+                WHEN #{status} IN ('COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED')
+                    THEN CAST(#{completedAt} AS timestamp with time zone)
+                ELSE NULL::timestamp with time zone
+            END,
+            updated_at = CAST(#{completedAt} AS timestamp with time zone),
             version = version + 1
         WHERE organization_id = #{organizationId}
           AND id = #{id}
