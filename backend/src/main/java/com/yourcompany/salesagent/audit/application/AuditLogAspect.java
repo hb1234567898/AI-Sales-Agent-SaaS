@@ -139,11 +139,27 @@ public class AuditLogAspect {
 		var variables = pathVariables(request);
 		var returnedId = extractReturnedId(returnValue);
 		var path = request.getRequestURI();
+		if (path.startsWith("/api/v1/admin/members")) {
+			return new Target("TEAM_MEMBER", firstNonBlank(variables.get("memberId"), returnedId, "N/A"));
+		}
+		if (path.startsWith("/api/v1/admin/team")) {
+			return new Target("TEAM", principal.organizationId().toString());
+		}
+		if (path.startsWith("/api/v1/ai/model/test")) {
+			return new Target("AI_MODEL_TEST", principal.organizationId().toString());
+		}
 		if (path.startsWith("/api/v1/ai/model")) {
 			return new Target("AI_MODEL", principal.organizationId().toString());
 		}
 		if (path.equals("/api/v1/auth/logout")) {
 			return new Target("AUTH_SESSION", principal.sessionId().toString());
+		}
+		if (path.endsWith("/chat-import")) {
+			return new Target("CHAT_IMPORT", firstNonBlank(returnedId, variables.get("customerId"), "N/A"));
+		}
+		if (path.contains("/analysis/") || path.endsWith("/analysis")) {
+			return new Target("CHAT_ANALYSIS", firstNonBlank(
+					variables.get("analysisId"), variables.get("interactionId"), returnedId, variables.get("customerId"), "N/A"));
 		}
 		if (path.contains("/interactions")) {
 			return new Target("INTERACTION", firstNonBlank(
