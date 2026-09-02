@@ -107,15 +107,23 @@ public class SalesFollowUpAgentService {
 				var analysis = chatAnalysisService.analyze(candidate.getCustomerId(), candidate.getInteractionId());
 				var priority = priority(analysis);
 				var dueAt = now.plus(Duration.ofDays("HIGH".equals(analysis.intentLevel()) ? 1 : 3));
-				var action = recommendedAction(analysis);
-				var payload = followUpPayload(candidate, analysis, priority, dueAt, action);
+				var actionPlan = resolveActionPlan(analysis);
+				var payload = followUpPayload(candidate, analysis, priority, dueAt, actionPlan.suggestedNextAction());
+				if ("SEND_EMAIL".equals(actionPlan.actionType())) {
+					var emailTo = mapper.selectNotificationEmail(organizationId, candidate.getCustomerId(), candidate.getOwnerMemberId());
+					var emailSubject = "跟进提醒：" + candidate.getCustomerName();
+					var emailBody = buildEmailBody(candidate.getCustomerName(), analysis);
+					payload.put("email", Map.of("to", emailTo, "subject", emailSubject, "body", emailBody));
+					payload.put("subject", emailSubject);
+					payload.put("body", emailBody);
+				}
 				var contentHash = sha256(payload.toString());
 				var actionRequestId = UUID.randomUUID();
 				var approvalId = UUID.randomUUID();
 				var stepId = insertStep(runId, candidate.getCustomerId(), sequence.next(), "ACTION_PROPOSED",
 						"生成待审批跟进建议", "SUCCEEDED",
 						Map.of("interactionId", candidate.getInteractionId().toString()),
-						Map.of("intentScore", analysis.intentScore(), "priority", priority, "action", action),
+						Map.of("intentScore", analysis.intentScore(), "priority", priority, "action", actionPlan.suggestedNextAction()),
 						now, now, null);
 				mapper.insertActionRequest(
 						actionRequestId,
@@ -124,13 +132,17 @@ public class SalesFollowUpAgentService {
 						stepId,
 						candidate.getCustomerId(),
 						principal.memberId(),
-						"CREATE_INTERNAL_FOLLOW_UP",
+						actionPlan.actionType(),
 						riskLevel(analysis),
 						"AWAITING_APPROVAL",
+						actionPlan.toolName(),
+						actionPlan.toolVersion(),
+						actionPlan.requiresApproval(),
+						actionPlan.policyDecision(),
 						reason(analysis),
 						payload,
 						contentHash,
-						Map.of("customerName", candidate.getCustomerName(), "action", action, "priority", priority),
+						Map.of("customerName", candidate.getCustomerName(), "action", actionPlan.suggestedNextAction(), "priority", priority),
 						"agent-follow-up:" + runId + ":" + candidate.getCustomerId(),
 						now.plus(Duration.ofDays(7)));
 				mapper.insertApproval(
@@ -256,6 +268,42 @@ public class SalesFollowUpAgentService {
 		catch (NoSuchAlgorithmException exception) {
 			throw new IllegalStateException("SHA-256 算法不可用", exception);
 		}
+	}
+
+	private record ActionPlan(
+			String actionType,
+			String toolName,
+			String toolVersion,
+			boolean requiresApproval,
+			String policyDecision,
+			String suggestedNextAction) {
+	}
+
+	/**
+	 * 把模型建议的推荐动作映射到具体的动作类型与执行工具。默认回退到创建内部跟进，
+	 * 命中 SEND_EMAIL / CREATE_CRM_TASK / GENERATE_EMAIL_DRAFT 时切换到对应工具。
+	 */
+	private ActionPlan resolveActionPlan(ChatAnalysisResponse analysis) {
+		var actions = analysis.recommendedActions();
+		var next = recommendedAction(analysis);
+		if (actions != null && actions.stream().anyMatch(a -> a != null && a.contains("SEND_EMAIL"))) {
+			return new ActionPlan("SEND_EMAIL", "email.send", "v1", true, "REQUIRE_APPROVAL", next);
+		}
+		if (actions != null && actions.stream().anyMatch(a -> a != null && (a.contains("CREATE_CRM_TASK") || a.contains("CREATE_TASK")))) {
+			return new ActionPlan("CREATE_CRM_TASK", "crm.task.create", "v1", true, "REQUIRE_APPROVAL", next);
+		}
+		if (actions != null && actions.stream().anyMatch(a -> a != null && a.contains("GENERATE_EMAIL_DRAFT"))) {
+			return new ActionPlan("GENERATE_EMAIL_DRAFT", "email.draft.generate", "v1", false, "ALLOW", next);
+		}
+		return new ActionPlan("CREATE_INTERNAL_FOLLOW_UP", "internal.follow_up.create", "v1", true, "REQUIRE_APPROVAL", next);
+	}
+
+	private static String buildEmailBody(String customerName, ChatAnalysisResponse analysis) {
+		var suggestion = analysis.suggestedNextAction() == null ? "" : analysis.suggestedNextAction();
+		return "您好：\n\n关于与 " + customerName + " 的近期沟通，AI 助手的分析如下：\n"
+				+ (analysis.summary() == null ? "" : analysis.summary())
+				+ "\n\n建议的下一步：" + suggestion
+				+ "\n\n此邮件由 AI 销售跟进助手生成，请人工确认内容后再发送。";
 	}
 
 	private static final class Sequence {

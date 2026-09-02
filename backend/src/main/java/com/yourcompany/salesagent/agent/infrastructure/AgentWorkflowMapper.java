@@ -83,12 +83,24 @@ public interface AgentWorkflowMapper {
 			@Param("actionType") String actionType,
 			@Param("riskLevel") String riskLevel,
 			@Param("status") String status,
+			@Param("toolName") String toolName,
+			@Param("toolVersion") String toolVersion,
+			@Param("requiresApproval") boolean requiresApproval,
+			@Param("policyDecision") String policyDecision,
 			@Param("reason") String reason,
 			@Param("payload") Map<String, Object> payload,
 			@Param("payloadHash") String payloadHash,
 			@Param("preview") Map<String, Object> preview,
 			@Param("idempotencyKey") String idempotencyKey,
 			@Param("expiresAt") Instant expiresAt);
+
+	/**
+	 * 解析动作的收件人邮箱：优先客户主联系人邮箱，回退到负责人邮箱。SendEmailTool 需要真实收件人。
+	 */
+	String selectNotificationEmail(
+			@Param("organizationId") UUID organizationId,
+			@Param("customerId") UUID customerId,
+			@Param("ownerMemberId") UUID ownerMemberId);
 
 	void insertApproval(
 			@Param("id") UUID id,

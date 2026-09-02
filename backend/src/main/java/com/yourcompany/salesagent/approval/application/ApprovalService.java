@@ -13,19 +13,27 @@ import com.yourcompany.salesagent.approval.api.ApprovalDecisionRequest;
 import com.yourcompany.salesagent.approval.api.ApprovalResponse;
 import com.yourcompany.salesagent.approval.infrastructure.ApprovalMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.tool.infrastructure.ToolExecutionMapper;
+import com.yourcompany.salesagent.tool.registry.ToolExecutionService;
 
 @Service
 public class ApprovalService {
 
 	private final ApprovalMapper mapper;
+	private final ToolExecutionMapper toolMapper;
+	private final ToolExecutionService toolExecutionService;
 	private final Clock clock;
 	private final UUID organizationId;
 
 	public ApprovalService(
 			ApprovalMapper mapper,
+			ToolExecutionMapper toolMapper,
+			ToolExecutionService toolExecutionService,
 			Clock clock,
 			@Value("${app.demo.organization-id}") UUID organizationId) {
 		this.mapper = mapper;
+		this.toolMapper = toolMapper;
+		this.toolExecutionService = toolExecutionService;
 		this.clock = clock;
 		this.organizationId = organizationId;
 	}
@@ -41,9 +49,10 @@ public class ApprovalService {
 	public ApprovalResponse approve(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
 		decide(principal, approvalId, request, "APPROVED");
 		var approval = requireApproval(approvalId);
+		// 动作进入 APPROVED，交由 Tool 执行层真正发生副作用（发邮件 / 建任务 / 回写）。
+		toolMapper.markActionApproved(organizationId, approval.actionRequestId(), clock.instant());
+		toolExecutionService.execute(approval.actionRequestId());
 		var now = clock.instant();
-		mapper.insertFollowUpFromApprovedAction(organizationId, approval.actionRequestId(), now);
-		mapper.markActionSucceeded(organizationId, approval.actionRequestId(), now);
 		mapper.refreshRunApprovalState(organizationId, approval.runId(), now);
 		return requireApproval(approvalId);
 	}

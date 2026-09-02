@@ -381,19 +381,36 @@
             #{actionType},
             #{riskLevel},
             #{status},
-            'internal.follow_up.create',
-            'v1',
+            #{toolName},
+            #{toolVersion},
             #{reason},
             #{payload,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
             #{payloadHash},
             #{preview,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
-            true,
-            'REQUIRE_APPROVAL',
+            #{requiresApproval},
+            #{policyDecision},
             '{"policy":"manual-review-for-ai-follow-up"}'::jsonb,
             #{idempotencyKey},
             #{expiresAt}
         )
     </insert>
+
+    <select id="selectNotificationEmail" resultType="java.lang.String">
+        SELECT coalesce(
+            (SELECT cc.email
+             FROM customer_contact cc
+             WHERE cc.organization_id = #{organizationId}
+               AND cc.customer_id = #{customerId}
+               AND cc.primary = true
+               AND cc.email IS NOT NULL
+             LIMIT 1),
+            (SELECT u.email
+             FROM organization_member m
+             JOIN app_user u ON u.id = m.user_id
+             WHERE m.organization_id = #{organizationId}
+               AND m.id = #{ownerMemberId})
+        )
+    </select>
 
     <insert id="insertApproval">
         INSERT INTO approval (
