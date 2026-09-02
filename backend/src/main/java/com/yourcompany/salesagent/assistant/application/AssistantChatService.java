@@ -21,7 +21,12 @@ import com.yourcompany.salesagent.assistant.api.AssistantChatResponse;
 import com.yourcompany.salesagent.assistant.api.AssistantChatResponse.AssistantToolTrace;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
 import com.yourcompany.salesagent.customer.api.CustomerResponse;
+import com.yourcompany.salesagent.customer.api.CustomerUpsertRequest;
 import com.yourcompany.salesagent.customer.application.CustomerService;
+import com.yourcompany.salesagent.customer.application.CustomerNotFoundException;
+import com.yourcompany.salesagent.customer.domain.CustomerSource;
+import com.yourcompany.salesagent.customer.domain.CustomerStage;
+import com.yourcompany.salesagent.customer.domain.CustomerStatus;
 import com.yourcompany.salesagent.followup.application.FollowUpService;
 import com.yourcompany.salesagent.interaction.api.ChatImportRequest;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
@@ -31,6 +36,8 @@ import com.yourcompany.salesagent.interaction.domain.ChatPlatform;
 public class AssistantChatService {
 
 	private static final Pattern UUID_PATTERN = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+	private static final Pattern CREATE_CUSTOMER_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80})");
+	private static final Pattern CREATE_AND_IMPORT_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80}).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
 	private static final Pattern IMPORT_PATTERN = Pattern.compile("给\\s*(?<customer>[^，,：:\\n]{2,40})\\s*(导入|添加|记录).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
 	private static final Pattern IMPORT_ALT_PATTERN = Pattern.compile("导入\\s*(?<customer>[^，,：:\\n]{2,40})(?:的)?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
 
@@ -68,6 +75,9 @@ public class AssistantChatService {
 		if (looksLikeChatImport(message)) {
 			return importChatAndRunAgent(principal, message, traces);
 		}
+		if (looksLikeCustomerCreate(message)) {
+			return createCustomer(message, traces);
+		}
 		if (containsAny(message, "审批通过", "批准")) {
 			return approveById(principal, message, traces);
 		}
@@ -88,8 +98,7 @@ public class AssistantChatService {
 		if (command == null || !StringUtils.hasText(command.customerName()) || !StringUtils.hasText(command.content())) {
 			return reply("我还缺客户名或聊天内容。可以这样发：\n\n给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。", traces, Map.of("intent", "CHAT_IMPORT"));
 		}
-		var customer = resolveCustomer(command.customerName());
-		traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
+		var customer = resolveOrCreateCustomer(command.customerName(), looksLikeCustomerCreate(message), traces);
 		var interaction = interactionService.importChat(
 				customer.id(),
 				new ChatImportRequest(ChatPlatform.OTHER, clock.instant(), "MCP 助手导入聊天", command.content().strip(), null));
@@ -125,6 +134,18 @@ public class AssistantChatService {
 				"agentRunStatus", run.status(),
 				"processedCount", run.processedCount(),
 				"pendingApprovalCount", run.pendingApprovalCount()));
+	}
+
+	private AssistantChatResponse createCustomer(String message, List<AssistantToolTrace> traces) {
+		var draft = parseCustomerDraft(message);
+		if (!StringUtils.hasText(draft.name())) {
+			return reply("我还缺客户名称。可以这样发：\n\n新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com", traces, Map.of("intent", "CUSTOMER_CREATE"));
+		}
+		var customer = createCustomerFromDraft(draft);
+		traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "已新增客户：" + customer.name()));
+		return reply("客户「" + customer.name() + "」已经创建完成。你可以继续说：给" + customer.name() + "导入聊天：……，我会自动导入并运行 Agent。", traces, Map.of(
+				"customerId", customer.id(),
+				"customerName", customer.name()));
 	}
 
 	private AssistantChatResponse listPendingApprovals(List<AssistantToolTrace> traces) {
@@ -177,19 +198,25 @@ public class AssistantChatService {
 		return reply("""
 				我现在可以帮你自动化这些事：
 
-				1. 给客户导入聊天并自动跑 Agent
+				1. 新增客户
+				示例：新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com
+
+				2. 新增客户、导入聊天并自动跑 Agent
+				示例：新增客户云岚科技并导入聊天：客户说下周想看报价，需要私有化方案。
+
+				3. 给已有客户导入聊天并自动跑 Agent
 				示例：给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。
 
-				2. 直接运行客户跟进 Agent
+				4. 直接运行客户跟进 Agent
 				示例：运行 Agent 分析云岚科技
 
-				3. 查看待审批建议
+				5. 查看待审批建议
 				示例：查看待审批
 
-				4. 显式批准某条审批
+				6. 显式批准某条审批
 				示例：批准 <审批ID>
 
-				5. 查看跟进任务
+				7. 查看跟进任务
 				示例：查看跟进任务
 				""", traces, Map.of("intent", "HELP"));
 	}
@@ -209,11 +236,67 @@ public class AssistantChatService {
 		return customers.get(0);
 	}
 
+	private CustomerResponse resolveOrCreateCustomer(String keyword, boolean allowCreate, List<AssistantToolTrace> traces) {
+		try {
+			var customer = resolveCustomer(keyword);
+			traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
+			return customer;
+		}
+		catch (CustomerNotFoundException | AssistantWorkflowException exception) {
+			if (!allowCreate) {
+				throw exception;
+			}
+			var customer = createCustomerFromDraft(parseCustomerDraft("新增客户：" + keyword));
+			traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "未找到现有客户，已新建：" + customer.name()));
+			return customer;
+		}
+	}
+
+	private CustomerResponse createCustomerFromDraft(CustomerDraft draft) {
+		return customerService.createCustomer(new CustomerUpsertRequest(
+				draft.name(),
+				draft.website(),
+				draft.industry(),
+				draft.employeeRange(),
+				CustomerStage.LEAD,
+				CustomerStatus.ACTIVE,
+				CustomerSource.CHAT,
+				null,
+				null,
+				null,
+				null,
+				null,
+				draft.contactName(),
+				draft.contactEmail(),
+				draft.contactPhone()));
+	}
+
+	private static CustomerDraft parseCustomerDraft(String message) {
+		var matcher = CREATE_CUSTOMER_PATTERN.matcher(message);
+		var name = matcher.find() ? cleanCustomerName(matcher.group("customer")) : "";
+		return new CustomerDraft(
+				name,
+				extractField(message, "网站", "官网"),
+				extractField(message, "行业"),
+				extractField(message, "规模", "人数"),
+				extractField(message, "联系人", "客户联系人"),
+				extractField(message, "邮箱", "邮件"),
+				extractField(message, "电话", "手机号", "手机"));
+	}
+
 	private static boolean looksLikeChatImport(String message) {
 		return containsAny(message, "导入", "添加", "记录") && containsAny(message, "聊天", "微信", "whatsapp");
 	}
 
+	private static boolean looksLikeCustomerCreate(String message) {
+		return containsAny(message, "新增客户", "创建客户", "新建客户");
+	}
+
 	private static ImportCommand parseImportCommand(String message) {
+		var createMatcher = CREATE_AND_IMPORT_PATTERN.matcher(message);
+		if (createMatcher.find()) {
+			return new ImportCommand(cleanCustomerName(createMatcher.group("customer")), createMatcher.group("content").strip());
+		}
 		var matcher = IMPORT_PATTERN.matcher(message);
 		if (matcher.find()) {
 			return new ImportCommand(matcher.group("customer").strip(), matcher.group("content").strip());
@@ -247,6 +330,30 @@ public class AssistantChatService {
 		return false;
 	}
 
+	private static String extractField(String message, String... labels) {
+		for (var label : labels) {
+			var pattern = Pattern.compile(label + "[：:\\s]*(?<value>[^，,；;\\n]+)");
+			var matcher = pattern.matcher(message);
+			if (matcher.find()) {
+				var value = matcher.group("value").strip();
+				return StringUtils.hasText(value) ? value : null;
+			}
+		}
+		return null;
+	}
+
+	private static String cleanCustomerName(String value) {
+		if (value == null) {
+			return "";
+		}
+		var cleaned = value
+				.replace("并导入聊天", "")
+				.replace("然后导入聊天", "")
+				.replace("导入聊天", "")
+				.strip();
+		return cleaned.length() > 255 ? cleaned.substring(0, 255) : cleaned;
+	}
+
 	private static String nextRunHint(AgentRunResponse run) {
 		if (run.pendingApprovalCount() > 0) {
 			return " 已生成 " + run.pendingApprovalCount() + " 条待审批建议，下一步去审批中心批准后会生成跟进任务。";
@@ -274,5 +381,15 @@ public class AssistantChatService {
 	}
 
 	private record ImportCommand(String customerName, String content) {
+	}
+
+	private record CustomerDraft(
+			String name,
+			String website,
+			String industry,
+			String employeeRange,
+			String contactName,
+			String contactEmail,
+			String contactPhone) {
 	}
 }

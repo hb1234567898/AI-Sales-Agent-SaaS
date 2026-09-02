@@ -14,10 +14,11 @@ interface ChatMessage {
 }
 
 const quickPrompts = [
+  '新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com',
   '查看待审批',
   '查看跟进任务',
   '运行 Agent 分析最近客户',
-  '给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。',
+  '新增客户云岚科技并导入聊天：客户说下周想看报价，需要私有化方案。',
 ]
 
 export function McpAssistantPage() {
@@ -28,7 +29,7 @@ export function McpAssistantPage() {
     {
       id: 'welcome',
       role: 'assistant',
-      content: '我是 MCP 自动化助手。你可以直接说“给某客户导入聊天并跑 Agent”，我会自动查客户、导入互动记录、触发客户跟进建议流程。',
+      content: '我是 MCP 自动化助手。你可以直接说“新增客户”“给某客户导入聊天并跑 Agent”，我会自动调用客户、互动、Agent、审批和跟进工具。',
       createdAt: new Date().toISOString(),
     },
   ])
@@ -133,6 +134,7 @@ export function McpAssistantPage() {
           <h2><Wrench size={18} />可调用工具</h2>
           <div className="mcp-tool-list">
             <div><strong>customer.search</strong><span>按客户名匹配客户</span></div>
+            <div><strong>customer.create</strong><span>通过一句话新增客户和主要联系人</span></div>
             <div><strong>interaction.chat_import</strong><span>自动导入粘贴的聊天内容</span></div>
             <div><strong>agent.sales_follow_up.run</strong><span>读取互动记录并生成建议</span></div>
             <div><strong>approval.list / approve</strong><span>查看或显式批准建议</span></div>
