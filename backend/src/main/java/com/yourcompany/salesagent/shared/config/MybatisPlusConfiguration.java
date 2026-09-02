@@ -10,7 +10,18 @@ import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInt
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 
 @Configuration
-@MapperScan("com.yourcompany.salesagent")
+@MapperScan({
+		"com.yourcompany.salesagent.admin.infrastructure",
+		"com.yourcompany.salesagent.agent.infrastructure",
+		"com.yourcompany.salesagent.ai.infrastructure",
+		"com.yourcompany.salesagent.approval.infrastructure",
+		"com.yourcompany.salesagent.audit.infrastructure",
+		"com.yourcompany.salesagent.auth.infrastructure",
+		"com.yourcompany.salesagent.customer.infrastructure",
+		"com.yourcompany.salesagent.followup.infrastructure",
+		"com.yourcompany.salesagent.interaction.infrastructure",
+		"com.yourcompany.salesagent.tool.infrastructure"
+})
 public class MybatisPlusConfiguration {
 
 	@Bean
