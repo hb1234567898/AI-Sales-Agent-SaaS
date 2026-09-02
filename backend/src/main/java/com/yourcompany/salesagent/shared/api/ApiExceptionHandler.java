@@ -25,6 +25,7 @@ import com.yourcompany.salesagent.admin.application.AdminResourceNotFoundExcepti
 import com.yourcompany.salesagent.admin.application.AdminValidationException;
 import com.yourcompany.salesagent.agent.application.AgentWorkflowException;
 import com.yourcompany.salesagent.approval.application.ApprovalWorkflowException;
+import com.yourcompany.salesagent.assistant.application.AssistantWorkflowException;
 import com.yourcompany.salesagent.followup.application.FollowUpWorkflowException;
 
 @RestControllerAdvice
@@ -43,6 +44,7 @@ public class ApiExceptionHandler {
 	@ExceptionHandler({
 			AgentWorkflowException.class,
 			ApprovalWorkflowException.class,
+			AssistantWorkflowException.class,
 			FollowUpWorkflowException.class
 	})
 	ProblemDetail handleWorkflow(RuntimeException exception) {

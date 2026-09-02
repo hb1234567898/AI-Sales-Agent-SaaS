@@ -2,6 +2,7 @@ import {
   Bell,
   Buildings,
   CaretDown,
+  ChatCircleText,
   ChartLineUp,
   CheckSquareOffset,
   CirclesThreePlus,
@@ -40,6 +41,7 @@ const workNavigation: NavItem[] = [
 ]
 
 const insightNavigation: NavItem[] = [
+  { to: '/app/mcp', label: 'MCP 助手', icon: ChatCircleText },
   { to: '/app/agent-runs', label: 'Agent 运行', icon: Robot },
   { to: '/app/analytics', label: '效果分析', icon: ChartLineUp },
   { to: '/app/settings', label: '设置', icon: GearSix },
