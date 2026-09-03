@@ -13,6 +13,7 @@ import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerIntercept
 @MapperScan({
 		"com.yourcompany.salesagent.admin.infrastructure",
 		"com.yourcompany.salesagent.agent.infrastructure",
+		"com.yourcompany.salesagent.assistant.infrastructure",
 		"com.yourcompany.salesagent.ai.infrastructure",
 		"com.yourcompany.salesagent.approval.infrastructure",
 		"com.yourcompany.salesagent.audit.infrastructure",
