@@ -39,26 +39,32 @@ export function DesktopUpdateIndicator() {
       setVersion(update.version)
       setProgress(0)
       setState('downloading')
-      await update.downloadAndInstall((event) => {
+      try {
+        await update.downloadAndInstall((event) => {
+          if (cancelled) return
+          const eventData = typeof event.data === 'object' && event.data !== null ? event.data : {}
+          if (event.event === 'Started' && 'contentLength' in eventData) {
+            contentLength = Number(eventData.contentLength ?? 0)
+            setProgress(0)
+          }
+          if (event.event === 'Progress' && 'chunkLength' in eventData) {
+            downloaded += Number(eventData.chunkLength ?? 0)
+            setProgress(contentLength > 0 ? Math.min(99, Math.round((downloaded / contentLength) * 100)) : 0)
+          }
+          if (event.event === 'Finished') {
+            setProgress(100)
+            setState('installing')
+          }
+        })
         if (cancelled) return
-        const eventData = typeof event.data === 'object' && event.data !== null ? event.data : {}
-        if (event.event === 'Started' && 'contentLength' in eventData) {
-          contentLength = Number(eventData.contentLength ?? 0)
-          setProgress(0)
-        }
-        if (event.event === 'Progress' && 'chunkLength' in eventData) {
-          downloaded += Number(eventData.chunkLength ?? 0)
-          setProgress(contentLength > 0 ? Math.min(99, Math.round((downloaded / contentLength) * 100)) : 0)
-        }
-        if (event.event === 'Finished') {
-          setProgress(100)
-          setState('installing')
-        }
-      })
-      if (cancelled) return
-      setState('updated')
-      const { relaunch } = await import('@tauri-apps/plugin-process')
-      await relaunch()
+        setState('updated')
+        const { relaunch } = await import('@tauri-apps/plugin-process')
+        await relaunch()
+      } catch (error) {
+        if (cancelled) return
+        setErrorMessage(error instanceof Error ? error.message : '桌面端更新下载或安装失败')
+        setState('error')
+      }
     }
 
     async function checkForUpdates() {
@@ -74,8 +80,8 @@ export function DesktopUpdateIndicator() {
         await installSilently(nextUpdate)
       } catch (error) {
         if (cancelled) return
-        setErrorMessage(error instanceof Error ? error.message : '桌面端更新失败')
-        setState('error')
+        console.warn('桌面端更新检查失败，已静默忽略。', error)
+        setState('idle')
       }
     }
 
