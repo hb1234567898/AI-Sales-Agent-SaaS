@@ -5,7 +5,6 @@ import {
   ChatCircleText,
   ChartLineUp,
   CheckSquareOffset,
-  CirclesThreePlus,
   GearSix,
   House,
   List,
@@ -22,11 +21,13 @@ import {
 } from '@phosphor-icons/react'
 import { useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getPendingApprovals } from '../../api/approvals-api'
 import { logout } from '../../api/auth-api'
+import { getFollowUps } from '../../api/follow-ups-api'
 import { useAuth } from '../../auth/use-auth'
 import { leaveGuestMode } from '../../auth/guest-session'
-import { DesktopUpdatePrompt } from '../../desktop/DesktopUpdatePrompt'
+import { DesktopUpdateIndicator } from '../../desktop/DesktopUpdatePrompt'
 
 interface NavItem {
   to: string
@@ -108,7 +109,7 @@ function Sidebar({
     <aside className={`app-sidebar${open ? ' is-open' : ''}`} aria-label="应用导航">
       <div className="sidebar-brand">
         <span className="brand-symbol" aria-hidden>
-          <CirclesThreePlus size={20} weight="fill" />
+          <img src="/brand-logo.png" alt="" />
         </span>
         <div>
           <strong>Sales Agent</strong>
@@ -161,6 +162,18 @@ export function AppShell() {
   const guestMode = session.role === 'GUEST'
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const approvalsQuery = useQuery({
+    queryKey: ['approvals', 'topbar', 'PENDING'],
+    queryFn: getPendingApprovals,
+    enabled: !guestMode,
+    staleTime: 30_000,
+  })
+  const followUpsQuery = useQuery({
+    queryKey: ['follow-ups', 'topbar', 'TODAY'],
+    queryFn: () => getFollowUps('TODAY'),
+    enabled: !guestMode,
+    staleTime: 30_000,
+  })
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
@@ -177,6 +190,23 @@ export function AppShell() {
       return
     }
     logoutMutation.mutate()
+  }
+
+  const pendingApprovals = approvalsQuery.data?.totalElements ?? 0
+  const pendingFollowUps = followUpsQuery.data?.totalElements ?? 0
+  const notificationCount = pendingApprovals + pendingFollowUps
+  const notificationTitle = notificationCount > 0
+    ? `${pendingApprovals} 条待审批建议，${pendingFollowUps} 条跟进任务`
+    : '暂无待处理通知'
+
+  function openNotifications() {
+    if (pendingApprovals > 0) {
+      navigate('/app/approvals')
+      return
+    }
+    if (pendingFollowUps > 0) {
+      navigate('/app/follow-ups')
+    }
   }
 
   return (
@@ -218,11 +248,22 @@ export function AppShell() {
           </label>
 
           <div className="topbar-actions">
-            <span className={`environment-pill${guestMode ? ' is-guest' : ''}`}>
-              {guestMode ? <Eye size={14} /> : <i />}{guestMode ? '游客只读' : '生产环境'}
-            </span>
-            <button className="icon-button" type="button" disabled aria-label="通知" title="通知中心即将开放">
+            {guestMode ? (
+              <span className="environment-pill is-guest">
+                <Eye size={14} />游客只读
+              </span>
+            ) : <DesktopUpdateIndicator />}
+            <button
+              className={`icon-button notification-button${notificationCount > 0 ? ' has-unread' : ''}`}
+              type="button"
+              aria-label={notificationTitle}
+              title={notificationTitle}
+              onClick={openNotifications}
+            >
               <Bell size={19} />
+              {notificationCount > 0 ? (
+                <span className="notification-badge" aria-hidden>{notificationCount > 99 ? '99+' : notificationCount}</span>
+              ) : null}
             </button>
             <span className="topbar-avatar" aria-label={session.displayName}>{session.displayName.slice(0, 1)}</span>
           </div>
@@ -239,7 +280,6 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      <DesktopUpdatePrompt />
     </div>
   )
 }

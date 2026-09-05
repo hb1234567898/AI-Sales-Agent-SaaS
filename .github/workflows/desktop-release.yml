@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "GitHub Release tag，例如 desktop-v0.1.1"
+        description: "GitHub Release tag，例如 desktop-v0.1.2"
         required: true
-        default: "desktop-v0.1.1"
+        default: "desktop-v0.1.2"
       prerelease:
         description: "是否发布为预发布版本"
         required: true
