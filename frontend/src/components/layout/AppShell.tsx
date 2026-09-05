@@ -26,6 +26,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { logout } from '../../api/auth-api'
 import { useAuth } from '../../auth/use-auth'
 import { leaveGuestMode } from '../../auth/guest-session'
+import { DesktopUpdatePrompt } from '../../desktop/DesktopUpdatePrompt'
 
 interface NavItem {
   to: string
@@ -238,6 +239,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <DesktopUpdatePrompt />
     </div>
   )
 }

@@ -132,10 +132,7 @@ export function McpAssistantPage() {
   })
 
   useEffect(() => {
-    if (!chatMutation.isPending) {
-      setPendingStepIndex(0)
-      return
-    }
+    if (!chatMutation.isPending) return
     const timer = window.setInterval(() => {
       setPendingStepIndex((current) => Math.min(current + 1, pendingSteps.length - 1))
     }, 1200)
@@ -160,6 +157,7 @@ export function McpAssistantPage() {
       content,
       createdAt: new Date().toISOString(),
     }])
+    setPendingStepIndex(0)
     setInput('')
     chatMutation.mutate({ conversationId: activeConversationId, message: content })
   }

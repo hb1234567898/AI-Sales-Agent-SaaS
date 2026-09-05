@@ -1,10 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "默认桌面端权限，仅开启基础窗口能力和外部链接打开能力。",
+  "description": "默认桌面端权限，开启基础窗口、外部链接、自动更新与重启能力。",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "process:default",
+    "updater:default"
   ]
 }
