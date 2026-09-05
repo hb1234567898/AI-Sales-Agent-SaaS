@@ -58,7 +58,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
 
-      - name: Upload release archive
+      - name: Upload release archive and deployment script
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
@@ -68,10 +68,17 @@ jobs:
           archive="$(find package -maxdepth 1 -type f -name 'sales-agent-*.tar.gz' -print -quit)"
           test -n "$archive"
           remote_archive="/tmp/sales-agent-${RELEASE_SHA}.tar.gz"
+          deploy_script="$RUNNER_TEMP/deploy-sales-agent-${RELEASE_SHA}.sh"
+          remote_deploy_script="/tmp/deploy-sales-agent-${RELEASE_SHA}.sh"
+          tar -xOf "$archive" ./deploy/deploy-sales-agent.sh > "$deploy_script"
+          test -s "$deploy_script"
+          chmod 700 "$deploy_script"
           scp -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$archive" "root@$DEPLOY_HOST:$remote_archive"
+          scp -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$deploy_script" "root@$DEPLOY_HOST:$remote_deploy_script"
           printf '%s' "$remote_archive" > "$RUNNER_TEMP/remote-archive"
+          printf '%s' "$remote_deploy_script" > "$RUNNER_TEMP/remote-deploy-script"
 
-      - name: Activate release and run health check
+      - name: Activate release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
@@ -79,8 +86,9 @@ jobs:
         run: |
           port="${DEPLOY_PORT:-22}"
           remote_archive="$(cat "$RUNNER_TEMP/remote-archive")"
+          remote_deploy_script="$(cat "$RUNNER_TEMP/remote-deploy-script")"
           ssh -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes "root@$DEPLOY_HOST" \
-            "/usr/local/sbin/deploy-sales-agent '$remote_archive' '$RELEASE_SHA'"
+            "install -o root -g root -m 0755 '$remote_deploy_script' /usr/local/sbin/deploy-sales-agent && rm -f '$remote_deploy_script' && /usr/local/sbin/deploy-sales-agent '$remote_archive' '$RELEASE_SHA'"
 
       - name: Remove temporary SSH identity
         if: always()

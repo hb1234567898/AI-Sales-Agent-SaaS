@@ -537,6 +537,20 @@ input:focus-visible {
   object-fit: cover;
 }
 
+.brand-symbol img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
+.sidebar-brand .brand-symbol {
+  background: transparent;
+  border-radius: 0;
+  color: inherit;
+}
+
 .sidebar-brand > div {
   min-width: 0;
   display: flex;
