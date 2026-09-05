@@ -30,7 +30,10 @@ interface RetriableRequestConfig extends InternalAxiosRequestConfig {
 const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS'])
 const unauthenticatedPaths = new Set(['/api/v1/auth/login', '/api/v1/auth/refresh'])
 const authenticationWritePaths = new Set([...unauthenticatedPaths, '/api/v1/auth/logout'])
+const apiBaseUrlStorageKey = 'sales-agent:api-base-url'
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const sameOriginBaseUrl = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+const apiBaseUrl = resolveApiBaseUrl()
 const fetchAdapter = axios.getAdapter('fetch')
 let refreshPromise: Promise<RefreshResult> | null = null
 
@@ -41,7 +44,7 @@ type RefreshResult = 'refreshed' | 'invalid'
  * 导出实例是为了让文件上传、取消请求等特殊场景仍能复用相同基础配置。
  */
 export const apiClient = axios.create({
-  baseURL: sameOriginBaseUrl,
+  baseURL: apiBaseUrl,
   adapter: fetchAdapter,
   timeout: 60_000,
   withCredentials: false,
@@ -50,7 +53,7 @@ export const apiClient = axios.create({
 
 // 刷新 Token 使用无业务拦截器的独立实例，避免刷新接口 401 时递归调用自身。
 export const authRefreshClient = axios.create({
-  baseURL: sameOriginBaseUrl,
+  baseURL: apiBaseUrl,
   adapter: fetchAdapter,
   timeout: 15_000,
   withCredentials: false,
@@ -133,6 +136,22 @@ export function getJson<T>(path: string, config: JsonRequestConfig = {}): Promis
   return requestJson<T>(path, { ...config, method: 'GET' })
 }
 
+export function getApiBaseUrlSetting() {
+  return localStorage.getItem(apiBaseUrlStorageKey) ?? configuredApiBaseUrl ?? ''
+}
+
+export function saveApiBaseUrlSetting(value: string) {
+  const normalized = normalizeApiBaseUrl(value)
+  if (normalized) {
+    localStorage.setItem(apiBaseUrlStorageKey, normalized)
+  } else {
+    localStorage.removeItem(apiBaseUrlStorageKey)
+  }
+  apiClient.defaults.baseURL = normalized || configuredApiBaseUrl || sameOriginBaseUrl
+  authRefreshClient.defaults.baseURL = normalized || configuredApiBaseUrl || sameOriginBaseUrl
+  return normalized
+}
+
 async function refreshAccessToken() {
   refreshPromise ??= performRefresh().finally(() => {
     refreshPromise = null
@@ -168,6 +187,21 @@ function requestPath(url?: string) {
   catch {
     return url.split('?')[0] ?? url
   }
+}
+
+function resolveApiBaseUrl() {
+  return localStorage.getItem(apiBaseUrlStorageKey) ?? configuredApiBaseUrl ?? sameOriginBaseUrl
+}
+
+function normalizeApiBaseUrl(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `${defaultProtocol(trimmed)}://${trimmed}`
+  return withProtocol.replace(/\/+$/, '')
+}
+
+function defaultProtocol(host: string) {
+  return /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?$/i.test(host) ? 'http' : 'https'
 }
 
 function toApiError(error: unknown, fallback = '请求失败') {

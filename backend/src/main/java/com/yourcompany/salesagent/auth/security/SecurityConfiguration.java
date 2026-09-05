@@ -1,14 +1,17 @@
 package com.yourcompany.salesagent.auth.security;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,6 +19,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableMethodSecurity
@@ -37,6 +43,7 @@ public class SecurityConfiguration {
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, BearerTokenAuthenticationFilter bearerTokenFilter) throws Exception {
 		http
+				.cors(Customizer.withDefaults())
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(authorize -> authorize
@@ -60,5 +67,25 @@ public class SecurityConfiguration {
 				.addFilterBefore(bearerTokenFilter, AnonymousAuthenticationFilter.class);
 
 		return http.build();
+	}
+
+	@Bean
+	CorsConfigurationSource corsConfigurationSource(
+			@Value("${app.security.cors.allowed-origin-patterns}") List<String> allowedOriginPatterns) {
+		var configuration = new CorsConfiguration();
+		configuration.setAllowedOriginPatterns(allowedOriginPatterns);
+		configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+		configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Sales-Agent-Access-Token"));
+		configuration.setExposedHeaders(List.of(
+				"X-Sales-Agent-Auth-Token",
+				"X-Sales-Agent-Auth-Authorization",
+				"X-Sales-Agent-Auth-Fallback"));
+		configuration.setAllowCredentials(false);
+		configuration.setMaxAge(3600L);
+
+		var source = new UrlBasedCorsConfigurationSource();
+		source.registerCorsConfiguration("/api/**", configuration);
+		source.registerCorsConfiguration("/actuator/**", configuration);
+		return source;
 	}
 }

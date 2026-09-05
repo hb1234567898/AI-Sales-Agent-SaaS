@@ -231,6 +231,12 @@ body {
   font-weight: 650;
 }
 
+.login-field > small {
+  color: var(--muted-light);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
 .login-field > input,
 .password-input {
   width: 100%;
