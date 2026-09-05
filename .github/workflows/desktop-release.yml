@@ -14,7 +14,7 @@ on:
         description: "是否发布为预发布版本"
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
