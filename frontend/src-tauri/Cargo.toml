@@ -1,0 +1,22 @@
+[package]
+name = "ai-sales-agent-desktop"
+version = "0.1.0"
+description = "AI Sales Agent desktop client"
+authors = ["AI Sales Agent"]
+edition = "2021"
+license = "UNLICENSED"
+
+[lib]
+name = "ai_sales_agent_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "ai-sales-agent"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"

@@ -75,6 +75,9 @@ app:
       base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       model: ${QWEN_MODEL:qwen-plus}
   security:
+    cors:
+      # Web 端同源部署一般不需要 CORS；桌面端、本地 Vite 开发和远程调试需要允许对应 Origin。
+      allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://tauri.localhost,tauri://localhost,https://ai.likeasuka.icu}
     secrets:
       encryption-key: ${APP_ENCRYPTION_KEY:}
   demo:

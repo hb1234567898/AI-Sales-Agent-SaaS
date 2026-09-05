@@ -11,7 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { login } from '../api/auth-api'
-import { ApiError } from '../api/axios-client'
+import { ApiError, getApiBaseUrlSetting, saveApiBaseUrlSetting } from '../api/axios-client'
 import { enterGuestMode, leaveGuestMode } from '../auth/guest-session'
 
 interface LoginLocationState {
@@ -26,6 +26,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
+  const [apiBaseUrl, setApiBaseUrl] = useState(getApiBaseUrlSetting)
 
   const loginMutation = useMutation({
     mutationFn: login,
@@ -40,6 +41,7 @@ export function LoginPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     loginMutation.reset()
+    saveApiBaseUrlSetting(apiBaseUrl)
     loginMutation.mutate({ email: email.trim(), password, rememberMe })
   }
 
@@ -130,6 +132,19 @@ export function LoginPage() {
                 {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
               </button>
             </span>
+          </label>
+
+          <label className="login-field">
+            <span>服务地址</span>
+            <input
+              type="text"
+              value={apiBaseUrl}
+              onChange={(event) => setApiBaseUrl(event.target.value)}
+              placeholder="留空使用当前网页；桌面端可填 https://ai.likeasuka.icu"
+              autoComplete="url"
+              maxLength={255}
+            />
+            <small>桌面端建议填写生产服务地址；浏览器部署版通常留空即可。</small>
           </label>
 
           <div className="login-options">
