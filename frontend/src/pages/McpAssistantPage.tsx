@@ -1,6 +1,6 @@
-import { ArrowRight, CheckCircle, ClockCounterClockwise, Plus, Robot, Sparkle, UserCircle, Wrench } from '@phosphor-icons/react'
+import { ArrowRight, CheckCircle, ClockCounterClockwise, CircleNotch, DotsThree, Plus, Robot, Sparkle, UserCircle, WarningCircle, Wrench } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getMcpConversations,
   getMcpMessages,
@@ -59,12 +59,22 @@ const welcomeMessage: ChatMessage = {
   createdAt: new Date().toISOString(),
 }
 
+const pendingSteps = [
+  { title: '理解业务意图', detail: '识别你想操作的对象、动作和约束条件。' },
+  { title: '规划工具调用', detail: '选择客户、互动、Agent、审批或跟进工具，并整理参数。' },
+  { title: '执行并校验结果', detail: '调用后端业务接口，检查返回状态和异常信息。' },
+  { title: '整理输出', detail: '把执行结果、下一步建议和工具轨迹写回会话。' },
+]
+
 export function McpAssistantPage() {
   const isGuest = useIsGuest()
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
+  const [pendingStepIndex, setPendingStepIndex] = useState(0)
+  const messageListRef = useRef<HTMLDivElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
   const conversationsQuery = useQuery({
     queryKey: ['mcp-conversations'],
@@ -80,13 +90,16 @@ export function McpAssistantPage() {
 
   const conversations = conversationsQuery.data?.content ?? []
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
+  const pendingReasoning = useMemo(() => pendingSteps[pendingStepIndex] ?? pendingSteps[pendingSteps.length - 1], [pendingStepIndex])
 
   useEffect(() => {
     if (!messagesQuery.data || !activeConversationId) return
     const persistedMessages = messagesQuery.data.content
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map(toChatMessage)
-    setMessages(persistedMessages.length > 0 ? persistedMessages : [welcomeMessage])
+    if (persistedMessages.length > 0) {
+      setMessages(persistedMessages)
+    }
   }, [activeConversationId, messagesQuery.data])
 
   const chatMutation = useMutation({
@@ -118,6 +131,26 @@ export function McpAssistantPage() {
     },
   })
 
+  useEffect(() => {
+    if (!chatMutation.isPending) {
+      setPendingStepIndex(0)
+      return
+    }
+    const timer = window.setInterval(() => {
+      setPendingStepIndex((current) => Math.min(current + 1, pendingSteps.length - 1))
+    }, 1200)
+    return () => window.clearInterval(timer)
+  }, [chatMutation.isPending])
+
+  useEffect(() => {
+    const messageList = messageListRef.current
+    if (!messageList || typeof messageList.scrollTo !== 'function') return
+    messageList.scrollTo({
+      top: messageList.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [messages, chatMutation.isPending, pendingStepIndex])
+
   function submit(message = input) {
     const content = message.trim()
     if (!content || chatMutation.isPending || isGuest) return
@@ -129,6 +162,15 @@ export function McpAssistantPage() {
     }])
     setInput('')
     chatMutation.mutate({ conversationId: activeConversationId, message: content })
+  }
+
+  function applyToolTemplate(template: string) {
+    if (chatMutation.isPending) return
+    setInput(template)
+    window.setTimeout(() => {
+      composerRef.current?.focus()
+      composerRef.current?.setSelectionRange(template.length, template.length)
+    }, 0)
   }
 
   function startNewConversation() {
@@ -177,11 +219,13 @@ export function McpAssistantPage() {
         </aside>
 
         <section className="surface mcp-chat-panel">
-          <div className="mcp-message-list" aria-live="polite">
+          <div ref={messageListRef} className="mcp-message-list" aria-live="polite">
             {messagesQuery.isFetching && activeConversationId ? (
               <article className="mcp-message is-assistant">
                 <span className="mcp-avatar" aria-hidden><Robot size={20} /></span>
-                <div className="mcp-bubble"><p>正在加载这条会话的历史消息…</p></div>
+                <div className="mcp-bubble">
+                  <ThinkingSkeleton title="正在加载历史消息" />
+                </div>
               </article>
             ) : null}
             {messages.map((message) => (
@@ -190,35 +234,18 @@ export function McpAssistantPage() {
                   {message.role === 'user' ? <UserCircle size={20} /> : <Robot size={20} />}
                 </span>
                 <div className="mcp-bubble">
-                  <p>{message.content}</p>
-                  {message.reasoningSummary ? (
-                    <div className="mcp-reasoning">
-                      <strong>执行过程</strong>
-                      <span>{message.reasoningSummary}</span>
-                    </div>
-                  ) : null}
-                  {message.traces && message.traces.length > 0 ? (
-                    <div className="mcp-traces">
-                      {message.traces.map((trace) => (
-                        <span key={`${message.id}-${trace.name}`}>
-                          <CheckCircle size={13} />{trace.name} · {trace.summary}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
+                  {message.role === 'assistant' ? (
+                    <AssistantOutput message={message} />
+                  ) : (
+                    <p>{message.content}</p>
+                  )}
                 </div>
               </article>
             ))}
             {chatMutation.isPending ? (
               <article className="mcp-message is-assistant">
                 <span className="mcp-avatar" aria-hidden><Robot size={20} /></span>
-                <div className="mcp-bubble">
-                  <p>正在解析指令并调用业务工具…</p>
-                  <div className="mcp-reasoning">
-                    <strong>实时进度</strong>
-                    <span>识别意图 → 准备工具参数 → 执行业务接口 → 保存结果</span>
-                  </div>
-                </div>
+                <PendingAssistantBubble activeIndex={pendingStepIndex} activeStep={pendingReasoning} />
               </article>
             ) : null}
           </div>
@@ -231,6 +258,7 @@ export function McpAssistantPage() {
             }}
           >
             <textarea
+              ref={composerRef}
               value={input}
               disabled={isGuest}
               onChange={(event) => setInput(event.target.value)}
@@ -247,11 +275,18 @@ export function McpAssistantPage() {
           <h2><Wrench size={18} />可调用工具</h2>
           <div className="mcp-tool-list">
             {toolGuides.map((guide) => (
-              <div key={guide.tool}>
+              <button
+                key={guide.tool}
+                type="button"
+                disabled={chatMutation.isPending}
+                aria-label={`套用 ${guide.tool} 工具模板`}
+                onClick={() => applyToolTemplate(guide.say)}
+              >
                 <strong>{guide.tool}</strong>
                 <span>你可以说：{guide.say}</span>
                 <small>结果：{guide.result}</small>
-              </div>
+                <em>点击套用模板</em>
+              </button>
             ))}
           </div>
 
@@ -278,6 +313,98 @@ function toChatMessage(message: AssistantMessage): ChatMessage {
     traces: message.toolTraces,
     createdAt: message.createdAt,
   }
+}
+
+function AssistantOutput({ message }: { message: ChatMessage }) {
+  const traces = message.traces ?? []
+  return (
+    <div className="mcp-assistant-output">
+      <section className="mcp-output-card">
+        <header><Sparkle size={14} />结果输出</header>
+        <p>{message.content}</p>
+      </section>
+
+      {message.reasoningSummary ? (
+        <section className="mcp-reasoning">
+          <strong><DotsThree size={15} />思考摘要</strong>
+          <span>{message.reasoningSummary}</span>
+        </section>
+      ) : null}
+
+      {traces.length > 0 ? <ToolTraceList traces={traces} /> : null}
+    </div>
+  )
+}
+
+function PendingAssistantBubble({ activeIndex, activeStep }: { activeIndex: number; activeStep: typeof pendingSteps[number] }) {
+  return (
+    <div className="mcp-bubble mcp-bubble-pending">
+      <div className="mcp-pending-head">
+        <CircleNotch size={18} className="mcp-spin" />
+        <div>
+          <strong>Agent 正在处理</strong>
+          <span>{activeStep.title} · {activeStep.detail}</span>
+        </div>
+      </div>
+      <div className="mcp-thinking-steps" aria-label="Agent 执行进度">
+        {pendingSteps.map((step, index) => (
+          <div
+            key={step.title}
+            className={[
+              'mcp-thinking-step',
+              index < activeIndex ? 'is-done' : '',
+              index === activeIndex ? 'is-active' : '',
+            ].filter(Boolean).join(' ')}
+          >
+            <span>{index < activeIndex ? <CheckCircle size={14} /> : index === activeIndex ? <CircleNotch size={14} className="mcp-spin" /> : index + 1}</span>
+            <div>
+              <strong>{step.title}</strong>
+              <small>{step.detail}</small>
+            </div>
+          </div>
+        ))}
+      </div>
+      <ThinkingSkeleton title="正在等待工具返回" />
+    </div>
+  )
+}
+
+function ThinkingSkeleton({ title }: { title: string }) {
+  return (
+    <div className="mcp-thinking-skeleton" aria-label={title}>
+      <strong>{title}<i /><i /><i /></strong>
+      <span />
+      <span />
+      <span />
+    </div>
+  )
+}
+
+function ToolTraceList({ traces }: { traces: AssistantToolTrace[] }) {
+  return (
+    <section className="mcp-traces">
+      <strong>工具轨迹</strong>
+      {traces.map((trace) => {
+        const failed = trace.status.toUpperCase() === 'FAILED'
+        return (
+          <span key={`${trace.name}-${trace.summary}`} className={failed ? 'is-failed' : 'is-success'}>
+            {failed ? <WarningCircle size={13} /> : <CheckCircle size={13} />}
+            <b>{trace.name}</b>
+            <em>{readableTraceStatus(trace.status)}</em>
+            <small>{trace.summary}</small>
+          </span>
+        )
+      })}
+    </section>
+  )
+}
+
+function readableTraceStatus(status: string) {
+  const normalized = status.toUpperCase()
+  if (normalized === 'SUCCEEDED') return '成功'
+  if (normalized === 'FAILED') return '失败'
+  if (normalized === 'SKIPPED') return '跳过'
+  return status
 }
 
 function formatTime(value: string) {
