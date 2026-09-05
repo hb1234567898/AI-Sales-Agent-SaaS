@@ -57,7 +57,7 @@ frontend/src-tauri/target/release/bundle/
 
 ## GitHub Releases 自动更新
 
-桌面端从 `0.1.1` 开始接入 Tauri 官方 updater。发布链路如下：
+桌面端从 `0.1.1` 开始接入 Tauri 官方 updater。默认采用静默更新：有新版本时在顶部状态区显示下载/安装进度，后台完成下载和签名校验；没有新版本时不显示任何更新入口。
 
 ```text
 推送 desktop-v* tag 或手动触发 Desktop release
@@ -72,9 +72,9 @@ Release 自动带上 latest.json
         ↓
 桌面端启动后读取 latest.json 检查新版本
         ↓
-用户点击“立即更新”
+发现新版本后在后台静默下载
         ↓
-下载、校验签名、启动安装程序、重启应用
+校验签名、启动安装程序、重启应用
 ```
 
 ### 更新签名密钥
@@ -133,8 +133,8 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 方式一：推送 tag 自动发布。
 
 ```bash
-git tag desktop-v0.1.1
-git push origin desktop-v0.1.1
+git tag desktop-v0.1.2
+git push origin desktop-v0.1.2
 ```
 
 方式二：GitHub 页面手动触发。
@@ -146,7 +146,7 @@ Actions → Desktop release → Run workflow
 填写：
 
 ```text
-release_tag = desktop-v0.1.1
+release_tag = desktop-v0.1.2
 prerelease = true / false
 ```
 
@@ -185,7 +185,7 @@ GitHub Release 中的 `latest.json` 由 `tauri-apps/tauri-action` 自动生成�
 - MCP 自动化助手聊天历史保存到后端数据库。
 - 桌面端可以通过 `VITE_API_BASE_URL` 或登录页“服务地址”指向生产服务器。
 - 后端默认允许 Tauri 桌面端、本地 Vite 开发和线上域名的 CORS 请求。
-- 桌面端启动后会检查 GitHub Releases 更新，并提示用户下载安装。
+- 桌面端启动后会检查 GitHub Releases 更新，发现新版本后静默下载安装；已经是最新版本时不显示更新提示。
 
 ## 后端 CORS 配置
 
