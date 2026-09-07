@@ -133,8 +133,8 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 方式一：推送 tag 自动发布。
 
 ```bash
-git tag desktop-v0.1.2
-git push origin desktop-v0.1.2
+git tag desktop-v0.1.3
+git push origin desktop-v0.1.3
 ```
 
 方式二：GitHub 页面手动触发。
@@ -146,7 +146,7 @@ Actions → Desktop release → Run workflow
 填写：
 
 ```text
-release_tag = desktop-v0.1.2
+release_tag = desktop-v0.1.3
 prerelease = true / false
 ```
 
@@ -160,10 +160,10 @@ frontend/src-tauri/Cargo.toml
 frontend/src-tauri/tauri.conf.json
 ```
 
-例如发布 `desktop-v0.1.2` 前，上面三个地方都应改成：
+例如发布 `desktop-v0.1.3` 前，上面三个地方都应改成：
 
 ```text
-0.1.2
+0.1.3
 ```
 
 否则 GitHub Release 发出去了，桌面端也可能因为版本号没有变而判断“不需要更新”。
