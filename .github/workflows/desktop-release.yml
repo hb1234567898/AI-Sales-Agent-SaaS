@@ -83,3 +83,35 @@ jobs:
           prerelease: ${{ inputs.prerelease || false }}
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      - name: Patch updater manifest download URL
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
+          $installer = $release.assets |
+            Where-Object { $_.name -like "*_x64-setup.exe" } |
+            Select-Object -First 1
+
+          if (-not $installer) {
+            throw "没有找到 Windows NSIS 安装包资产，无法修正 latest.json 下载地址。"
+          }
+
+          New-Item -ItemType Directory -Force -Path updater-json-patch | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern latest.json --dir updater-json-patch --clobber
+
+          $manifestPath = Join-Path "updater-json-patch" "latest.json"
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $encodedAssetName = [System.Uri]::EscapeDataString($installer.name)
+          $downloadUrl = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:RELEASE_TAG)/$encodedAssetName"
+
+          foreach ($platform in $manifest.platforms.PSObject.Properties) {
+            $platform.Value.url = $downloadUrl
+          }
+
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+          gh release upload $env:RELEASE_TAG $manifestPath --repo $env:GITHUB_REPOSITORY --clobber
