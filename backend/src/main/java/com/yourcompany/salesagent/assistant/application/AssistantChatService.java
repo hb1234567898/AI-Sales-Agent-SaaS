@@ -1,20 +1,27 @@
 package com.yourcompany.salesagent.assistant.application;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.function.BiConsumer;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yourcompany.salesagent.agent.api.AgentRunCreateRequest;
+import com.yourcompany.salesagent.ai.application.AiModelService;
+import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
+import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.agent.api.AgentRunResponse;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.api.ApprovalDecisionRequest;
@@ -62,6 +69,9 @@ public class AssistantChatService {
 	private final FollowUpService followUpService;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
+	private final AiModelService aiModelService;
+	private final QwenModelClient modelClient;
+	private final TransactionTemplate transactions;
 
 	public AssistantChatService(
 			AssistantConversationMapper conversationMapper,
@@ -71,7 +81,10 @@ public class AssistantChatService {
 			ApprovalService approvalService,
 			FollowUpService followUpService,
 			ObjectMapper objectMapper,
-			Clock clock) {
+			Clock clock,
+			AiModelService aiModelService,
+			QwenModelClient modelClient,
+			PlatformTransactionManager transactionManager) {
 		this.conversationMapper = conversationMapper;
 		this.customerService = customerService;
 		this.interactionService = interactionService;
@@ -80,6 +93,84 @@ public class AssistantChatService {
 		this.followUpService = followUpService;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
+		this.aiModelService = aiModelService;
+		this.modelClient = modelClient;
+		this.transactions = new TransactionTemplate(transactionManager);
+	}
+
+	/** 在请求线程校验会话并提交用户消息，不让长时间模型请求占住数据库事务。 */
+	public UUID beginStream(AuthPrincipal principal, AssistantChatRequest request) {
+		return transactions.execute(status -> {
+			var conversation = resolveConversation(principal, request.conversationId(), request.channel(), request.message().strip());
+			conversationMapper.insertMessage(UUID.randomUUID(), principal.organizationId(), conversation.id(),
+					"USER", request.message().strip(), null, "[]", Map.of(), clock.instant());
+			return conversation.id();
+		});
+	}
+
+	/** 工具完成即发事件；模型增量即发事件；done 仅在最终消息提交后发送。 */
+	public void streamChat(AuthPrincipal principal, UUID conversationId, String message, BiConsumer<String, Object> events) {
+		var content = new StringBuilder();
+		var traces = new ArrayList<AssistantToolTrace>() {
+			@Override
+			public boolean add(AssistantToolTrace trace) {
+				events.accept("tool", trace);
+				removeIf(previous -> previous.name().equals(trace.name()) && previous.status().equals("RUNNING"));
+				return super.add(trace);
+			}
+		};
+		String summary = "";
+		Map<String, Object> data = new LinkedHashMap<>();
+		String failure = null;
+		try {
+			events.accept("progress", Map.of("text", "正在识别业务指令并执行工具；分析客户时需要等待模型返回。"));
+			var result = route(principal, message.strip(), traces);
+			summary = result.reasoningSummary();
+			data.putAll(result.data());
+			events.accept("summary", Map.of("text", summary));
+			events.accept("result", result);
+			try {
+				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId());
+				events.accept("progress", Map.of("text", "业务执行已结束，模型正在生成回答。"));
+				modelClient.streamAssistantReply(configuration, message, objectMapper.writeValueAsString(result))
+						.timeout(Duration.ofSeconds(45))
+						.doOnNext(delta -> {
+							content.append(delta);
+							events.accept("delta", Map.of("text", delta));
+						}).blockLast(Duration.ofMinutes(2));
+				if (content.isEmpty()) throw new IllegalStateException("Empty model response");
+			}
+			catch (AiModelNotConfiguredException exception) {
+				// 没有模型时仍支持业务工具，明确返回原始结果，不模拟打字效果。
+				events.accept("progress", Map.of("text", "未配置模型，直接展示业务结果。"));
+				content.append(result.content());
+				events.accept("delta", Map.of("text", result.content()));
+			}
+			catch (RuntimeException exception) {
+				failure = "模型回答生成中断，业务操作不会重试。请以工具结果为准。";
+				var fallback = "\n\n" + failure + "\n" + result.content();
+				content.append(fallback);
+				events.accept("delta", Map.of("text", fallback));
+			}
+		}
+		catch (RuntimeException exception) {
+			var unfinished = traces.stream().filter(trace -> trace.status().equals("RUNNING")).toList();
+			unfinished.forEach(trace -> traces.add(new AssistantToolTrace(trace.name(), "FAILED", "执行未完成，请核对业务记录")));
+			failure = exception instanceof AssistantWorkflowException ? exception.getMessage()
+					: "业务执行未完成，请检查客户、审批或运行记录后再决定是否重试。";
+			content.append(failure);
+			events.accept("delta", Map.of("text", failure));
+		}
+		data.put("streamStatus", failure == null ? "COMPLETED" : "INTERRUPTED");
+		var response = new AssistantChatResponse(conversationId, UUID.randomUUID(), "assistant", content.toString(),
+				summary, List.copyOf(traces), data, clock.instant());
+		transactions.executeWithoutResult(status -> {
+			conversationMapper.insertMessage(response.messageId(), principal.organizationId(), conversationId,
+					"ASSISTANT", response.content(), response.reasoningSummary(), toJson(response.toolTraces()), data, response.createdAt());
+			conversationMapper.touchConversation(principal.organizationId(), conversationId, response.createdAt());
+		});
+		if (failure != null) events.accept("error", Map.of("message", failure));
+		events.accept("done", response);
 	}
 
 	@Transactional
@@ -150,7 +241,10 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, String message) {
-		var traces = new ArrayList<AssistantToolTrace>();
+		return route(principal, message, new ArrayList<>());
+	}
+
+	private AssistantChatResponse route(AuthPrincipal principal, String message, List<AssistantToolTrace> traces) {
 		var normalized = message.toLowerCase();
 
 		if (looksLikeChatImport(message)) {
@@ -180,10 +274,12 @@ public class AssistantChatService {
 			return reply("我还缺客户名或聊天内容。可以这样发：\n\n给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。", "识别为聊天导入意图，但缺少客户名或聊天正文，因此没有调用业务写入工具。", traces, Map.of("intent", "CHAT_IMPORT"));
 		}
 		var customer = resolveOrCreateCustomer(command.customerName(), looksLikeCustomerCreate(message), traces);
+		traces.add(new AssistantToolTrace("interaction.chat_import", "RUNNING", "正在保存聊天记录"));
 		var interaction = interactionService.importChat(
 				customer.id(),
 				new ChatImportRequest(ChatPlatform.OTHER, clock.instant(), "MCP 助手导入聊天", command.content().strip(), null));
 		traces.add(new AssistantToolTrace("interaction.chat_import", "SUCCEEDED", "已导入聊天记录：" + interaction.id()));
+		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在分析客户并生成待审批建议"));
 		var run = agentService.runNow(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())));
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply(
@@ -200,6 +296,7 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse runAgent(AuthPrincipal principal, String message, List<AssistantToolTrace> traces) {
+		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在读取互动并调用模型分析客户"));
 		var customerName = extractCustomerName(message);
 		AgentRunResponse run;
 		if (StringUtils.hasText(customerName)) {
@@ -223,6 +320,7 @@ public class AssistantChatService {
 		if (!StringUtils.hasText(draft.name())) {
 			return reply("我还缺客户名称。可以这样发：\n\n新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com", "识别为新增客户意图，但缺少客户名称，因此没有创建客户。", traces, Map.of("intent", "CUSTOMER_CREATE"));
 		}
+		traces.add(new AssistantToolTrace("customer.create", "RUNNING", "正在创建客户档案"));
 		var customer = createCustomerFromDraft(draft);
 		traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "已新增客户：" + customer.name()));
 		return reply("客户「" + customer.name() + "」已经创建完成。你可以继续说：给" + customer.name() + "导入聊天：……，我会自动导入并运行 Agent。", "识别新增客户指令 → 抽取客户名称、行业和联系人字段 → 创建客户主档和主要联系人。", traces, Map.of(
@@ -231,6 +329,7 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse listPendingApprovals(List<AssistantToolTrace> traces) {
+		traces.add(new AssistantToolTrace("approval.list", "RUNNING", "正在查询待审批建议"));
 		var page = approvalService.findApprovals("PENDING", 0, 10);
 		traces.add(new AssistantToolTrace("approval.list", "SUCCEEDED", "读取待审批建议 " + page.getTotal() + " 条"));
 		var approvals = page.getRecords().stream()
@@ -253,6 +352,7 @@ public class AssistantChatService {
 			return reply("为了避免误审批，请带上完整审批 ID，例如：批准 00000000-0000-0000-0000-000000000000", "识别审批通过意图，但缺少完整审批 ID，因此没有执行审批动作。", traces, Map.of("intent", "APPROVE"));
 		}
 		var approvalId = UUID.fromString(matcher.group());
+		traces.add(new AssistantToolTrace("approval.approve", "RUNNING", "正在审批并执行对应动作"));
 		var approval = approvalService.approve(principal, approvalId, new ApprovalDecisionRequest(null, "由 MCP 助手聊天入口批准"));
 		traces.add(new AssistantToolTrace("approval.approve", "SUCCEEDED", "已批准审批：" + approval.id()));
 		return reply("已审批通过「" + approval.customerName() + "」的建议，系统会继续执行对应工具并刷新 Agent 运行状态。", "识别审批通过指令 → 校验审批 ID → 调用审批通过接口 → 返回审批后的业务状态。", traces, Map.of(
@@ -262,6 +362,7 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse listFollowUps(List<AssistantToolTrace> traces) {
+		traces.add(new AssistantToolTrace("follow_up.list", "RUNNING", "正在查询跟进任务"));
 		var page = followUpService.findFollowUps("ALL", 0, 10);
 		traces.add(new AssistantToolTrace("follow_up.list", "SUCCEEDED", "读取跟进任务 " + page.getTotal() + " 条"));
 		var tasks = page.getRecords().stream()
@@ -465,7 +566,7 @@ public class AssistantChatService {
 
 	private AssistantConversationRow ensureConversation(AuthPrincipal principal, UUID conversationId) {
 		var conversation = conversationMapper.selectConversation(principal.organizationId(), conversationId);
-		if (conversation == null) {
+		if (conversation == null || !principal.memberId().equals(conversation.memberId())) {
 			throw new AssistantWorkflowException("没有找到这条 MCP 助手会话，请刷新会话列表后重试");
 		}
 		return conversation;
@@ -511,7 +612,8 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse reply(String content, String reasoningSummary, List<AssistantToolTrace> traces, Map<String, Object> data) {
-		return new AssistantChatResponse(null, null, "assistant", content, reasoningSummary, List.copyOf(traces), data, clock.instant());
+		return new AssistantChatResponse(null, null, "assistant", content, reasoningSummary,
+				traces.stream().filter(trace -> !trace.status().equals("RUNNING")).toList(), data, clock.instant());
 	}
 
 	private static String normalizeChannel(String channel) {

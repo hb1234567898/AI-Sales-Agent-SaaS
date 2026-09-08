@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getMcpConversations,
   getMcpMessages,
-  sendMcpChatMessage,
+  streamMcpChatMessage,
   type AssistantChatResponse,
 } from '../api/mcp-chat-api'
 import { McpAssistantPage } from './McpAssistantPage'
@@ -17,7 +17,7 @@ vi.mock('../auth/use-auth', () => ({
 vi.mock('../api/mcp-chat-api', () => ({
   getMcpConversations: vi.fn(),
   getMcpMessages: vi.fn(),
-  sendMcpChatMessage: vi.fn(),
+  streamMcpChatMessage: vi.fn(),
 }))
 
 function renderMcpAssistantPage() {
@@ -51,7 +51,7 @@ describe('McpAssistantPage', () => {
       first: true,
       last: true,
     })
-    vi.mocked(sendMcpChatMessage).mockReset()
+    vi.mocked(streamMcpChatMessage).mockReset()
   })
 
   afterEach(() => {
@@ -60,7 +60,7 @@ describe('McpAssistantPage', () => {
   })
 
   it('发送指令时展示 Agent 思考过程加载态', async () => {
-    vi.mocked(sendMcpChatMessage).mockReturnValue(new Promise(() => undefined))
+    vi.mocked(streamMcpChatMessage).mockReturnValue(new Promise(() => undefined))
     const user = userEvent.setup()
     renderMcpAssistantPage()
 
@@ -68,8 +68,8 @@ describe('McpAssistantPage', () => {
     await user.click(screen.getByRole('button', { name: /发送指令/ }))
 
     expect(await screen.findByText('Agent 正在处理')).toBeInTheDocument()
-    expect(screen.getByText('理解业务意图')).toBeInTheDocument()
-    expect(screen.getByText('规划工具调用')).toBeInTheDocument()
+    expect(screen.getByText('正在连接助手…')).toBeInTheDocument()
+    expect(screen.queryByText('规划工具调用')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Agent 执行进度')).toBeInTheDocument()
   })
 
@@ -97,7 +97,7 @@ describe('McpAssistantPage', () => {
       data: {},
       createdAt: '2026-09-05T08:00:00Z',
     }
-    vi.mocked(sendMcpChatMessage).mockResolvedValue(response)
+    vi.mocked(streamMcpChatMessage).mockResolvedValue(response)
     const user = userEvent.setup()
     renderMcpAssistantPage()
 
@@ -106,8 +106,28 @@ describe('McpAssistantPage', () => {
 
     expect(await screen.findByText('已查询到 2 条待审批建议。')).toBeInTheDocument()
     expect(screen.getAllByText('结果输出').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('思考摘要').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('执行过程').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('工具轨迹')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('approval.list')).toBeInTheDocument())
+  })
+
+  it('完成前显示真实文本增量，断线保留内容并重新启用发送', async () => {
+    let rejectStream!: (error: Error) => void
+    vi.mocked(streamMcpChatMessage).mockImplementation((_input, onEvent) => {
+      onEvent({ type: 'delta', data: { text: '正在返回的第一段' } })
+      return new Promise((_resolve, reject) => { rejectStream = reject })
+    })
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+    const composer = screen.getByPlaceholderText(/给云岚科技导入聊天/)
+    await user.type(composer, '查看待审批')
+    await user.click(screen.getByRole('button', { name: /发送指令/ }))
+    expect(await screen.findByText(/正在返回的第一段/)).toBeInTheDocument()
+    expect(screen.getByText('Agent 正在处理')).toBeInTheDocument()
+    rejectStream(new Error('连接中断'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('连接中断')
+    expect(screen.getByText('正在返回的第一段')).toBeInTheDocument()
+    await user.type(composer, '查看跟进任务')
+    expect(screen.getByRole('button', { name: /发送指令/ })).toBeEnabled()
   })
 })

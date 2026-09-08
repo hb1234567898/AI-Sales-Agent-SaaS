@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getMcpConversations,
   getMcpMessages,
-  sendMcpChatMessage,
+  streamMcpChatMessage,
+  type SendMcpChatMessageInput,
   type AssistantMessage,
   type AssistantToolTrace,
 } from '../api/mcp-chat-api'
@@ -18,6 +19,9 @@ interface ChatMessage {
   reasoningSummary?: string | null
   traces?: AssistantToolTrace[]
   createdAt: string
+  streaming?: boolean
+  progress?: string
+  error?: string
 }
 
 const quickPrompts = [
@@ -59,20 +63,17 @@ const welcomeMessage: ChatMessage = {
   createdAt: new Date().toISOString(),
 }
 
-const pendingSteps = [
-  { title: '理解业务意图', detail: '识别你想操作的对象、动作和约束条件。' },
-  { title: '规划工具调用', detail: '选择客户、互动、Agent、审批或跟进工具，并整理参数。' },
-  { title: '执行并校验结果', detail: '调用后端业务接口，检查返回状态和异常信息。' },
-  { title: '整理输出', detail: '把执行结果、下一步建议和工具轨迹写回会话。' },
-]
-
 export function McpAssistantPage() {
   const isGuest = useIsGuest()
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
-  const [pendingStepIndex, setPendingStepIndex] = useState(0)
+  const [useLocalMessages, setUseLocalMessages] = useState(true)
+  const pendingId = useRef('')
+  const pendingConversationId = useRef<string | undefined>(undefined)
+  const busy = useRef(false)
+  const streamController = useRef<AbortController | null>(null)
   const messageListRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -90,30 +91,39 @@ export function McpAssistantPage() {
 
   const conversations = conversationsQuery.data?.content ?? []
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
-  const pendingReasoning = useMemo(() => pendingSteps[pendingStepIndex] ?? pendingSteps[pendingSteps.length - 1], [pendingStepIndex])
 
-  useEffect(() => {
-    if (!messagesQuery.data || !activeConversationId) return
-    const persistedMessages = messagesQuery.data.content
+  const displayedMessages = useMemo(() => useLocalMessages ? messages : (messagesQuery.data?.content ?? [])
       .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map(toChatMessage)
-    if (persistedMessages.length > 0) {
-      setMessages(persistedMessages)
-    }
-  }, [activeConversationId, messagesQuery.data])
+      .map(toChatMessage), [useLocalMessages, messages, messagesQuery.data])
 
   const chatMutation = useMutation({
-    mutationFn: sendMcpChatMessage,
+    retry: false,
+    mutationFn: (request: SendMcpChatMessageInput) => streamMcpChatMessage(request, (event) => {
+      if (event.type === 'meta') {
+        pendingConversationId.current = event.data.conversationId
+        return
+      }
+      setMessages((current) => current.map((message) => {
+        if (message.id !== pendingId.current) return message
+        if (event.type === 'delta') return { ...message, content: message.content + event.data.text }
+        if (event.type === 'progress') return { ...message, progress: event.data.text }
+        if (event.type === 'summary') return { ...message, reasoningSummary: event.data.text }
+        if (event.type === 'tool') return { ...message, traces: [...(message.traces ?? []).filter((trace) => trace.name !== event.data.name), event.data] }
+        if (event.type === 'error') return { ...message, error: event.data.message }
+        return message
+      }))
+    }, streamController.current?.signal),
     onSuccess: (response) => {
       setActiveConversationId(response.conversationId)
-      setMessages((current) => [...current, {
+      setMessages((current) => current.map((message) => message.id !== pendingId.current ? message : {
         id: response.messageId,
         role: 'assistant',
         content: response.content,
         reasoningSummary: response.reasoningSummary,
         traces: response.toolTraces,
         createdAt: response.createdAt,
-      }])
+        error: message.error,
+      }))
       void queryClient.invalidateQueries({ queryKey: ['mcp-conversations'] })
       void queryClient.invalidateQueries({ queryKey: ['mcp-messages', response.conversationId] })
       void queryClient.invalidateQueries({ queryKey: ['agent-runs'] })
@@ -122,22 +132,20 @@ export function McpAssistantPage() {
       void queryClient.invalidateQueries({ queryKey: ['customers'] })
     },
     onError: (error) => {
-      setMessages((current) => [...current, {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: error instanceof Error ? error.message : '自动化请求失败，请稍后重试。',
-        createdAt: new Date().toISOString(),
-      }])
+      setMessages((current) => current.map((message) => message.id !== pendingId.current ? message : {
+        ...message,
+        streaming: false,
+        error: error instanceof Error ? error.message : '连接中断，请查看历史记录确认执行结果。',
+      }))
+      void queryClient.invalidateQueries({ queryKey: ['mcp-conversations'] })
+    },
+    onSettled: () => {
+      busy.current = false
+      streamController.current = null
     },
   })
 
-  useEffect(() => {
-    if (!chatMutation.isPending) return
-    const timer = window.setInterval(() => {
-      setPendingStepIndex((current) => Math.min(current + 1, pendingSteps.length - 1))
-    }, 1200)
-    return () => window.clearInterval(timer)
-  }, [chatMutation.isPending])
+  useEffect(() => () => streamController.current?.abort(), [])
 
   useEffect(() => {
     const messageList = messageListRef.current
@@ -146,20 +154,30 @@ export function McpAssistantPage() {
       top: messageList.scrollHeight,
       behavior: 'smooth',
     })
-  }, [messages, chatMutation.isPending, pendingStepIndex])
+  }, [displayedMessages, chatMutation.isPending])
 
   function submit(message = input) {
     const content = message.trim()
-    if (!content || chatMutation.isPending || isGuest) return
-    setMessages((current) => [...current, {
+    if (!content || busy.current || isGuest) return
+    busy.current = true
+    streamController.current = new AbortController()
+    pendingId.current = crypto.randomUUID()
+    setUseLocalMessages(true)
+    setMessages([...displayedMessages, {
       id: crypto.randomUUID(),
       role: 'user',
       content,
       createdAt: new Date().toISOString(),
+    }, {
+      id: pendingId.current,
+      role: 'assistant',
+      content: '',
+      streaming: true,
+      progress: '正在连接助手…',
+      createdAt: new Date().toISOString(),
     }])
-    setPendingStepIndex(0)
     setInput('')
-    chatMutation.mutate({ conversationId: activeConversationId, message: content })
+    chatMutation.mutate({ conversationId: activeConversationId ?? pendingConversationId.current, message: content })
   }
 
   function applyToolTemplate(template: string) {
@@ -173,6 +191,8 @@ export function McpAssistantPage() {
 
   function startNewConversation() {
     setActiveConversationId(undefined)
+    setUseLocalMessages(true)
+    pendingConversationId.current = undefined
     setMessages([welcomeMessage])
     setInput('')
   }
@@ -206,7 +226,8 @@ export function McpAssistantPage() {
                   key={conversation.id}
                   type="button"
                   className={conversation.id === activeConversationId ? 'is-active' : ''}
-                  onClick={() => setActiveConversationId(conversation.id)}
+                  disabled={chatMutation.isPending}
+                  onClick={() => { setActiveConversationId(conversation.id); setUseLocalMessages(false) }}
                 >
                   <strong>{conversation.title}</strong>
                   <span>{formatTime(conversation.lastMessageAt ?? conversation.createdAt)} · {conversation.channel}</span>
@@ -226,7 +247,7 @@ export function McpAssistantPage() {
                 </div>
               </article>
             ) : null}
-            {messages.map((message) => (
+            {displayedMessages.map((message) => (
               <article key={message.id} className={`mcp-message is-${message.role}`}>
                 <span className="mcp-avatar" aria-hidden>
                   {message.role === 'user' ? <UserCircle size={20} /> : <Robot size={20} />}
@@ -240,12 +261,6 @@ export function McpAssistantPage() {
                 </div>
               </article>
             ))}
-            {chatMutation.isPending ? (
-              <article className="mcp-message is-assistant">
-                <span className="mcp-avatar" aria-hidden><Robot size={20} /></span>
-                <PendingAssistantBubble activeIndex={pendingStepIndex} activeStep={pendingReasoning} />
-              </article>
-            ) : null}
           </div>
 
           <form
@@ -317,52 +332,26 @@ function AssistantOutput({ message }: { message: ChatMessage }) {
   const traces = message.traces ?? []
   return (
     <div className="mcp-assistant-output">
+      {message.streaming ? (
+        <div className="mcp-pending-head" aria-label="Agent 执行进度">
+          <CircleNotch size={18} className="mcp-spin" />
+          <div><strong>Agent 正在处理</strong><span>{message.progress}</span></div>
+        </div>
+      ) : null}
       <section className="mcp-output-card">
         <header><Sparkle size={14} />结果输出</header>
-        <p>{message.content}</p>
+        <p>{message.content}{message.streaming && message.content ? <span className="mcp-stream-cursor" aria-hidden>▍</span> : null}</p>
       </section>
+      {message.error ? <p role="alert" className="mcp-stream-error"><WarningCircle size={15} />{message.error}</p> : null}
 
       {message.reasoningSummary ? (
         <section className="mcp-reasoning">
-          <strong><DotsThree size={15} />思考摘要</strong>
+          <strong><DotsThree size={15} />执行过程</strong>
           <span>{message.reasoningSummary}</span>
         </section>
       ) : null}
 
       {traces.length > 0 ? <ToolTraceList traces={traces} /> : null}
-    </div>
-  )
-}
-
-function PendingAssistantBubble({ activeIndex, activeStep }: { activeIndex: number; activeStep: typeof pendingSteps[number] }) {
-  return (
-    <div className="mcp-bubble mcp-bubble-pending">
-      <div className="mcp-pending-head">
-        <CircleNotch size={18} className="mcp-spin" />
-        <div>
-          <strong>Agent 正在处理</strong>
-          <span>{activeStep.title} · {activeStep.detail}</span>
-        </div>
-      </div>
-      <div className="mcp-thinking-steps" aria-label="Agent 执行进度">
-        {pendingSteps.map((step, index) => (
-          <div
-            key={step.title}
-            className={[
-              'mcp-thinking-step',
-              index < activeIndex ? 'is-done' : '',
-              index === activeIndex ? 'is-active' : '',
-            ].filter(Boolean).join(' ')}
-          >
-            <span>{index < activeIndex ? <CheckCircle size={14} /> : index === activeIndex ? <CircleNotch size={14} className="mcp-spin" /> : index + 1}</span>
-            <div>
-              <strong>{step.title}</strong>
-              <small>{step.detail}</small>
-            </div>
-          </div>
-        ))}
-      </div>
-      <ThinkingSkeleton title="正在等待工具返回" />
     </div>
   )
 }
@@ -384,9 +373,10 @@ function ToolTraceList({ traces }: { traces: AssistantToolTrace[] }) {
       <strong>工具轨迹</strong>
       {traces.map((trace) => {
         const failed = trace.status.toUpperCase() === 'FAILED'
+        const running = trace.status.toUpperCase() === 'RUNNING'
         return (
           <span key={`${trace.name}-${trace.summary}`} className={failed ? 'is-failed' : 'is-success'}>
-            {failed ? <WarningCircle size={13} /> : <CheckCircle size={13} />}
+            {running ? <CircleNotch size={13} className="mcp-spin" /> : failed ? <WarningCircle size={13} /> : <CheckCircle size={13} />}
             <b>{trace.name}</b>
             <em>{readableTraceStatus(trace.status)}</em>
             <small>{trace.summary}</small>
@@ -402,6 +392,7 @@ function readableTraceStatus(status: string) {
   if (normalized === 'SUCCEEDED') return '成功'
   if (normalized === 'FAILED') return '失败'
   if (normalized === 'SKIPPED') return '跳过'
+  if (normalized === 'RUNNING') return '执行中'
   return status
 }
 

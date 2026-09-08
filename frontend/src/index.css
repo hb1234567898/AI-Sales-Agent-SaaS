@@ -5875,3 +5875,20 @@ input:focus-visible {
     width: 100%;
   }
 }
+.mcp-stream-cursor {
+  color: var(--color-primary, #2563eb);
+  animation: mcp-cursor-blink 1s step-end infinite;
+}
+
+.mcp-stream-error {
+  color: #b42318;
+  white-space: pre-wrap;
+}
+
+@keyframes mcp-cursor-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-stream-cursor { animation: none; }
+}
