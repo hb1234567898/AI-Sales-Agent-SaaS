@@ -910,7 +910,7 @@ input:focus-visible {
 
 .desktop-update-indicator {
   position: relative;
-  height: 26px;
+  min-height: 26px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -922,6 +922,44 @@ input:focus-visible {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
+}
+
+.desktop-update-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.desktop-update-actions button {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 7px;
+  color: var(--slate-600);
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.desktop-update-actions button:hover {
+  color: var(--blue-700);
+  border-color: #93c5fd;
+}
+
+.desktop-update-actions button.is-primary {
+  color: #fff;
+  background: var(--blue-600);
+  border-color: var(--blue-600);
+}
+
+.desktop-update-actions button.is-primary:hover {
+  background: var(--blue-700);
+  border-color: var(--blue-700);
 }
 
 .desktop-update-indicator::after {
@@ -5836,4 +5874,21 @@ input:focus-visible {
   .mcp-composer .button {
     width: 100%;
   }
+}
+.mcp-stream-cursor {
+  color: var(--color-primary, #2563eb);
+  animation: mcp-cursor-blink 1s step-end infinite;
+}
+
+.mcp-stream-error {
+  color: #b42318;
+  white-space: pre-wrap;
+}
+
+@keyframes mcp-cursor-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-stream-cursor { animation: none; }
 }

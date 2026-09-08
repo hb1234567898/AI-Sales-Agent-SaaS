@@ -57,7 +57,13 @@ frontend/src-tauri/target/release/bundle/
 
 ## GitHub Releases 自动更新
 
-桌面端从 `0.1.1` 开始接入 Tauri 官方 updater。默认采用静默更新：有新版本时在顶部状态区显示下载/安装进度，后台完成下载和签名校验；没有新版本时不显示任何更新入口。
+更完整的远程更新方案、发布步骤、`latest.json` 排查方法和“发现新版本后由用户确认安装”的交互设计，见：
+
+```text
+docs/desktop-remote-update.md
+```
+
+桌面端从 `0.1.1` 开始接入 Tauri 官方 updater。默认采用确认式更新：有新版本时在顶部状态区显示“发现新版本”，由用户选择“立即更新”或“稍后”；没有新版本时不显示任何更新入口。
 
 ```text
 推送 desktop-v* tag 或手动触发 Desktop release
@@ -72,9 +78,9 @@ Release 自动带上 latest.json
         ↓
 桌面端启动后读取 latest.json 检查新版本
         ↓
-发现新版本后在后台静默下载
+发现新版本后等待用户确认
         ↓
-校验签名、启动安装程序、重启应用
+用户点击立即更新后下载、校验签名、启动安装程序、重启应用
 ```
 
 ### 更新签名密钥
@@ -185,7 +191,7 @@ GitHub Release 中的 `latest.json` 由 `tauri-apps/tauri-action` 自动生成�
 - MCP 自动化助手聊天历史保存到后端数据库。
 - 桌面端可以通过 `VITE_API_BASE_URL` 或登录页“服务地址”指向生产服务器。
 - 后端默认允许 Tauri 桌面端、本地 Vite 开发和线上域名的 CORS 请求。
-- 桌面端启动后会检查 GitHub Releases 更新，发现新版本后静默下载安装；已经是最新版本时不显示更新提示。
+- 桌面端启动后会检查 GitHub Releases 更新，发现新版本后由用户选择是否立即更新；已经是最新版本时不显示更新提示。
 
 ## 后端 CORS 配置
 

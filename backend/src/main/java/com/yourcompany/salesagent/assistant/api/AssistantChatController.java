@@ -1,6 +1,10 @@
 package com.yourcompany.salesagent.assistant.api;
 
 import org.springframework.security.core.Authentication;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import com.yourcompany.salesagent.assistant.application.AssistantStreamTransport;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,9 +32,19 @@ import jakarta.validation.constraints.Min;
 public class AssistantChatController {
 
 	private final AssistantChatService chatService;
+	private final AssistantStreamTransport streamTransport;
 
-	public AssistantChatController(AssistantChatService chatService) {
+	public AssistantChatController(AssistantChatService chatService, AssistantStreamTransport streamTransport) {
 		this.chatService = chatService;
+		this.streamTransport = streamTransport;
+	}
+
+	@PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	public ResponseEntity<SseEmitter> stream(Authentication authentication, @Valid @RequestBody AssistantChatRequest request) {
+		return ResponseEntity.ok()
+				.header("Cache-Control", "no-cache, no-transform")
+				.header("X-Accel-Buffering", "no")
+				.body(streamTransport.open(principal(authentication), request));
 	}
 
 	@PostMapping("/chat")
