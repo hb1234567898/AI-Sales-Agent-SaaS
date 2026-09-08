@@ -9,7 +9,8 @@ const frame = (type: string, data: unknown) => `event: ${type}\r\ndata: ${JSON.s
 
 describe('MCP SSE transport', () => {
   it('建立流前 401 刷新 JWT，新 token 用于流式重试', async () => {
-    const tokens = { accessToken: 'old-token', refreshToken: 'refresh-token', accessTokenExpiresAt: '2026-01-01T00:00:00Z', refreshTokenExpiresAt: '2027-01-01T00:00:00Z' }
+    // 未过期 token：主动刷新不触发，401 由响应拦截器被动刷新并重试。
+    const tokens = { accessToken: 'old-token', refreshToken: 'refresh-token', accessTokenExpiresAt: '2099-01-01T00:00:00Z', refreshTokenExpiresAt: '2099-01-01T00:00:00Z' }
     saveAuthTokens(tokens, false)
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const request = input as Request
@@ -20,6 +21,20 @@ describe('MCP SSE transport', () => {
     })
     await expect(streamMcpChatMessage({ message: '查看待审批' }, vi.fn())).resolves.toEqual(finalResponse)
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('Access Token 已过期时流式请求前主动刷新，一次成功', async () => {
+    const tokens = { accessToken: 'old-token', refreshToken: 'refresh-token', accessTokenExpiresAt: '2026-01-01T00:00:00Z', refreshTokenExpiresAt: '2099-01-01T00:00:00Z' }
+    saveAuthTokens(tokens, false)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const request = input as Request
+      if (request.url.endsWith('/auth/refresh')) return new Response(JSON.stringify({ ...tokens, accessToken: 'new-token' }), { headers: { 'Content-Type': 'application/json' } })
+      expect(request.headers.get('Authorization')).toBe('Bearer new-token')
+      return new Response(frame('done', finalResponse), { headers: { 'Content-Type': 'text/event-stream' } })
+    })
+    await expect(streamMcpChatMessage({ message: '查看待审批' }, vi.fn())).resolves.toEqual(finalResponse)
+    // 主动刷新在请求前完成，流式请求直接带新 token 成功，不再走 401 重试。
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('处理跨字节中文、拆开的 CRLF 和同包多事件，done 前已交付增量', async () => {
