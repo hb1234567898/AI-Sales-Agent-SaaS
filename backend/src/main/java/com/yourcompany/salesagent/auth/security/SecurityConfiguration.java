@@ -3,6 +3,7 @@ package com.yourcompany.salesagent.auth.security;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.context.annotation.Bean;
@@ -47,8 +48,8 @@ public class SecurityConfiguration {
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(authorize -> authorize
-						// SSE 完成后的容器内部派发已在初始请求校验过 JWT。
-						.dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
+						// SSE 的容器内部派发已在初始请求校验过 JWT。
+						.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
 						.requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/password-key", "/actuator/health", "/actuator/info").permitAll()
 						.requestMatchers("/api/v1/audit-events/**", "/api/v1/admin/**").authenticated()
 						.requestMatchers("/api/v1/auth/session").authenticated()
