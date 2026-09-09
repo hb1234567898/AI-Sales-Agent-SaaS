@@ -15,7 +15,7 @@ afterEach(() => {
 })
 
 describe('Axios HTTP client JWT refresh', () => {
-  it('在 Access Token 失效后轮换双 Token 并重试原请求', async () => {
+  it('Access Token 已过期时请求前主动刷新，一次成功即轮换双 Token', async () => {
     saveExpiredTokens(false)
     let apiRequests = 0
     apiClient.defaults.adapter = async (config) => {
@@ -40,13 +40,39 @@ describe('Axios HTTP client JWT refresh', () => {
     })
 
     expect(result).toEqual({ configured: true })
-    expect(apiRequests).toBe(2)
+    // 主动刷新在请求前完成，原请求直接带新 Token 成功，不再走 401 重试。
+    expect(apiRequests).toBe(1)
     expect(getAuthTokens()).toEqual({
       accessToken: 'new-access.jwt',
       accessTokenExpiresAt: '2026-08-26T02:15:00Z',
       refreshToken: 'new-refresh.jwt',
       refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
     })
+  })
+
+  it('Access Token 未过期但被服务端拒绝时仍走 401 被动刷新重试', async () => {
+    saveTokens(false, '2099-01-01T00:00:00Z')
+    let apiRequests = 0
+    apiClient.defaults.adapter = async (config) => {
+      apiRequests += 1
+      const authorization = header(config, 'Authorization')
+      return authorization === 'Bearer expired-access.jwt'
+        ? reject(config, 401, { detail: '登录状态已失效' })
+        : resolve(config, 200, { configured: true })
+    }
+    authRefreshClient.defaults.adapter = async (config) => {
+      expect(JSON.parse(String(config.data))).toEqual({ refreshToken: 'old-refresh.jwt' })
+      return resolve(config, 200, refreshedTokens())
+    }
+
+    const result = await requestJson<{ configured: boolean }>('/api/v1/ai/model', {
+      method: 'PUT',
+      data: { provider: 'QWEN' },
+    })
+
+    expect(result).toEqual({ configured: true })
+    expect(apiRequests).toBe(2)
+    expect(getAuthTokens()?.accessToken).toBe('new-access.jwt')
   })
 
   it('并发 401 只发起一次 Refresh Token 请求', async () => {
@@ -136,6 +162,15 @@ function saveExpiredTokens(remember: boolean) {
   saveAuthTokens({
     accessToken: 'expired-access.jwt',
     accessTokenExpiresAt: '2026-08-26T02:00:00Z',
+    refreshToken: 'old-refresh.jwt',
+    refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
+  }, remember)
+}
+
+function saveTokens(remember: boolean, accessTokenExpiresAt: string) {
+  saveAuthTokens({
+    accessToken: 'expired-access.jwt',
+    accessTokenExpiresAt,
     refreshToken: 'old-refresh.jwt',
     refreshTokenExpiresAt: '2026-09-25T02:00:00Z',
   }, remember)
