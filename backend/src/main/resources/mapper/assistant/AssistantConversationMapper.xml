@@ -5,29 +5,33 @@
 <mapper namespace="com.yourcompany.salesagent.assistant.infrastructure.AssistantConversationMapper">
 
     <resultMap id="ConversationMap" type="com.yourcompany.salesagent.assistant.infrastructure.AssistantConversationRow">
-        <id property="id" column="id" />
-        <result property="organizationId" column="organization_id" />
-        <result property="userId" column="user_id" />
-        <result property="memberId" column="member_id" />
-        <result property="title" column="title" />
-        <result property="channel" column="channel" />
-        <result property="status" column="status" />
-        <result property="lastMessageAt" column="last_message_at" />
-        <result property="createdAt" column="created_at" />
-        <result property="updatedAt" column="updated_at" />
-        <result property="version" column="version" />
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" />
+            <arg column="organization_id" javaType="java.util.UUID" />
+            <arg column="user_id" javaType="java.util.UUID" />
+            <arg column="member_id" javaType="java.util.UUID" />
+            <arg column="title" javaType="java.lang.String" />
+            <arg column="channel" javaType="java.lang.String" />
+            <arg column="status" javaType="java.lang.String" />
+            <arg column="last_message_at" javaType="java.time.Instant" />
+            <arg column="created_at" javaType="java.time.Instant" />
+            <arg column="updated_at" javaType="java.time.Instant" />
+            <arg column="version" javaType="java.lang.Integer" />
+        </constructor>
     </resultMap>
 
     <resultMap id="MessageMap" type="com.yourcompany.salesagent.assistant.infrastructure.AssistantMessageRow">
-        <id property="id" column="id" />
-        <result property="organizationId" column="organization_id" />
-        <result property="conversationId" column="conversation_id" />
-        <result property="role" column="role" />
-        <result property="content" column="content" />
-        <result property="reasoningSummary" column="reasoning_summary" />
-        <result property="toolTracesJson" column="tool_traces_json" />
-        <result property="data" column="data" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
-        <result property="createdAt" column="created_at" />
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" />
+            <arg column="organization_id" javaType="java.util.UUID" />
+            <arg column="conversation_id" javaType="java.util.UUID" />
+            <arg column="role" javaType="java.lang.String" />
+            <arg column="content" javaType="java.lang.String" />
+            <arg column="reasoning_summary" javaType="java.lang.String" />
+            <arg column="tool_traces_json" javaType="java.lang.String" />
+            <arg column="data" javaType="java.util.Map" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+            <arg column="created_at" javaType="java.time.Instant" />
+        </constructor>
     </resultMap>
 
     <select id="selectConversation" resultMap="ConversationMap">
