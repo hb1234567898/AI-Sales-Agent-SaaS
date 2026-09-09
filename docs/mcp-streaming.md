@@ -125,6 +125,8 @@ Transport 当前策略：
 - `data.streamStatus` 标记为 `INTERRUPTED`。
 - 不暴露模型供应商原始异常或密钥信息。
 
+MCP 助手触发客户跟进 Agent 时，会写入标准 `agent_run` 记录，`trigger_type` 为 `MCP_ASSISTANT`。Agent 运行页会显示为“由 MCP 助手触发”，运行范围和输入快照中也会保留触发来源。
+
 如果最终保存失败：
 
 - 不发送 `done`。

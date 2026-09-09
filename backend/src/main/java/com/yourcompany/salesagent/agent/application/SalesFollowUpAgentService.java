@@ -76,19 +76,31 @@ public class SalesFollowUpAgentService {
 
 	@Transactional
 	public AgentRunResponse runNow(AuthPrincipal principal, AgentRunCreateRequest request) {
+		return runNow(principal, request, "MANUAL", Map.of());
+	}
+
+	@Transactional
+	public AgentRunResponse runFromMcpAssistant(AuthPrincipal principal, AgentRunCreateRequest request, UUID conversationId) {
+		var triggerContext = conversationId == null
+				? Map.<String, Object>of()
+				: Map.<String, Object>of("conversationId", conversationId.toString());
+		return runNow(principal, request, "MCP_ASSISTANT", triggerContext);
+	}
+
+	private AgentRunResponse runNow(AuthPrincipal principal, AgentRunCreateRequest request, String triggerType, Map<String, Object> triggerContext) {
 		var now = clock.instant();
 		var configId = ensureDefaultConfig(now);
 		var maxCustomers = request.maxCustomers() == null ? 5 : request.maxCustomers();
 		var recentDays = request.recentDays() == null ? 30 : request.recentDays();
 		var businessDate = LocalDate.ofInstant(now, DEFAULT_BUSINESS_ZONE);
 		var runId = UUID.randomUUID();
-		var scope = scope(request, maxCustomers, recentDays, businessDate);
+		var scope = scope(request, maxCustomers, recentDays, businessDate, triggerType, triggerContext);
 
-		mapper.insertRun(runId, organizationId, configId, principal.memberId(), "MANUAL", "RUNNING",
-				businessDate, null, scope, Map.of("requestedBy", principal.email()), now, now);
+		mapper.insertRun(runId, organizationId, configId, principal.memberId(), triggerType, "RUNNING",
+				businessDate, null, scope, inputSnapshot(principal, triggerType, triggerContext), now, now);
 		var sequence = new Sequence();
 		insertStep(runId, null, sequence.next(), "SYSTEM", "启动客户跟进建议 Agent", "SUCCEEDED",
-				Map.of("triggerType", "MANUAL"), Map.of("message", "开始扫描最近客户互动"), now, now, null);
+				Map.of("triggerType", triggerType), Map.of("message", "开始扫描最近客户互动"), now, now, null);
 
 		var candidates = mapper.selectCandidates(
 				organizationId,
@@ -177,6 +189,7 @@ public class SalesFollowUpAgentService {
 		summary.put("message", pendingApprovals > 0 ? "已生成待审批跟进建议" : "没有需要审批的建议");
 		summary.put("pendingApprovals", pendingApprovals);
 		summary.put("agentType", AGENT_TYPE);
+		summary.put("triggerType", triggerType);
 		mapper.completeRun(runId, organizationId, status, candidates.size(), candidates.size(), succeeded,
 				0, failed, pendingApprovals, summary, failed > 0 ? "部分客户分析失败" : null, now);
 		return findRun(runId);
@@ -208,15 +221,31 @@ public class SalesFollowUpAgentService {
 		return stepId;
 	}
 
-	private static Map<String, Object> scope(AgentRunCreateRequest request, int maxCustomers, int recentDays, LocalDate businessDate) {
+	private static Map<String, Object> scope(
+			AgentRunCreateRequest request,
+			int maxCustomers,
+			int recentDays,
+			LocalDate businessDate,
+			String triggerType,
+			Map<String, Object> triggerContext) {
 		var scope = new LinkedHashMap<String, Object>();
 		scope.put("businessDate", businessDate.toString());
 		scope.put("recentDays", recentDays);
 		scope.put("maxCustomers", maxCustomers);
+		scope.put("triggerType", triggerType);
+		scope.putAll(triggerContext);
 		if (!CollectionUtils.isEmpty(request.customerIds())) {
 			scope.put("customerIds", request.customerIds().stream().map(UUID::toString).toList());
 		}
 		return scope;
+	}
+
+	private static Map<String, Object> inputSnapshot(AuthPrincipal principal, String triggerType, Map<String, Object> triggerContext) {
+		var snapshot = new LinkedHashMap<String, Object>();
+		snapshot.put("requestedBy", principal.email());
+		snapshot.put("triggerType", triggerType);
+		snapshot.putAll(triggerContext);
+		return snapshot;
 	}
 
 	private static Map<String, Object> followUpPayload(AgentCandidateRow candidate, ChatAnalysisResponse analysis,
