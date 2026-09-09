@@ -1,71 +1,422 @@
-# MCP 助手流式输出
+# MCP 助手流式输出技术方案
 
-## 当前行为
+## 目标
 
-浏览器和 Tauri 桌面端共用 `POST /api/v1/mcp/chat/stream`，使用 SSE 响应。
-客户端仍通过 Axios 的 fetch adapter 发送 JWT，支持连接建立前的 401 刷新。
-旧 `POST /api/v1/mcp/chat` JSON 接口保留给旧客户端。
+MCP 助手流式输出用于把一次自动化指令拆成可观察的阶段：
 
-一次指令依次执行：保存用户消息 → 推送真实工具状态 → 执行业务 → 推送业务结果和执行摘要 → 千问增量生成回答 → 保存最终消息 → 推送 done。
-模型使用已保存的 AI 模型配置，通过 Spring AI `stream().content()` 产生文本增量；前端收到即追加，未设置模拟打字定时器。
+1. 先确认登录态和会话。
+2. 保存用户输入，避免刷新后丢失指令。
+3. 实时展示工具执行状态。
+4. 工具执行完成后，流式展示模型整理后的回答。
+5. 最终消息保存成功后才发送完成事件。
 
-这里的“执行过程”来自实际业务步骤，不是模型内部推理原文。
-当前客户分析工具仍需等结构化分析完成才能生成审批数据；等待时显示真实的 RUNNING 状态及心跳。
-之后会额外调用一次模型，将已核实的业务结果整理为面向用户的流式回答，因此会增加一次模型调用的耗时与用量。
-未配置模型时，业务工具仍能使用，直接展示原始结果，不模拟模型流式生成。
-工具选择仍沿用现有指令路由，本次没有改成自主工具规划。
+设计重点不是模拟打字效果，而是让用户在业务执行、模型生成、保存历史这几个阶段都能看到真实进度。
 
-## 事件约定
+## 前端实现
 
-| 事件 | 内容与用途 |
-| --- | --- |
-| meta | 已创建或验证的 conversationId |
-| progress | 当前真实阶段说明 |
-| tool | 工具名、RUNNING/SUCCEEDED/FAILED、结果摘要 |
-| result | 已核实的业务结果 |
-| summary | 执行过程摘要 |
-| delta | 模型文本增量 text |
-| ping | 每 15 秒维持连接，不显示为业务进度 |
-| error | 业务/生成/保存中断的安全提示 |
-| done | 数据库提交后的最终消息与会话 ID |
+入口文件：
 
-正常结束必须收到 done，不能仅凭 HTTP 200 或连接关闭判定成功。
-模型中断会保留已收到的回答、附上已核实业务结果，消息 data.streamStatus 标记 INTERRUPTED；错误消息不会包含模型密钥或原始供应商异常。
-若数据库保存失败，流发送 error 并结束，不发送 done。
+- `frontend/src/api/mcp-chat-api.ts`
+- `frontend/src/api/axios-client.ts`
 
-## 事务与断线
+前端通过 Axios 的 fetch adapter 发起流式请求：
 
-用户消息和最终消息分别在短事务中保存；模型整理回答期间不持有会话写入事务。
-工具继续使用各自业务事务。模型回答失败不回滚已成功的工具操作，也不再次执行工具。
-客户端断线或离开页面仅中断显示连接，后端已开始的操作继续完成并尝试保存历史；恢复后应查看会话、客户和审批记录再决定是否重试。
-客户端不会因断流自动重放 POST，避免重复创建客户或重复审批。
-服务端最多同时处理 8 个流式请求；新请求超限时返回 503。连接上限为 10 分钟，模型整理回答最多 2 分钟且连续 45 秒没有增量会降级。
-
-## 宝塔 / Nginx
-
-仓库 `deploy/server/nginx.conf` 已加入 `/api/v1/mcp/chat/stream` 的专用 location。
-使用宝塔自定义站点配置时，需要把该 location 同步到实际 HTTPS server 配置，再执行 `nginx -t` 并重载。
-关键配置为：
-
-```nginx
-proxy_buffering off;
-proxy_cache off;
-gzip off;
-proxy_set_header Accept-Encoding "";
-proxy_read_timeout 660s;
+```ts
+apiClient.post<ReadableStream<Uint8Array>>('/api/v1/mcp/chat/stream', {
+  conversationId,
+  message,
+  channel: window.__TAURI_INTERNALS__ ? 'DESKTOP' : 'WEB',
+}, {
+  responseType: 'stream',
+  headers: { Accept: 'text/event-stream' },
+  timeout: 0,
+  signal,
+})
 ```
 
-后端也返回 `X-Accel-Buffering: no`。如果 CDN 或其他代理仍缓冲响应，需要在该链路单独关闭此接口的缓存/缓冲。
-前后端需一起部署；已安装的桌面端需包含新前端资源的更新包才能使用新接口。
+关键行为：
 
-## 验证
+- 请求方法是 `POST`，响应是 `text/event-stream`。
+- 请求开始前复用统一 Axios 鉴权逻辑。
+- access token 临近过期时会主动 refresh。
+- 建立流之前如果遇到 401，会被动 refresh 并重试一次。
+- 一旦开始读取 SSE，不再自动重放业务 `POST`，避免重复创建客户、重复跑 Agent 或重复审批。
+- 前端逐帧解析 `event:` 和 `data:`，收到 `delta` 后追加文本。
+- 只有收到 `done` 才认为本次请求完整成功。
+- 如果连接关闭但没有 `done`，提示用户核对会话和业务记录后再决定是否重试。
 
-1. 登录后在设置保存可用模型配置，进入 MCP 助手，发送“查看待审批”。
-2. 网络面板应显示 POST stream，响应 Content-Type 为 text/event-stream。
-3. 请求仍在进行时，应已看到工具状态和首段模型文本；完成后发送按钮恢复。
-4. 刷新并打开原会话，最终回答、执行过程、工具轨迹应与完成时一致。
-5. 断网测试：已收到内容保留、显示中断提示；恢复后不会自动重新执行原业务请求。
+## 后端入口
 
-自动化验证包括上游本地 SSE 服务在发送尾段前等待客户端收到首段，确保模型适配器未缓冲完整回答；另覆盖中文拆字节、CRLF 拆包、缺少 done、保存失败和工具不重复执行。
+入口文件：
 
-参考：[Spring AI 流式 ChatClient](https://docs.spring.io/spring-ai/reference/api/chatclient.html)、[Spring MVC 异步响应](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-async.html)。
+- `backend/src/main/java/com/yourcompany/salesagent/assistant/api/AssistantChatController.java`
+- `backend/src/main/java/com/yourcompany/salesagent/assistant/application/AssistantStreamTransport.java`
+- `backend/src/main/java/com/yourcompany/salesagent/assistant/application/AssistantChatService.java`
+
+Controller 暴露：
+
+```java
+@PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public ResponseEntity<SseEmitter> stream(Authentication authentication, @Valid @RequestBody AssistantChatRequest request)
+```
+
+响应头：
+
+```text
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+X-Accel-Buffering: no
+```
+
+Transport 当前策略：
+
+- 收到请求后先创建 `SseEmitter` 并返回，让浏览器拿到 `200 text/event-stream`。
+- 后台线程再执行会话初始化和业务逻辑。
+- 最多同时处理 8 个流式请求。
+- 每 15 秒发送一次 `ping` 心跳。
+- 流连接最长 10 分钟。
+- 初始化或保存失败时，通过 SSE `error` 事件返回可见提示，并在后端日志记录真实异常。
+
+这样做的原因是：如果在返回 `SseEmitter` 之前就执行数据库写入，一旦 MyBatis、SQL 或约束异常，浏览器只能看到空的 HTTP 500，拿不到业务错误。现在前端至少能看到可读错误，后端也有完整堆栈。
+
+## 事件协议
+
+| 事件 | 用途 |
+| --- | --- |
+| `meta` | 返回 `conversationId`，说明会话已创建或已确认 |
+| `progress` | 展示当前真实阶段 |
+| `tool` | 展示工具名、状态和摘要 |
+| `result` | 返回已核实的结构化业务结果 |
+| `summary` | 返回执行过程摘要 |
+| `delta` | 返回模型文本增量 |
+| `ping` | 心跳事件，前端不展示 |
+| `error` | 返回可展示错误，不代表 HTTP 层失败 |
+| `done` | 最终消息已保存，整次请求完成 |
+
+正常完成必须满足两个条件：
+
+- HTTP 响应是 `200 text/event-stream`。
+- SSE 流内收到了 `done`。
+
+只看到 HTTP 200 不等于业务成功，因为错误也可能通过 SSE `error` 返回。
+
+## 后端执行流程
+
+一次流式请求的后端流程：
+
+1. `AssistantChatController.stream` 校验 JWT 后调用 transport。
+2. `AssistantStreamTransport.open` 返回 `SseEmitter`。
+3. 后台线程调用 `AssistantChatService.beginStream`。
+4. `beginStream` 创建或确认会话，并保存用户消息。
+5. 发送 `meta`。
+6. `streamChat` 路由用户指令。
+7. 业务工具执行时发送 `tool` 事件。
+8. 工具执行完成后发送 `result` 和 `summary`。
+9. 读取 AI 模型配置。
+10. 调用 `QwenModelClient.streamAssistantReply(...)`。
+11. 模型增量通过 `delta` 事件发送。
+12. 最终助手消息落库。
+13. 发送 `done`。
+
+如果模型失败：
+
+- 不回滚已经成功的业务工具。
+- 返回工具结果作为兜底内容。
+- `data.streamStatus` 标记为 `INTERRUPTED`。
+- 不暴露模型供应商原始异常或密钥信息。
+
+如果最终保存失败：
+
+- 不发送 `done`。
+- 发送 `error`。
+- 提醒用户刷新会话并核对业务记录，避免重复提交。
+
+## 鉴权方案
+
+前端每个需要登录的请求都会带：
+
+```text
+Authorization: Bearer <accessToken>
+X-Sales-Agent-Access-Token: <accessToken>
+```
+
+`X-Sales-Agent-Access-Token` 是代理兼容兜底头，避免某些 Nginx 或平台配置吞掉 `Authorization`。
+
+后端 `BearerTokenAuthenticationFilter` 会：
+
+- 优先读取 `Authorization`。
+- 其次读取 `X-Sales-Agent-Access-Token`。
+- 验证 JWT。
+- 将 `AuthPrincipal` 放入 Spring Security Context。
+- 写入诊断属性，401 时转成响应头。
+
+401 诊断响应头：
+
+| 响应头 | 含义 |
+| --- | --- |
+| `X-Sales-Agent-Auth-Token: missing` | 后端没有收到 token |
+| `X-Sales-Agent-Auth-Token: invalid` | 后端收到 token，但验签或过期校验失败 |
+| `X-Sales-Agent-Auth-Token: accepted` | token 已通过验证 |
+| `X-Sales-Agent-Auth-Authorization: true` | 后端收到了 `Authorization` |
+| `X-Sales-Agent-Auth-Fallback: true` | 后端收到了兜底 token 头 |
+
+Spring Security 额外放行：
+
+```java
+dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+```
+
+原因是 SSE 会触发 Servlet 容器内部 `ASYNC` / `ERROR` 派发。初始请求已经校验 JWT，内部派发不应该被二次鉴权误打成 401。
+
+## Nginx 要求
+
+宝塔或 Nginx 站点配置必须对流式接口关闭缓冲：
+
+```nginx
+location ^~ /api/v1/mcp/chat/stream {
+    proxy_pass http://127.0.0.1:8080;
+
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_cache off;
+    gzip off;
+    proxy_set_header Accept-Encoding "";
+    proxy_read_timeout 660s;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-Sales-Agent-Access-Token $http_x_sales_agent_access_token;
+}
+```
+
+普通 `/api/` 反代也必须透传认证头：
+
+```nginx
+proxy_set_header Authorization $http_authorization;
+proxy_set_header X-Sales-Agent-Access-Token $http_x_sales_agent_access_token;
+```
+
+修改后执行：
+
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+## 已修复的问题
+
+### 1. 登录后流式接口 401
+
+现象：
+
+- 浏览器带了 `Authorization`。
+- 后端仍返回 401。
+
+关键修复：
+
+- JWT filter 放到 `AnonymousAuthenticationFilter` 之前。
+- 当前认证为 anonymous 时允许 JWT 覆盖。
+- 增加 401 诊断响应头。
+- 前端增加请求前主动 refresh 和 401 后被动 refresh。
+
+判断方式：
+
+- `missing`：查 Nginx header 透传。
+- `invalid`：查 JWT 密钥、token 过期、服务器时间。
+- `accepted` 但仍 401：查 Spring Security 授权规则或内部 dispatcher。
+
+### 2. Token 时间看起来差 8 小时
+
+JWT 和接口返回的时间使用 UTC：
+
+```text
+2026-09-09T00:47:04Z
+```
+
+`Z` 表示 UTC。换算成北京时间是：
+
+```text
+2026-09-09 08:47:04
+```
+
+所以这不是时间错误，也不是 UTC+8 导致 token 过期。
+
+### 3. `accepted` 后仍被打成 401
+
+现象：
+
+```text
+X-Sales-Agent-Auth-Token: accepted
+X-Sales-Agent-Auth-Authorization: true
+```
+
+但接口仍返回 401。
+
+原因：
+
+- 初始请求已认证成功。
+- SSE 后续 Servlet 内部 `ERROR` 派发再次进入 Security。
+- 内部派发没有登录上下文，被误判为未认证。
+
+修复：
+
+```java
+dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+```
+
+### 4. 建流前异常导致裸 500
+
+现象：
+
+- 浏览器 Network 只看到 `500 Internal Server Error`。
+- 响应体为空。
+- 前端无法知道真实错误。
+
+原因：
+
+- 旧实现先执行 `beginStream`，再返回 `SseEmitter`。
+- 如果会话初始化或数据库查询失败，HTTP 响应还不是 SSE，只能返回 500。
+
+修复：
+
+- 先返回 `SseEmitter`。
+- 后台线程里执行 `beginStream`。
+- 异常通过 SSE `error` 发给前端。
+- 后端日志记录：
+
+```text
+MCP assistant stream failed before completion
+```
+
+### 5. FollowUp TODAY 过滤 SQL 类型错误
+
+现象：
+
+```text
+ERROR: operator does not exist: timestamp with time zone < interval
+```
+
+问题 SQL：
+
+```sql
+f.due_at < #{now} + interval '1 day'
+```
+
+PostgreSQL 将参数推断错，变成 `timestamptz < interval`。
+
+修复：
+
+```sql
+f.due_at < CAST(#{now} AS timestamptz) + interval '1 day'
+```
+
+`OVERDUE` 也同步改为：
+
+```sql
+f.due_at < CAST(#{now} AS timestamptz)
+```
+
+### 6. Assistant record 行映射没有 setter
+
+现象：
+
+```text
+There is no setter for property named 'id' in AssistantConversationRow
+```
+
+原因：
+
+- `AssistantConversationRow` 和 `AssistantMessageRow` 是 Java `record`。
+- XML mapper 使用了 setter 风格 `<result property="id" ...>`。
+- record 没有 setter，MyBatis 查询结果无法写入属性。
+
+修复：
+
+- `ConversationMap` 改为 `<constructor>` 映射。
+- `MessageMap` 也改为 `<constructor>` 映射。
+- 新增 mapper XML 测试，确认两个 resultMap 都使用构造器映射。
+
+## 排障流程
+
+### 浏览器看到 401
+
+1. 看 Response Headers。
+2. 如果 `X-Sales-Agent-Auth-Token: missing`，查 Nginx 是否透传 header。
+3. 如果 `invalid`，查 JWT 密钥、旧进程、token 是否过期。
+4. 如果 `accepted`，查授权规则或 Servlet dispatcher。
+5. 如果没有诊断头，说明请求没有到达最新后端，或 401 不是 Spring Boot 返回。
+
+### 浏览器看到 500
+
+1. 看 Network 响应是否是 `text/event-stream`。
+2. 如果不是 SSE，说明异常发生在建流前或请求被代理层拦截。
+3. 查后端日志 `dispatcherServlet` 和 `AssistantStreamTransport`。
+4. 优先看 MyBatis SQL、mapper resultMap、数据库约束异常。
+5. 部署最新 transport 后，大多数建流阶段异常应转成 SSE `error`。
+
+### 浏览器看到 200 但页面报错
+
+1. 打开 Network 的 EventStream 面板。
+2. 看是否收到 `error`。
+3. 看是否缺少 `done`。
+4. 如果只有 `ping` 没有业务事件，查后台线程是否阻塞。
+5. 如果有 `tool/result` 但没有 `delta`，查模型配置和供应商调用。
+
+## 验证清单
+
+手工验证：
+
+1. 登录后进入 MCP 助手。
+2. 发送“查看待审批”。
+3. Network 中 `POST /api/v1/mcp/chat/stream` 应为 `200`。
+4. Response Header 应包含 `Content-Type: text/event-stream`。
+5. EventStream 中应能看到 `progress`、`tool`、`result`、`delta`、`done`。
+6. 刷新页面后，历史会话和最终回答仍存在。
+7. 断网或刷新时，不应自动重复执行原业务指令。
+
+自动化验证：
+
+```bash
+cd backend
+./mvnw --batch-mode --no-transfer-progress clean verify
+```
+
+当前覆盖点：
+
+- SSE 流式业务结果。
+- 模型增量返回。
+- 模型失败兜底。
+- 保存失败不发送 `done`。
+- JWT filter 解析和 anonymous 覆盖。
+- Security `ASYNC` / `ERROR` dispatcher 放行。
+- FollowUp mapper XML 解析。
+- Assistant mapper constructor resultMap。
+
+前端相关验证：
+
+```bash
+cd frontend
+pnpm build
+pnpm test -- src/api/axios-client.test.ts src/api/mcp-chat-api.test.ts
+```
+
+覆盖点：
+
+- 请求前主动 refresh。
+- 401 后被动 refresh。
+- SSE 中文拆字节和 CRLF 拆包。
+- 无 `done` 断流。
+- 后端 `error` 事件。
+- 建流后不自动重放 POST。
+
+## 发布注意事项
+
+- 前后端必须一起部署。
+- 宝塔 Java 项目使用的 JAR 必须确认是最新 release 目录。
+- 宝塔环境变量要配置在实际运行 Java 进程读取的位置，不要只配置 systemd。
+- Nginx 修改后必须 `nginx -t` 并 reload。
+- 桌面端 Windows 自动更新需要同步提升 Tauri 版本号，并用 `desktop-v*` tag 触发 release workflow。
+- 线上调试不要公开完整 JWT、API Key、数据库密码或签名密钥。
