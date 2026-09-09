@@ -47,10 +47,10 @@
           AND f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
           AND c.deleted_at IS NULL
         <if test="filter == 'TODAY'">
-          AND f.due_at &lt; #{now} + interval '1 day'
+          AND f.due_at &lt; CAST(#{now} AS timestamptz) + interval '1 day'
         </if>
         <if test="filter == 'OVERDUE'">
-          AND f.due_at &lt; #{now}
+          AND f.due_at &lt; CAST(#{now} AS timestamptz)
         </if>
         ORDER BY f.due_at ASC, f.priority DESC, f.id
     </select>
