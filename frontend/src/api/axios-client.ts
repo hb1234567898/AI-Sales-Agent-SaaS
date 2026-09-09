@@ -228,10 +228,12 @@ function toApiError(error: unknown, fallback = '请求失败') {
     const status = error.response?.status ?? 0
     if (status === 401) {
       const raw = error.response?.headers as Record<string, string> | AxiosHeaders | undefined
-      const getHeader = (name: string): string | undefined =>
-        raw && typeof (raw as AxiosHeaders).get === 'function'
+      const getHeader = (name: string): string | undefined => {
+        const value = raw && typeof (raw as AxiosHeaders).get === 'function'
           ? (raw as AxiosHeaders).get(name)
           : (raw as Record<string, string> | undefined)?.[name]
+        return value == null ? undefined : String(value)
+      }
       const tokenStatus = getHeader('x-sales-agent-auth-token')
       const authHeaderPresent = getHeader('x-sales-agent-auth-authorization')
       if (tokenStatus || authHeaderPresent) {
