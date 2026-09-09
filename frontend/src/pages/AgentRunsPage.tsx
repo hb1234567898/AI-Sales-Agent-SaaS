@@ -143,7 +143,9 @@ function statusTone(status: string) {
 }
 
 function triggerLabel(value: string) {
-  return value === 'MANUAL' ? '手动触发' : value
+  if (value === 'MANUAL') return '手动触发'
+  if (value === 'MCP_ASSISTANT') return '由 MCP 助手触发'
+  return value
 }
 
 function scopeLabel(run: AgentRun) {

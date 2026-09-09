@@ -124,7 +124,7 @@ public class AssistantChatService {
 		String failure = null;
 		try {
 			events.accept("progress", Map.of("text", "正在识别业务指令并执行工具；分析客户时需要等待模型返回。"));
-			var result = route(principal, message.strip(), traces);
+			var result = route(principal, conversationId, message.strip(), traces);
 			summary = result.reasoningSummary();
 			data.putAll(result.data());
 			events.accept("summary", Map.of("text", summary));
@@ -193,7 +193,7 @@ public class AssistantChatService {
 				Map.of(),
 				userMessageTime);
 
-		var response = route(principal, message);
+		var response = route(principal, conversation.id(), message);
 		var assistantMessageId = UUID.randomUUID();
 		conversationMapper.insertMessage(
 				assistantMessageId,
@@ -241,14 +241,18 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, String message) {
-		return route(principal, message, new ArrayList<>());
+		return route(principal, null, message, new ArrayList<>());
 	}
 
-	private AssistantChatResponse route(AuthPrincipal principal, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message) {
+		return route(principal, conversationId, message, new ArrayList<>());
+	}
+
+	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
 		var normalized = message.toLowerCase();
 
 		if (looksLikeChatImport(message)) {
-			return importChatAndRunAgent(principal, message, traces);
+			return importChatAndRunAgent(principal, conversationId, message, traces);
 		}
 		if (looksLikeCustomerCreate(message)) {
 			return createCustomer(message, traces);
@@ -260,7 +264,7 @@ public class AssistantChatService {
 			return listPendingApprovals(traces);
 		}
 		if (containsAny(normalized, "agent", "分析客户", "运行分析", "跑一下")) {
-			return runAgent(principal, message, traces);
+			return runAgent(principal, conversationId, message, traces);
 		}
 		if (containsAny(message, "跟进任务", "待跟进", "查看跟进")) {
 			return listFollowUps(traces);
@@ -268,7 +272,7 @@ public class AssistantChatService {
 		return help(traces);
 	}
 
-	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
 		var command = parseImportCommand(message);
 		if (command == null || !StringUtils.hasText(command.customerName()) || !StringUtils.hasText(command.content())) {
 			return reply("我还缺客户名或聊天内容。可以这样发：\n\n给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。", "识别为聊天导入意图，但缺少客户名或聊天正文，因此没有调用业务写入工具。", traces, Map.of("intent", "CHAT_IMPORT"));
@@ -280,7 +284,7 @@ public class AssistantChatService {
 				new ChatImportRequest(ChatPlatform.OTHER, clock.instant(), "MCP 助手导入聊天", command.content().strip(), null));
 		traces.add(new AssistantToolTrace("interaction.chat_import", "SUCCEEDED", "已导入聊天记录：" + interaction.id()));
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在分析客户并生成待审批建议"));
-		var run = agentService.runNow(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())));
+		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId);
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply(
 				"已完成自动化处理：我先找到客户「" + customer.name() + "」，导入聊天记录，然后只针对这个客户跑了一次跟进建议 Agent。"
@@ -295,17 +299,17 @@ public class AssistantChatService {
 						"pendingApprovalCount", run.pendingApprovalCount()));
 	}
 
-	private AssistantChatResponse runAgent(AuthPrincipal principal, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse runAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在读取互动并调用模型分析客户"));
 		var customerName = extractCustomerName(message);
 		AgentRunResponse run;
 		if (StringUtils.hasText(customerName)) {
 			var customer = resolveCustomer(customerName);
 			traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
-			run = agentService.runNow(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())));
+			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId);
 		}
 		else {
-			run = agentService.runNow(principal, new AgentRunCreateRequest(5, 30, null));
+			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, null), conversationId);
 		}
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply("Agent 已运行完成。" + nextRunHint(run), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
