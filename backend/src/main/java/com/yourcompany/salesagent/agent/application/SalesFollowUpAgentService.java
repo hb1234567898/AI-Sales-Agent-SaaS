@@ -125,7 +125,12 @@ public class SalesFollowUpAgentService {
 					var emailTo = mapper.selectNotificationEmail(organizationId, candidate.getCustomerId(), candidate.getOwnerMemberId());
 					var emailSubject = "跟进提醒：" + candidate.getCustomerName();
 					var emailBody = buildEmailBody(candidate.getCustomerName(), analysis);
-					payload.put("email", Map.of("to", emailTo, "subject", emailSubject, "body", emailBody));
+					var email = new LinkedHashMap<String, Object>();
+					email.put("to", emailTo);
+					email.put("subject", emailSubject);
+					email.put("body", emailBody);
+					payload.put("email", email);
+					payload.put("to", emailTo);
 					payload.put("subject", emailSubject);
 					payload.put("body", emailBody);
 				}
@@ -154,7 +159,7 @@ public class SalesFollowUpAgentService {
 						reason(analysis),
 						payload,
 						contentHash,
-						Map.of("customerName", candidate.getCustomerName(), "action", actionPlan.suggestedNextAction(), "priority", priority),
+						preview(candidate.getCustomerName(), actionPlan.suggestedNextAction(), priority, payload, actionPlan.actionType()),
 						"agent-follow-up:" + runId + ":" + candidate.getCustomerId(),
 						now.plus(Duration.ofDays(7)));
 				mapper.insertApproval(
@@ -265,6 +270,20 @@ public class SalesFollowUpAgentService {
 		payload.put("recommendedAction", Map.of("title", action, "source", "AI_AGENT"));
 		payload.put("evidence", analysis.evidence());
 		return payload;
+	}
+
+	private static Map<String, Object> preview(String customerName, String action, int priority,
+			Map<String, Object> payload, String actionType) {
+		var preview = new LinkedHashMap<String, Object>();
+		preview.put("customerName", customerName);
+		preview.put("action", action);
+		preview.put("priority", priority);
+		if ("SEND_EMAIL".equals(actionType)) {
+			preview.put("to", payload.get("to"));
+			preview.put("subject", payload.get("subject"));
+			preview.put("body", payload.get("body"));
+		}
+		return preview;
 	}
 
 	private static int priority(ChatAnalysisResponse analysis) {

@@ -1,7 +1,9 @@
 package com.yourcompany.salesagent.tool.email;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 
 import com.yourcompany.salesagent.tool.domain.ToolExecutionContext;
 import com.yourcompany.salesagent.tool.domain.ToolResult;
@@ -25,14 +27,17 @@ public class SendEmailTool implements AgentTool {
 	private final JavaMailSender mailSender;
 	private final String mailHost;
 	private final String mailUsername;
+	private final String mailFrom;
 
 	public SendEmailTool(
 			JavaMailSender mailSender,
 			@Value("${spring.mail.host:}") String mailHost,
-			@Value("${spring.mail.username:}") String mailUsername) {
+			@Value("${spring.mail.username:}") String mailUsername,
+			@Value("${app.mail.from:}") String mailFrom) {
 		this.mailSender = mailSender;
 		this.mailHost = mailHost;
 		this.mailUsername = mailUsername;
+		this.mailFrom = mailFrom;
 	}
 
 	@Override
@@ -49,25 +54,60 @@ public class SendEmailTool implements AgentTool {
 		if (unconfigured) {
 			return ToolResult.failure("SMTP 未配置：请在 .env 设置 MAIL_HOST/MAIL_USERNAME 等变量后再发送");
 		}
-		var to = asString(payload.get("to"));
+		var to = firstText(asString(payload.get("to")), nestedEmailField(payload, "to"));
 		var subject = asString(payload.get("subject"));
 		var body = asString(payload.get("body"));
 		if (to == null || to.isBlank()) {
 			return ToolResult.failure("缺少收件人(to)，无法发送邮件");
 		}
+		var recipients = recipients(to);
+		if (recipients.length == 0) {
+			return ToolResult.failure("收件人(to)格式不正确，无法发送邮件");
+		}
 		try {
 			var message = new SimpleMailMessage();
-			message.setFrom(username != null && !username.isBlank() ? username : "no-reply@local");
-			message.setTo(to.split("[,;]"));
+			message.setFrom(firstText(mailFrom, username, "no-reply@local"));
+			message.setTo(recipients);
 			message.setSubject(subject == null ? "(无主题)" : subject);
 			message.setText(body == null ? "" : body);
 			mailSender.send(message);
-			return ToolResult.success("邮件已发送至 " + to, Map.of("to", to, "subject", subject));
+			return ToolResult.success(context.idempotencyKey(), "邮件已发送至 " + String.join(", ", recipients),
+					Map.of("to", String.join(", ", recipients), "subject", subject == null ? "(无主题)" : subject));
 		}
 		catch (MailException e) {
 			// 发送失败直接标记失败，交由人工处理；不盲目重试，避免重复触达客户。
 			return ToolResult.failure("邮件发送失败: " + e.getMessage());
 		}
+	}
+
+	private static String[] recipients(String value) {
+		return Arrays.stream(value.split("[,;]"))
+				.map(String::strip)
+				.filter(SendEmailTool::looksLikeEmail)
+				.distinct()
+				.toArray(String[]::new);
+	}
+
+	private static boolean looksLikeEmail(String value) {
+		return value != null && value.length() <= 320 && value.contains("@") && !value.contains(" ");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static String nestedEmailField(Map<String, Object> payload, String field) {
+		var email = payload.get("email");
+		if (!(email instanceof Map<?, ?> map)) {
+			return null;
+		}
+		return asString(((Map<String, Object>) map).get(field));
+	}
+
+	private static String firstText(String... values) {
+		return Arrays.stream(values)
+				.filter(Objects::nonNull)
+				.map(String::strip)
+				.filter(value -> !value.isBlank())
+				.findFirst()
+				.orElse(null);
 	}
 
 	private static String asString(Object value) {

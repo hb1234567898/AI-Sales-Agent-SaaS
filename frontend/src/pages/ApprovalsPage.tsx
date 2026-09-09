@@ -1,4 +1,4 @@
-import { Check, Clock, ShieldCheck, X } from '@phosphor-icons/react'
+import { Check, Clock, EnvelopeSimple, ShieldCheck, X } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { approveApproval, getPendingApprovals, rejectApproval, type Approval } from '../api/approvals-api'
 import { useIsGuest } from '../auth/use-auth'
@@ -44,11 +44,12 @@ export function ApprovalsPage() {
                 <article className="approval-row" key={approval.id}>
                   <div className="approval-topline">
                     <span className="approval-type"><ShieldCheck size={16} />{actionTypeLabel(approval.actionType)}</span>
-                    <span className={`risk-label risk-${approval.riskLevel === 'MEDIUM' ? 'medium' : 'low'}`}>{riskLabel(approval.riskLevel)}风险</span>
+                    <span className={`risk-label ${riskClass(approval.riskLevel)}`}>{riskLabel(approval.riskLevel)}风险</span>
                     <span className="approval-time"><Clock size={14} />{formatDateTime(approval.requestedAt)}</span>
                   </div>
                   <h3>{previewAction(approval)}</h3>
                   <p>{approval.reason}</p>
+                  <EmailPreview approval={approval} />
                   <dl className="approval-meta">
                     <div><dt>客户</dt><dd>{approval.customerName}</dd></div>
                     <div><dt>发起方</dt><dd>{approval.requester}</dd></div>
@@ -80,7 +81,7 @@ export function ApprovalsPage() {
             <div className="policy-list">
               <div><span>AI 跟进建议</span><strong>人工确认</strong></div>
               <div><span>创建内部任务</span><strong>批准后写入</strong></div>
-              <div><span>外部发送动作</span><strong>暂未开放</strong></div>
+              <div><span>外部发送动作</span><strong>审批后发送</strong></div>
             </div>
           </section>
         </aside>
@@ -91,13 +92,39 @@ export function ApprovalsPage() {
 
 function actionTypeLabel(value: string) {
   if (value === 'CREATE_INTERNAL_FOLLOW_UP') return '创建跟进任务'
+  if (value === 'SEND_EMAIL') return '发送邮件'
+  if (value === 'GENERATE_EMAIL_DRAFT') return '生成邮件草稿'
+  if (value === 'CREATE_CRM_TASK') return '创建 CRM 任务'
   return value
+}
+
+function riskClass(value: string) {
+  if (value === 'HIGH') return 'risk-high'
+  if (value === 'MEDIUM') return 'risk-medium'
+  return 'risk-low'
 }
 
 function riskLabel(value: string) {
   if (value === 'HIGH') return '高'
   if (value === 'MEDIUM') return '中'
   return '低'
+}
+
+function EmailPreview({ approval }: { approval: Approval }) {
+  if (approval.actionType !== 'SEND_EMAIL') return null
+  const to = previewText(approval.preview.to)
+  const subject = previewText(approval.preview.subject)
+  const body = previewText(approval.preview.body)
+  return (
+    <section className="email-approval-preview" aria-label="邮件发送预览">
+      <div className="email-approval-title"><EnvelopeSimple size={15} />邮件内容</div>
+      <dl>
+        <div><dt>收件人</dt><dd>{to || '未解析到收件人'}</dd></div>
+        <div><dt>主题</dt><dd>{subject || '(无主题)'}</dd></div>
+      </dl>
+      <p>{body || '暂无邮件正文'}</p>
+    </section>
+  )
 }
 
 function previewAction(approval: Approval) {
