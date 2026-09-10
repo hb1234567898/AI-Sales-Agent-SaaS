@@ -85,3 +85,5 @@ app:
     organization-id: ${DEMO_ORGANIZATION_ID:00000000-0000-0000-0000-000000000001}
     seed-enabled: ${DEMO_SEED_ENABLED:true}
     login-password: ${DEMO_LOGIN_PASSWORD:Demo@123456}
+  mail:
+    from: ${MAIL_FROM:${MAIL_USERNAME:}}
