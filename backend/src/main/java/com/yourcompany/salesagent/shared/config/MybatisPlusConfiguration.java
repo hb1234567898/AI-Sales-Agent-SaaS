@@ -21,6 +21,7 @@ import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerIntercept
 		"com.yourcompany.salesagent.customer.infrastructure",
 		"com.yourcompany.salesagent.followup.infrastructure",
 		"com.yourcompany.salesagent.interaction.infrastructure",
+		"com.yourcompany.salesagent.tool.email.infrastructure",
 		"com.yourcompany.salesagent.tool.infrastructure"
 })
 public class MybatisPlusConfiguration {

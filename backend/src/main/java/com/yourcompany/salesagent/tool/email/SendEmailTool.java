@@ -11,7 +11,6 @@ import com.yourcompany.salesagent.tool.domain.ToolRisk;
 import com.yourcompany.salesagent.tool.spi.AgentTool;
 import com.yourcompany.salesagent.tool.spi.ToolDescriptor;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -25,19 +24,13 @@ import org.springframework.stereotype.Component;
 public class SendEmailTool implements AgentTool {
 
 	private final JavaMailSender mailSender;
-	private final String mailHost;
-	private final String mailUsername;
-	private final String mailFrom;
+	private final EmailConfigurationService configurationService;
 
 	public SendEmailTool(
 			JavaMailSender mailSender,
-			@Value("${spring.mail.host:}") String mailHost,
-			@Value("${spring.mail.username:}") String mailUsername,
-			@Value("${app.mail.from:}") String mailFrom) {
+			EmailConfigurationService configurationService) {
 		this.mailSender = mailSender;
-		this.mailHost = mailHost;
-		this.mailUsername = mailUsername;
-		this.mailFrom = mailFrom;
+		this.configurationService = configurationService;
 	}
 
 	@Override
@@ -47,12 +40,12 @@ public class SendEmailTool implements AgentTool {
 
 	@Override
 	public ToolResult execute(ToolExecutionContext context, Map<String, Object> payload) {
-		var host = mailHost;
-		var username = mailUsername;
-		var unconfigured = host == null || host.isBlank()
-				|| (host.equals("localhost") && (username == null || username.isBlank()));
-		if (unconfigured) {
-			return ToolResult.failure("SMTP 未配置：请在 .env 设置 MAIL_HOST/MAIL_USERNAME 等变量后再发送");
+		EmailRuntimeConfiguration configuration;
+		try {
+			configuration = configurationService.requireRuntimeConfiguration(context.organizationId());
+		}
+		catch (EmailConfigurationException exception) {
+			return ToolResult.failure(exception.getMessage());
 		}
 		var to = firstText(asString(payload.get("to")), nestedEmailField(payload, "to"));
 		var subject = asString(payload.get("subject"));
@@ -66,11 +59,11 @@ public class SendEmailTool implements AgentTool {
 		}
 		try {
 			var message = new SimpleMailMessage();
-			message.setFrom(firstText(mailFrom, username, "no-reply@local"));
+			message.setFrom(configuration.fromAddress());
 			message.setTo(recipients);
 			message.setSubject(subject == null ? "(无主题)" : subject);
 			message.setText(body == null ? "" : body);
-			mailSender.send(message);
+			sender(configuration).send(message);
 			return ToolResult.success(context.idempotencyKey(), "邮件已发送至 " + String.join(", ", recipients),
 					Map.of("to", String.join(", ", recipients), "subject", subject == null ? "(无主题)" : subject));
 		}
@@ -78,6 +71,13 @@ public class SendEmailTool implements AgentTool {
 			// 发送失败直接标记失败，交由人工处理；不盲目重试，避免重复触达客户。
 			return ToolResult.failure("邮件发送失败: " + e.getMessage());
 		}
+	}
+
+	private JavaMailSender sender(EmailRuntimeConfiguration configuration) {
+		if (configurationService == null) {
+			return mailSender;
+		}
+		return configurationService.mailSender(configuration);
 	}
 
 	private static String[] recipients(String value) {

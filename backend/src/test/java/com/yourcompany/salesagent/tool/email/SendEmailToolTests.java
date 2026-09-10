@@ -3,6 +3,7 @@ package com.yourcompany.salesagent.tool.email;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.Map;
 import java.util.UUID;
@@ -19,7 +20,8 @@ class SendEmailToolTests {
 	@Test
 	void sendsEmailFromNestedPayloadRecipient() {
 		var mailSender = mock(JavaMailSender.class);
-		var tool = new SendEmailTool(mailSender, "smtp.example.test", "", "notice@example.test");
+		var configurationService = mock(EmailConfigurationService.class);
+		var tool = new SendEmailTool(mailSender, configurationService);
 		var actionRequestId = UUID.randomUUID();
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
@@ -29,6 +31,17 @@ class SendEmailToolTests {
 				UUID.randomUUID(),
 				"send-email:" + actionRequestId,
 				1);
+		var configuration = new EmailRuntimeConfiguration(
+				"smtp.example.test",
+				587,
+				"notice@example.test",
+				"secret",
+				"notice@example.test",
+				true,
+				true,
+				false);
+		when(configurationService.requireRuntimeConfiguration(context.organizationId())).thenReturn(configuration);
+		when(configurationService.mailSender(configuration)).thenReturn(mailSender);
 		var message = ArgumentCaptor.forClass(SimpleMailMessage.class);
 
 		var result = tool.execute(context, Map.of(
@@ -46,8 +59,9 @@ class SendEmailToolTests {
 	}
 
 	@Test
-	void failsWithoutConfiguredSmtp() {
-		var tool = new SendEmailTool(mock(JavaMailSender.class), "localhost", "", "");
+	void failsWithoutOnlineOrEnvironmentConfiguration() {
+		var configurationService = mock(EmailConfigurationService.class);
+		var tool = new SendEmailTool(mock(JavaMailSender.class), configurationService);
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
 				UUID.randomUUID(),
@@ -56,10 +70,12 @@ class SendEmailToolTests {
 				UUID.randomUUID(),
 				"send-email:test",
 				1);
+		when(configurationService.requireRuntimeConfiguration(context.organizationId()))
+				.thenThrow(new EmailConfigurationException("尚未配置发件邮箱，请在设置页保存 SMTP 配置后再发送"));
 
 		var result = tool.execute(context, Map.of("to", "hecheng@example.test"));
 
 		assertThat(result.success()).isFalse();
-		assertThat(result.message()).contains("SMTP 未配置");
+		assertThat(result.message()).contains("设置页保存 SMTP 配置");
 	}
 }

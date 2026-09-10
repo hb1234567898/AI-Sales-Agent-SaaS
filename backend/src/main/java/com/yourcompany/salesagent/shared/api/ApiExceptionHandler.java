@@ -27,6 +27,8 @@ import com.yourcompany.salesagent.agent.application.AgentWorkflowException;
 import com.yourcompany.salesagent.approval.application.ApprovalWorkflowException;
 import com.yourcompany.salesagent.assistant.application.AssistantWorkflowException;
 import com.yourcompany.salesagent.followup.application.FollowUpWorkflowException;
+import com.yourcompany.salesagent.tool.email.EmailConfigurationException;
+import com.yourcompany.salesagent.tool.email.EmailConnectionException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -73,6 +75,11 @@ public class ApiExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
 	}
 
+	@ExceptionHandler(EmailConnectionException.class)
+	ProblemDetail handleEmailConnection(EmailConnectionException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+	}
+
 	@ExceptionHandler(InvalidRefreshTokenException.class)
 	ProblemDetail handleInvalidRefreshToken(InvalidRefreshTokenException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
@@ -90,6 +97,11 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(AiModelConfigurationException.class)
 	ProblemDetail handleAiModelConfiguration(AiModelConfigurationException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler(EmailConfigurationException.class)
+	ProblemDetail handleEmailConfiguration(EmailConfigurationException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
 	}
 

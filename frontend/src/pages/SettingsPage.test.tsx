@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from './SettingsPage'
@@ -24,6 +24,9 @@ describe('SettingsPage', () => {
       if (url.endsWith('/api/v1/ai/model')) {
         return new Response(JSON.stringify({ provider: 'QWEN', model: 'qwen-plus', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKeyConfigured: false, ready: false, status: 'MISSING_API_KEY' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
+      if (url.endsWith('/api/v1/email/settings')) {
+        return new Response(JSON.stringify({ host: null, port: null, username: null, fromAddress: null, smtpAuth: true, starttlsEnabled: true, starttlsRequired: false, passwordConfigured: false, ready: false, status: 'MISSING_CONFIGURATION' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
       return new Response(JSON.stringify({ service: 'sales-agent', status: 'UP', timestamp: '2026-08-25T08:00:00Z' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -35,16 +38,19 @@ describe('SettingsPage', () => {
       </QueryClientProvider>,
     )
 
-    expect(await screen.findByText('待配置')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('qwen-plus')).toBeInTheDocument()
+    expect(await screen.findAllByText('待配置')).not.toHaveLength(0)
+    const modelSection = screen.getByRole('heading', { name: 'AI 模型' }).closest('section')
+    expect(modelSection).not.toBeNull()
+    const modelForm = within(modelSection!)
+    expect(modelForm.getByDisplayValue('qwen-plus')).toBeInTheDocument()
 
-    await user.clear(screen.getByLabelText('模型名称'))
-    await user.type(screen.getByLabelText('模型名称'), 'qwen3.7-plus')
-    await user.type(screen.getByLabelText('API Key'), 'sk-manual-test')
-    await user.click(screen.getByRole('button', { name: '保存配置' }))
+    await user.clear(modelForm.getByLabelText('模型名称'))
+    await user.type(modelForm.getByLabelText('模型名称'), 'qwen3.7-plus')
+    await user.type(modelForm.getByLabelText('API Key'), 'sk-manual-test')
+    await user.click(modelForm.getByRole('button', { name: '保存配置' }))
 
-    expect(await screen.findByText('配置已加密保存。')).toBeInTheDocument()
-    expect(screen.getByLabelText('API Key')).toHaveValue('')
+    expect(await modelForm.findByText('配置已加密保存。')).toBeInTheDocument()
+    expect(modelForm.getByLabelText('API Key')).toHaveValue('')
     const saveCall = fetchMock.mock.calls.find(([input, init]) => (
       fetchRequestUrl(input).endsWith('/api/v1/ai/model')
       && fetchRequestMethod(input, init) === 'PUT'
@@ -57,9 +63,9 @@ describe('SettingsPage', () => {
       apiKey: 'sk-manual-test',
     })
 
-    await user.click(screen.getByRole('button', { name: '测试连接' }))
+    await user.click(modelForm.getByRole('button', { name: '测试连接' }))
 
-    expect(await screen.findByText(/连接成功 · 328 ms/)).toBeInTheDocument()
+    expect(await modelForm.findByText(/连接成功 · 328 ms/)).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([input, init]) => (
       fetchRequestUrl(input).endsWith('/api/v1/ai/model/test')
       && fetchRequestMethod(input, init) === 'POST'

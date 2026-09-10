@@ -1,7 +1,8 @@
-import { CheckCircle, Database, WarningCircle } from '@phosphor-icons/react'
+import { CheckCircle, Database, EnvelopeSimple, WarningCircle } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { getAiModelStatus, saveAiModelConfiguration, testAiModelConnection, type AiModelStatus } from '../api/ai-settings-api'
+import { getEmailSettingsStatus, saveEmailSettings, testEmailSettingsConnection, type EmailSettingsStatus } from '../api/email-settings-api'
 import { getSystemHealth } from '../api/system-api'
 import { SelectField } from '../components/forms/SelectField'
 import { useIsGuest } from '../auth/use-auth'
@@ -54,17 +55,94 @@ function AiModelSettingsForm({ status, isGuest }: AiModelSettingsFormProps) {
   )
 }
 
+interface EmailSettingsFormProps {
+  status?: EmailSettingsStatus
+  isGuest: boolean
+}
+
+function EmailSettingsForm({ status, isGuest }: EmailSettingsFormProps) {
+  const queryClient = useQueryClient()
+  const [host, setHost] = useState(status?.host ?? 'smtp.example.com')
+  const [port, setPort] = useState(String(status?.port ?? 587))
+  const [username, setUsername] = useState(status?.username ?? '')
+  const [password, setPassword] = useState('')
+  const [fromAddress, setFromAddress] = useState(status?.fromAddress ?? status?.username ?? '')
+  const [smtpAuth, setSmtpAuth] = useState(status?.smtpAuth ?? true)
+  const [starttlsEnabled, setStarttlsEnabled] = useState(status?.starttlsEnabled ?? true)
+  const [starttlsRequired, setStarttlsRequired] = useState(status?.starttlsRequired ?? false)
+  const emailTest = useMutation({ mutationFn: testEmailSettingsConnection })
+  const emailSave = useMutation({
+    mutationFn: saveEmailSettings,
+    onSuccess: (savedStatus) => {
+      queryClient.setQueryData(['email-settings-status'], savedStatus)
+      setPassword('')
+      emailTest.reset()
+    },
+  })
+
+  function saveEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    emailSave.mutate({
+      host: host.trim(),
+      port: Number(port),
+      username: username.trim() || undefined,
+      password: password.trim() || undefined,
+      fromAddress: fromAddress.trim(),
+      smtpAuth,
+      starttlsEnabled,
+      starttlsRequired,
+    })
+  }
+
+  const statusText = emailTest.isSuccess
+    ? `${emailTest.data.message} · ${emailTest.data.latencyMs} ms`
+    : emailTest.isError
+      ? emailTest.error.message
+      : emailSave.isSuccess
+        ? '发件邮箱配置已加密保存。'
+        : emailSave.isError
+          ? emailSave.error.message
+          : status?.status === 'ENV_FALLBACK'
+            ? '当前使用服务器环境变量兜底，保存后会优先使用页面配置。'
+            : '请保存配置后测试连接；密码或授权码只保存密文。'
+
+  return (
+    <form className="settings-form" onSubmit={saveEmail}>
+      <label><span>SMTP 服务器</span><input aria-label="SMTP 服务器" type="text" required maxLength={255} value={host} disabled={isGuest || emailSave.isPending} onChange={(event) => setHost(event.target.value)} placeholder="smtp.example.com" /></label>
+      <label><span>端口</span><input aria-label="SMTP 端口" type="number" required min={1} max={65535} value={port} disabled={isGuest || emailSave.isPending} onChange={(event) => setPort(event.target.value)} placeholder="587" /></label>
+      <label><span>账号</span><input aria-label="SMTP 账号" type="email" maxLength={320} value={username} disabled={isGuest || emailSave.isPending} onChange={(event) => setUsername(event.target.value)} placeholder="notifications@example.com" /></label>
+      <label><span>密码/授权码</span><input aria-label="SMTP 密码或授权码" type="password" maxLength={500} autoComplete="new-password" value={password} disabled={isGuest || emailSave.isPending} onChange={(event) => setPassword(event.target.value)} placeholder={status?.passwordConfigured ? '已加密保存，留空表示不修改' : '请输入 SMTP 授权码'} /><small>{status?.passwordConfigured ? '页面不会读取或回显原文。' : '常见邮箱需要使用 SMTP 授权码，不是登录密码。'}</small></label>
+      <label className="field-span-2"><span>发件人</span><input aria-label="发件人邮箱" type="email" required maxLength={320} value={fromAddress} disabled={isGuest || emailSave.isPending} onChange={(event) => setFromAddress(event.target.value)} placeholder="notifications@example.com" /></label>
+      <div className="settings-toggle-row"><label><input type="checkbox" checked={smtpAuth} disabled={isGuest || emailSave.isPending} onChange={(event) => setSmtpAuth(event.target.checked)} /><span>SMTP 认证</span></label><label><input type="checkbox" checked={starttlsEnabled} disabled={isGuest || emailSave.isPending} onChange={(event) => setStarttlsEnabled(event.target.checked)} /><span>启用 STARTTLS</span></label><label><input type="checkbox" checked={starttlsRequired} disabled={isGuest || emailSave.isPending} onChange={(event) => setStarttlsRequired(event.target.checked)} /><span>要求 STARTTLS</span></label></div>
+      <div className="settings-form-actions">
+        <span className={`model-test-result${emailTest.isError || emailSave.isError ? ' is-error' : ''}`} role="status">{statusText}</span>
+        <button className="button button-secondary" type="button" disabled={isGuest || !status?.ready || emailTest.isPending || emailSave.isPending} title={isGuest ? '游客模式不能测试邮箱' : undefined} onClick={() => emailTest.mutate()}>{emailTest.isPending ? '正在连接…' : '测试连接'}</button>
+        <button className="button button-primary" type="submit" disabled={isGuest || emailSave.isPending || !host.trim() || !port.trim() || !fromAddress.trim() || (smtpAuth && !status?.passwordConfigured && !password.trim())}>{emailSave.isPending ? '保存中…' : '保存配置'}</button>
+      </div>
+    </form>
+  )
+}
+
 export function SettingsPage() {
   const isGuest = useIsGuest()
   const healthQuery = useQuery({ queryKey: ['system-health'], queryFn: getSystemHealth })
   const modelQuery = useQuery({ queryKey: ['ai-model-status'], queryFn: getAiModelStatus })
+  const emailQuery = useQuery({ queryKey: ['email-settings-status'], queryFn: getEmailSettingsStatus })
   const modelStatus = modelQuery.data
+  const emailStatus = emailQuery.data
 
   const modelStatusLabel = modelQuery.isPending
     ? '检查中'
     : modelStatus?.ready
       ? '已就绪'
       : modelStatus?.apiKeyConfigured
+        ? '主密钥不可用'
+        : '待配置'
+  const emailStatusLabel = emailQuery.isPending
+    ? '检查中'
+    : emailStatus?.ready
+      ? emailStatus.status === 'ENV_FALLBACK' ? '使用服务器配置' : '已就绪'
+      : emailStatus?.passwordConfigured
         ? '主密钥不可用'
         : '待配置'
 
@@ -90,6 +168,12 @@ export function SettingsPage() {
                 <span className="status-badge status-muted">未配置</span>
                 <button className="compact-button" type="button" disabled>配置</button>
               </div>
+              <div>
+                <span className="integration-icon"><EnvelopeSimple size={18} /></span>
+                <span><strong>发件邮箱</strong><small>审批通过后用于真实发送客户邮件</small></span>
+                <span className={`status-badge ${emailStatus?.ready ? 'status-success' : emailQuery.isError ? 'status-error' : 'status-muted'}`}>{emailStatus?.ready ? <CheckCircle size={11} /> : null}{emailStatusLabel}</span>
+                <a className="compact-button" href="#email-settings">配置</a>
+              </div>
             </div>
           </section>
 
@@ -103,6 +187,18 @@ export function SettingsPage() {
             {modelQuery.isPending
               ? <div className="settings-form" role="status">正在读取模型配置…</div>
               : <AiModelSettingsForm status={modelStatus} isGuest={isGuest} />}
+          </section>
+
+          <section className="surface settings-section" id="email-settings">
+            <div className="panel-header">
+              <div><h2>发件邮箱</h2><p>配置审批通过后发送客户邮件的 SMTP 通道</p></div>
+              <span className={`status-badge ${emailStatus?.ready ? 'status-success' : emailQuery.isError ? 'status-error' : 'status-muted'}`}>
+                {emailStatus?.ready ? <CheckCircle size={11} /> : null}{emailStatusLabel}
+              </span>
+            </div>
+            {emailQuery.isPending
+              ? <div className="settings-form" role="status">正在读取邮箱配置…</div>
+              : <EmailSettingsForm status={emailStatus} isGuest={isGuest} />}
           </section>
 
           <section className="surface settings-section" id="approval-policy">
