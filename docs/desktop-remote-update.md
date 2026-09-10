@@ -101,10 +101,10 @@ frontend/src-tauri/Cargo.toml
 frontend/src-tauri/Cargo.lock
 ```
 
-例如要发布 `desktop-v0.1.4`，这些地方都应该改成：
+例如要发布 `desktop-v0.1.5`，这些地方都应该改成：
 
 ```text
-0.1.4
+0.1.5
 ```
 
 如果 GitHub Release 发了新包，但桌面端项目版本号没有变，客户端可能会判断“当前已经是最新版本”，从而不会触发更新。
@@ -130,7 +130,7 @@ Actions → Desktop release → Run workflow
 填写：
 
 ```text
-release_tag = desktop-v0.1.4
+release_tag = desktop-v0.1.5
 prerelease = false
 ```
 
@@ -143,8 +143,8 @@ prerelease = false
 ### 方式二：推送 tag
 
 ```bash
-git tag desktop-v0.1.4
-git push origin desktop-v0.1.4
+git tag desktop-v0.1.5
+git push origin desktop-v0.1.5
 ```
 
 这种方式会触发：
@@ -161,8 +161,8 @@ on:
 发布成功后，GitHub Releases 应该包含：
 
 ```text
-AI Sales Agent_0.1.4_x64-setup.exe
-AI Sales Agent_0.1.4_x64-setup.exe.sig
+AI Sales Agent_0.1.5_x64-setup.exe
+AI Sales Agent_0.1.5_x64-setup.exe.sig
 latest.json
 Source code (zip)
 Source code (tar.gz)
@@ -182,11 +182,11 @@ Source code (tar.gz)
 
 ```json
 {
-  "version": "0.1.4",
+  "version": "0.1.5",
   "platforms": {
     "windows-x86_64-nsis": {
       "signature": "...",
-      "url": "https://github.com/hb1234567898/AI-Sales-Agent-SaaS/releases/download/desktop-v0.1.4/AI%20Sales%20Agent_0.1.4_x64-setup.exe"
+      "url": "https://github.com/hb1234567898/AI-Sales-Agent-SaaS/releases/download/desktop-v0.1.5/AI%20Sales%20Agent_0.1.5_x64-setup.exe"
     }
   }
 }
@@ -255,7 +255,7 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 推荐交互：
 
 ```text
-新版本 0.1.4 已下载
+新版本 0.1.5 已下载
 [稍后] [安装并重启]
 ```
 
@@ -433,7 +433,7 @@ https://github.com/.../releases/download/<tag>/<installer.exe>
 发布时：
 
 - [ ] 运行 `Desktop release` workflow。
-- [ ] `release_tag` 填写正确，例如 `desktop-v0.1.4`。
+- [ ] `release_tag` 填写正确，例如 `desktop-v0.1.5`。
 - [ ] `prerelease` 为 `false`。
 - [ ] GitHub Secrets 中存在 `TAURI_SIGNING_PRIVATE_KEY`。
 
