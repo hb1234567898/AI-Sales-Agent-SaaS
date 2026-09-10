@@ -248,14 +248,15 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 | --- | --- |
 | 检查失败 | 静默忽略，不显示 |
 | 已是最新版本 | 不显示 |
-| 发现新版本 | 显示“发现新版本 x.x.x”，提供“立即更新 / 稍后” |
+| 发现新版本 | 静默进入后台下载，下载期间显示进度 |
+| 更新包已下载 | 显示“新版本 x.x.x 已下载”，提供“安装并重启 / 稍后” |
 | 下载或安装失败 | 显示“更新异常”，鼠标悬停展示具体错误 |
 
 推荐交互：
 
 ```text
-发现新版本 0.1.4
-[稍后] [立即更新]
+新版本 0.1.4 已下载
+[稍后] [安装并重启]
 ```
 
 用户点击“稍后”：
@@ -265,14 +266,19 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 下次启动应用再检查
 ```
 
-用户点击“立即更新”：
+发现新版本后：
 
 ```text
 开始下载
 显示下载进度
-下载完成后校验签名
+下载完成后等待用户确认
+```
+
+用户点击“安装并重启”：
+
+```text
 签名通过后启动安装程序
-安装完成后重启应用
+Windows 会关闭当前应用并执行更新
 ```
 
 下载中可以显示：
@@ -306,7 +312,11 @@ async function checkForUpdates() {
       return
     }
 
-    showUpdateAvailable(update.version)
+    showDownloading(update.version)
+    await update.download((event) => {
+      updateProgress(event)
+    })
+    showDownloaded(update.version)
   } catch (error) {
     console.warn('桌面端更新检查失败，已静默忽略。', error)
   }
@@ -314,10 +324,7 @@ async function checkForUpdates() {
 
 async function installUpdate(update) {
   try {
-    await update.downloadAndInstall((event) => {
-      updateProgress(event)
-    })
-
+    await update.install()
     await relaunch()
   } catch (error) {
     showUpdateError(error)
@@ -329,8 +336,9 @@ async function installUpdate(update) {
 
 - `check()` 失败不要显示“更新异常”。
 - `check()` 成功但没有新版本，不显示任何提示。
-- `check()` 成功且发现新版本，等待用户点击“立即更新”。
-- `downloadAndInstall()` 失败，才显示“更新异常”。
+- `check()` 成功且发现新版本，后台调用 `download()`，不要调用 `downloadAndInstall()`。
+- `download()` 成功后，等待用户点击“安装并重启”再调用 `install()`。
+- `download()` 或 `install()` 失败，才显示“更新异常”。
 
 ## 常见问题
 
@@ -437,7 +445,8 @@ https://github.com/.../releases/download/<tag>/<installer.exe>
 - [ ] `latest.json` 的 `url` 是 `github.com/.../releases/download/...`。
 - [ ] `latest.json` 的 `version` 是最新版本。
 - [ ] 旧版本桌面端能检测到新版本。
-- [ ] 点击“立即更新”后能完成下载、安装和重启。
+- [ ] 发现新版本后只下载更新包，不自动安装。
+- [ ] 点击“安装并重启”后能完成安装和重启。
 
 ## 当前建议
 

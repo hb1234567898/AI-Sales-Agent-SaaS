@@ -1,13 +1,15 @@
 import { CheckCircle, CircleNotch, DownloadSimple, WarningCircle, X } from '@phosphor-icons/react'
 import { useEffect, useState, type CSSProperties } from 'react'
 
-type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'installing' | 'updated' | 'error'
+type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'updated' | 'error'
 
 interface AvailableUpdate {
   version: string
   currentVersion?: string
   date?: string
   body?: string
+  download: (handler?: (event: DownloadEvent) => void) => Promise<void>
+  install: () => Promise<void>
   downloadAndInstall: (handler?: (event: DownloadEvent) => void) => Promise<void>
 }
 
@@ -30,6 +32,7 @@ export function DesktopUpdateIndicator() {
   const [progress, setProgress] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
   const [cancelled, setCancelled] = useState(false)
+  const [installRequested, setInstallRequested] = useState(false)
 
   useEffect(() => {
     if (!isTauriRuntime()) return
@@ -48,6 +51,7 @@ export function DesktopUpdateIndicator() {
         setUpdate(nextUpdate)
         setVersion(nextUpdate.version)
         setState('available')
+        void downloadUpdate(nextUpdate)
       } catch (error) {
         if (disposed) return
         console.warn('桌面端更新检查失败，已静默忽略。', error)
@@ -63,14 +67,13 @@ export function DesktopUpdateIndicator() {
 
   if (!isTauriRuntime() || cancelled || state === 'idle' || state === 'checking') return null
 
-  async function installUpdate() {
-    if (!update) return
+  async function downloadUpdate(nextUpdate: AvailableUpdate) {
     let downloaded = 0
     let contentLength = 0
     setProgress(0)
     setState('downloading')
     try {
-      await update.downloadAndInstall((event) => {
+      await nextUpdate.download((event) => {
         const eventData = typeof event.data === 'object' && event.data !== null ? event.data : {}
         if (event.event === 'Started' && 'contentLength' in eventData) {
           contentLength = Number(eventData.contentLength ?? 0)
@@ -82,14 +85,27 @@ export function DesktopUpdateIndicator() {
         }
         if (event.event === 'Finished') {
           setProgress(100)
-          setState('installing')
         }
       })
+      setState('downloaded')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '桌面端更新下载失败')
+      setState('error')
+    }
+  }
+
+  async function installUpdate() {
+    if (!update || installRequested) return
+    setInstallRequested(true)
+    setState('installing')
+    try {
+      await update.install()
       setState('updated')
       const { relaunch } = await import('@tauri-apps/plugin-process')
       await relaunch()
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '桌面端更新下载或安装失败')
+      setInstallRequested(false)
+      setErrorMessage(error instanceof Error ? error.message : '桌面端更新安装失败')
       setState('error')
     }
   }
@@ -101,6 +117,8 @@ export function DesktopUpdateIndicator() {
       ? '更新完成'
       : state === 'installing'
         ? '安装更新'
+        : state === 'downloaded'
+          ? `新版本 ${version} 已下载`
         : state === 'available'
           ? `发现新版本 ${version}`
           : `正在下载 ${progress || 0}%`
@@ -109,10 +127,12 @@ export function DesktopUpdateIndicator() {
     : state === 'updated'
       ? '桌面端更新已完成，正在重启应用。'
       : state === 'installing'
-        ? `正在安装 ${version}，应用会自动重启。`
-        : state === 'available'
-          ? `桌面端新版本 ${version} 已发布，可选择立即更新或稍后处理。`
-          : `正在下载 ${version} 更新包。`
+        ? `正在安装 ${version}，Windows 会关闭应用并启动更新程序。`
+        : state === 'downloaded'
+          ? `桌面端新版本 ${version} 更新包已下载，可选择现在安装或稍后处理。`
+          : state === 'available'
+            ? `桌面端新版本 ${version} 已发布，正在后台下载更新包。`
+            : `正在下载 ${version} 更新包。`
 
   return (
     <span
@@ -124,13 +144,13 @@ export function DesktopUpdateIndicator() {
     >
       {failed ? <WarningCircle size={14} /> : state === 'updated' ? <CheckCircle size={14} /> : state === 'installing' ? <CircleNotch size={14} className="mcp-spin" /> : <DownloadSimple size={14} />}
       {label}
-      {state === 'available' ? (
+      {state === 'downloaded' ? (
         <span className="desktop-update-actions">
           <button type="button" onClick={() => setCancelled(true)} title="本次启动不再提醒">
             <X size={12} />稍后
           </button>
-          <button type="button" className="is-primary" onClick={() => void installUpdate()}>
-            立即更新
+          <button type="button" className="is-primary" disabled={installRequested} onClick={() => void installUpdate()}>
+            安装并重启
           </button>
         </span>
       ) : null}
