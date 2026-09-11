@@ -1060,8 +1060,14 @@ input:focus-visible {
 
 .app-main:has(.mcp-page) {
   display: grid;
+  height: 100%;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
   overflow: hidden;
-  padding-bottom: 24px;
+  padding:
+    26px
+    clamp(20px, 1.6vw, 40px)
+    24px;
 }
 
 .dashboard-page,
@@ -5918,7 +5924,7 @@ input:focus-visible {
   width: min(100% - 56px, 1640px);
   display: grid;
   gap: 6px;
-  margin: 0 auto 12px;
+  margin: 0 auto;
   padding: 8px 10px;
   border: 1px solid #dbe3ef;
   border-radius: 10px;
