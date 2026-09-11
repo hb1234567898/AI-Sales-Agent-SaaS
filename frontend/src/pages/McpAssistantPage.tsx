@@ -1,6 +1,6 @@
-import { ArrowRight, CheckCircle, ClockCounterClockwise, CircleNotch, DotsThree, Plus, Robot, Sparkle, UserCircle, WarningCircle, Wrench } from '@phosphor-icons/react'
+import { CheckCircle, CircleNotch, DotsThree, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getMcpConversations,
   getMcpMessages,
@@ -11,7 +11,6 @@ import {
 } from '../api/mcp-chat-api'
 import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
 import { useIsGuest } from '../auth/use-auth'
-import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 
 interface ChatMessage {
   id: string
@@ -32,6 +31,8 @@ const quickPrompts = [
   '运行 Agent 分析最近客户',
   '新增客户云岚科技并导入聊天：客户说下周想看报价，需要私有化方案。',
 ]
+
+const assistantTabs = ['AI对话', '助手列表', '技能管理', '额度管理', '设置']
 
 const toolGuides = [
   {
@@ -101,6 +102,7 @@ export function McpAssistantPage() {
   const displayedMessages = useMemo(() => useLocalMessages ? messages : (messagesQuery.data?.content ?? [])
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map(toChatMessage), [useLocalMessages, messages, messagesQuery.data])
+  const chatMessages = displayedMessages.filter((message) => message.id !== 'welcome')
 
   const chatMutation = useMutation({
     retry: false,
@@ -207,25 +209,32 @@ export function McpAssistantPage() {
   const readableStatus = chatMutation.isPending ? '正在执行' : activeConversation ? '历史已保存' : '新会话'
 
   return (
-    <section className="module-page mcp-page">
-      <DemoPageHeader
-        title="MCP 自动化助手"
-        description="用聊天方式调用客户、互动、Agent、审批与跟进工具；会话历史会保存，后续桌面端也能复用。"
-        actions={<span className="mcp-status"><Sparkle size={14} />{readableStatus}</span>}
-      />
+    <section className="mcp-page">
+      <nav className="mcp-top-tabs" aria-label="MCP 助手导航">
+        {assistantTabs.map((tab) => (
+          <button key={tab} type="button" className={tab === 'AI对话' ? 'is-active' : ''} aria-current={tab === 'AI对话' ? 'page' : undefined}>
+            {tab}
+          </button>
+        ))}
+        <span className="mcp-edition-badge">企业版</span>
+      </nav>
 
       <div className="mcp-layout">
-        <aside className="surface mcp-history-panel">
+        <aside className="mcp-history-panel">
           <header>
-            <h2><ClockCounterClockwise size={18} />会话记录</h2>
+            <h2>会话列表</h2>
             <button type="button" onClick={startNewConversation} disabled={chatMutation.isPending || isGuest}>
-              <Plus size={14} />新建
+              <PlusSquare size={16} />
+              <span>新建</span>
             </button>
           </header>
           {isGuest ? (
             <p className="mcp-history-empty">游客模式不会保存自动化聊天，登录后可使用会话历史。</p>
           ) : conversations.length === 0 ? (
-            <p className="mcp-history-empty">{conversationsQuery.isLoading ? '正在读取历史会话…' : '暂无历史会话，发送第一条指令后会自动保存。'}</p>
+            <div className="mcp-empty-history">
+              <Robot size={52} />
+              <p>{conversationsQuery.isLoading ? '正在读取历史会话…' : '暂无可用会话'}</p>
+            </div>
           ) : (
             <div className="mcp-history-list">
               {conversations.map((conversation) => (
@@ -242,9 +251,14 @@ export function McpAssistantPage() {
               ))}
             </div>
           )}
+          <ModelInfoPanel status={modelQuery.data} loading={modelQuery.isLoading} />
         </aside>
 
-        <section className="surface mcp-chat-panel">
+        <section className="mcp-chat-panel">
+          <header className="mcp-chat-header">
+            <h1><SquaresFour size={18} />AI助手</h1>
+            <span className="mcp-status"><Sparkle size={14} />{readableStatus}</span>
+          </header>
           <div ref={messageListRef} className="mcp-message-list" aria-live="polite">
             {messagesQuery.isFetching && activeConversationId ? (
               <article className="mcp-message is-assistant">
@@ -254,7 +268,19 @@ export function McpAssistantPage() {
                 </div>
               </article>
             ) : null}
-            {displayedMessages.map((message) => (
+            {chatMessages.length === 0 && !messagesQuery.isFetching ? (
+              <div className="mcp-empty-chat">
+                <h2>有什么我能帮你的吗?</h2>
+                <div className="mcp-empty-prompts" aria-label="快捷指令">
+                  {quickPrompts.map((prompt) => (
+                    <button key={prompt} type="button" disabled={isGuest || chatMutation.isPending} onClick={() => submit(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {chatMessages.map((message) => (
               <article key={message.id} className={`mcp-message is-${message.role}`}>
                 <span className="mcp-avatar" aria-hidden>
                   {message.role === 'user' ? <UserCircle size={20} /> : <Robot size={20} />}
@@ -297,27 +323,28 @@ export function McpAssistantPage() {
               value={input}
               disabled={isGuest}
               onChange={(event) => setInput(event.target.value)}
-              placeholder={isGuest ? '游客模式不能执行自动化操作' : '例如：给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。'}
-              rows={4}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                submit()
+              }}
+              placeholder={isGuest ? '游客模式不能执行自动化操作' : '例如：给云岚科技导入聊天。输入消息，按 Shift + Enter 换行，按 Enter 发送'}
+              rows={3}
             />
-            <button className="button button-primary" type="submit" disabled={isGuest || chatMutation.isPending || !input.trim()}>
-              发送指令 <ArrowRight size={15} />
-            </button>
+            <div className="mcp-composer-footer">
+              <div className="mcp-composer-tools">
+                <button type="button" aria-label="上传附件" title="聊天附件稍后接入" disabled>
+                  <Paperclip size={18} />
+                </button>
+                <span><Sparkle size={15} />{modelQuery.data?.model ?? 'qwen3.5-plus'}</span>
+                <span><MagicWand size={15} />智能模式</span>
+              </div>
+              <button className="mcp-send-button" type="submit" aria-label="发送指令" disabled={isGuest || chatMutation.isPending || !input.trim()}>
+                <PaperPlaneTilt size={21} weight="fill" />
+              </button>
+            </div>
           </form>
         </section>
-
-        <aside className="surface mcp-side-panel">
-          <ModelInfoPanel status={modelQuery.data} loading={modelQuery.isLoading} />
-
-          <h2>快捷指令</h2>
-          <div className="mcp-quick-list">
-            {quickPrompts.map((prompt) => (
-              <button key={prompt} type="button" disabled={isGuest || chatMutation.isPending} onClick={() => submit(prompt)}>
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </aside>
       </div>
     </section>
   )
@@ -325,32 +352,44 @@ export function McpAssistantPage() {
 
 function ModelInfoPanel({ status, loading }: { status?: AiModelStatus; loading: boolean }) {
   const usage = status?.usage
+  const totalTokens = usage?.totalTokens ?? 0
+  const remainingTokens = usage?.remainingTokens ?? null
+  const quotaTotal = remainingTokens == null ? null : totalTokens + remainingTokens
   return (
-    <section className="mcp-model-panel" aria-label="模型信息">
-      <h2><Sparkle size={18} />模型信息</h2>
+    <section className="mcp-model-panel" aria-label="资源包额度">
+      <header>
+        <strong>资源包额度</strong>
+        <span>{remainingTokens == null ? '额度未知' : `剩${formatCompactNumber(remainingTokens)} Token`}</span>
+      </header>
       {loading ? (
         <div className="mcp-model-loading"><span /><span /><span /></div>
       ) : (
         <>
-          <dl>
-            <div><dt>供应商</dt><dd>{status?.provider ?? 'QWEN'}</dd></div>
-            <div><dt>模型</dt><dd>{status?.model ?? '-'}</dd></div>
-            <div><dt>连接状态</dt><dd>{modelStatusLabel(status?.status)}</dd></div>
-            <div><dt>API 地址</dt><dd>{shortBaseUrl(status?.baseUrl)}</dd></div>
-          </dl>
-          <div className="mcp-token-grid">
-            <span><small>总 Token</small><strong>{formatCompactNumber(usage?.totalTokens ?? 0)}</strong></span>
-            <span><small>输入</small><strong>{formatCompactNumber(usage?.inputTokens ?? 0)}</strong></span>
-            <span><small>输出</small><strong>{formatCompactNumber(usage?.outputTokens ?? 0)}</strong></span>
-            <span><small>调用</small><strong>{formatCompactNumber(usage?.successfulCalls ?? 0)}</strong></span>
+          <TokenProgress label="累计已用" value={totalTokens} total={quotaTotal ?? totalTokens} tone="blue" />
+          <div className="mcp-model-meta">
+            <span>{status?.model ?? '-'}</span>
+            <span>{modelStatusLabel(status?.status)}</span>
           </div>
-          <p className="mcp-quota-note">
-            剩余额度：{usage?.remainingTokens == null ? '千问聊天接口未返回账户余额' : formatCompactNumber(usage.remainingTokens)}
-          </p>
+          {quotaTotal == null ? (
+            <p className="mcp-quota-note">剩余额度：千问聊天接口未返回账户余额</p>
+          ) : null}
+          <button type="button" className="mcp-quota-button">额度管理</button>
           {usage?.lastCalledAt ? <p className="mcp-model-time">最近调用：{formatTime(usage.lastCalledAt)}</p> : null}
         </>
       )}
     </section>
+  )
+}
+
+function TokenProgress({ label, value, total, tone = 'blue' }: { label: string; value: number; total: number; tone?: 'blue' | 'green' | 'amber' }) {
+  const percent = percentage(value, total)
+  return (
+    <div className={`mcp-token-progress is-${tone}`}>
+      <div><span>{label}</span><strong>{percent}%</strong></div>
+      <progress value={percent} max={100} aria-label={`${label} ${percent}%`} />
+      <span style={{ '--progress': `${percent}%` } as CSSProperties} aria-hidden />
+      <small>{formatCompactNumber(value)} / {formatCompactNumber(total)}</small>
+    </div>
   )
 }
 
@@ -449,15 +488,11 @@ function modelStatusLabel(status?: string) {
   return status ?? '-'
 }
 
-function shortBaseUrl(value?: string) {
-  if (!value) return '-'
-  try {
-    return new URL(value).host
-  } catch {
-    return value
-  }
-}
-
 function formatCompactNumber(value: number) {
   return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function percentage(value: number, total: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
 }

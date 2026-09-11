@@ -1,6 +1,6 @@
 [package]
 name = "ai-sales-agent-desktop"
-version = "0.1.7"
+version = "0.1.9"
 description = "AI Sales Agent desktop client"
 authors = ["AI Sales Agent"]
 edition = "2021"
