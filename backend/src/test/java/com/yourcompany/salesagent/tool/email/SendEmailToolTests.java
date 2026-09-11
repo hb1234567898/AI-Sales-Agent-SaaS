@@ -1,13 +1,17 @@
 package com.yourcompany.salesagent.tool.email;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.yourcompany.salesagent.file.application.FileStorageService;
 import com.yourcompany.salesagent.tool.domain.ToolExecutionContext;
 
 import org.junit.jupiter.api.Test;
@@ -21,7 +25,8 @@ class SendEmailToolTests {
 	void sendsEmailFromNestedPayloadRecipient() {
 		var mailSender = mock(JavaMailSender.class);
 		var configurationService = mock(EmailConfigurationService.class);
-		var tool = new SendEmailTool(mailSender, configurationService);
+		var fileStorageService = mock(FileStorageService.class);
+		var tool = new SendEmailTool(mailSender, configurationService, fileStorageService);
 		var actionRequestId = UUID.randomUUID();
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
@@ -61,7 +66,7 @@ class SendEmailToolTests {
 	@Test
 	void failsWithoutOnlineOrEnvironmentConfiguration() {
 		var configurationService = mock(EmailConfigurationService.class);
-		var tool = new SendEmailTool(mock(JavaMailSender.class), configurationService);
+		var tool = new SendEmailTool(mock(JavaMailSender.class), configurationService, mock(FileStorageService.class));
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
 				UUID.randomUUID(),
@@ -77,5 +82,42 @@ class SendEmailToolTests {
 
 		assertThat(result.success()).isFalse();
 		assertThat(result.message()).contains("设置页保存 SMTP 配置");
+	}
+
+	@Test
+	void failsWithoutSendingWhenRequiredAttachmentIsMissing() {
+		var mailSender = mock(JavaMailSender.class);
+		var configurationService = mock(EmailConfigurationService.class);
+		var fileStorageService = mock(FileStorageService.class);
+		var tool = new SendEmailTool(mailSender, configurationService, fileStorageService);
+		var context = new ToolExecutionContext(
+				UUID.randomUUID(),
+				UUID.randomUUID(),
+				UUID.randomUUID(),
+				UUID.randomUUID(),
+				UUID.randomUUID(),
+				"send-email:test",
+				1);
+		var configuration = new EmailRuntimeConfiguration(
+				"smtp.example.test",
+				587,
+				"notice@example.test",
+				"secret",
+				"notice@example.test",
+				true,
+				true,
+				false);
+		when(configurationService.requireRuntimeConfiguration(context.organizationId())).thenReturn(configuration);
+		when(fileStorageService.findRecentForCustomer(context.organizationId(), context.customerId(), 3)).thenReturn(List.of());
+
+		var result = tool.execute(context, Map.of(
+				"to", "hecheng@example.test",
+				"subject", "报价文件",
+				"body", "请查收附件。",
+				"attachmentRequired", true));
+
+		assertThat(result.success()).isFalse();
+		assertThat(result.message()).contains("没有找到可发送的上传文件");
+		verify(mailSender, never()).send(any(SimpleMailMessage.class));
 	}
 }

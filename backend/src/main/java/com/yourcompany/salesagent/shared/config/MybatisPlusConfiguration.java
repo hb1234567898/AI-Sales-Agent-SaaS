@@ -19,6 +19,7 @@ import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerIntercept
 		"com.yourcompany.salesagent.audit.infrastructure",
 		"com.yourcompany.salesagent.auth.infrastructure",
 		"com.yourcompany.salesagent.customer.infrastructure",
+		"com.yourcompany.salesagent.file.infrastructure",
 		"com.yourcompany.salesagent.followup.infrastructure",
 		"com.yourcompany.salesagent.interaction.infrastructure",
 		"com.yourcompany.salesagent.tool.email.infrastructure",

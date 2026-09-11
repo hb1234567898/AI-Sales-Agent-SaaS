@@ -28,6 +28,7 @@ import com.yourcompany.salesagent.agent.infrastructure.AgentCandidateRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentRunRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentWorkflowMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.file.application.FileStorageService;
 import com.yourcompany.salesagent.interaction.api.ChatAnalysisResponse;
 import com.yourcompany.salesagent.interaction.application.ChatAnalysisService;
 
@@ -40,16 +41,19 @@ public class SalesFollowUpAgentService {
 
 	private final AgentWorkflowMapper mapper;
 	private final ChatAnalysisService chatAnalysisService;
+	private final FileStorageService fileStorageService;
 	private final Clock clock;
 	private final UUID organizationId;
 
 	public SalesFollowUpAgentService(
 			AgentWorkflowMapper mapper,
 			ChatAnalysisService chatAnalysisService,
+			FileStorageService fileStorageService,
 			Clock clock,
 			@Value("${app.demo.organization-id}") UUID organizationId) {
 		this.mapper = mapper;
 		this.chatAnalysisService = chatAnalysisService;
+		this.fileStorageService = fileStorageService;
 		this.clock = clock;
 		this.organizationId = organizationId;
 	}
@@ -125,6 +129,10 @@ public class SalesFollowUpAgentService {
 					var emailTo = mapper.selectNotificationEmail(organizationId, candidate.getCustomerId(), candidate.getOwnerMemberId());
 					var emailSubject = "跟进提醒：" + candidate.getCustomerName();
 					var emailBody = buildEmailBody(candidate.getCustomerName(), analysis);
+					var attachmentRequired = emailAttachmentRequired(actionPlan.suggestedNextAction());
+					var attachments = attachmentRequired
+							? fileStorageService.preview(fileStorageService.findRecentForCustomer(organizationId, candidate.getCustomerId(), 3))
+							: List.<Map<String, Object>>of();
 					var email = new LinkedHashMap<String, Object>();
 					email.put("to", emailTo);
 					email.put("subject", emailSubject);
@@ -133,6 +141,8 @@ public class SalesFollowUpAgentService {
 					payload.put("to", emailTo);
 					payload.put("subject", emailSubject);
 					payload.put("body", emailBody);
+					payload.put("attachmentRequired", attachmentRequired);
+					payload.put("attachments", attachments);
 				}
 				var contentHash = sha256(payload.toString());
 				var actionRequestId = UUID.randomUUID();
@@ -282,8 +292,18 @@ public class SalesFollowUpAgentService {
 			preview.put("to", payload.get("to"));
 			preview.put("subject", payload.get("subject"));
 			preview.put("body", payload.get("body"));
+			preview.put("attachmentRequired", payload.get("attachmentRequired"));
+			preview.put("attachments", payload.get("attachments"));
 		}
 		return preview;
+	}
+
+	private static boolean emailAttachmentRequired(String action) {
+		if (!StringUtils.hasText(action)) {
+			return false;
+		}
+		return List.of("附件", "文件", "报价", "报价单", "方案", "合同", "PDF", "pdf").stream()
+				.anyMatch(action::contains);
 	}
 
 	private static int priority(ChatAnalysisResponse analysis) {
