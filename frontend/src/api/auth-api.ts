@@ -1,4 +1,5 @@
 import { clearAuthTokens, saveAuthTokens, type AuthTokens } from '../auth/auth-token-storage'
+import { encryptPasswordIfAvailable } from '../auth/password-transport'
 import { getJson, requestJson } from './axios-client'
 
 export interface AuthSession {
@@ -28,9 +29,14 @@ export async function getAuthSession() {
 }
 
 export async function login(input: LoginInput) {
+  const passwordPayload = await encryptPasswordIfAvailable(input.password)
   const result = await requestJson<AuthTokenResponse>('/api/v1/auth/login', {
     method: 'POST',
-    data: input,
+    data: {
+      email: input.email,
+      rememberMe: input.rememberMe,
+      ...passwordPayload,
+    },
   })
   saveAuthTokens(result, input.rememberMe)
   return result.session

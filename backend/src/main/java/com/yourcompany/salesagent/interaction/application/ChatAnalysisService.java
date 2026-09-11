@@ -1,12 +1,19 @@
 package com.yourcompany.salesagent.interaction.application;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +21,8 @@ import org.springframework.util.StringUtils;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.yourcompany.salesagent.ai.application.AiModelConnectionException;
+import com.yourcompany.salesagent.ai.application.ModelCallRecordRequest;
+import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
 import com.yourcompany.salesagent.ai.application.AiModelService;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.customer.application.CustomerNotFoundException;
@@ -33,6 +42,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class ChatAnalysisService {
 
+	private static final Logger LOGGER = LoggerFactory.getLogger(ChatAnalysisService.class);
 	private static final String PROMPT_VERSION = "chat-analysis-v1";
 	private static final int MAX_MODEL_INPUT_CHARS = 40_000;
 	private static final List<String> INTENT_LEVELS = List.of("LOW", "MEDIUM", "HIGH");
@@ -43,6 +53,7 @@ public class ChatAnalysisService {
 	private final CustomerMapper customerMapper;
 	private final QwenModelClient modelClient;
 	private final AiModelService modelService;
+	private final ModelCallRecorder modelCallRecorder;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
 	private final UUID organizationId;
@@ -53,6 +64,7 @@ public class ChatAnalysisService {
 			CustomerMapper customerMapper,
 			QwenModelClient modelClient,
 			AiModelService modelService,
+			ModelCallRecorder modelCallRecorder,
 			ObjectMapper objectMapper,
 			Clock clock,
 			@Value("${app.demo.organization-id}") UUID organizationId) {
@@ -61,6 +73,7 @@ public class ChatAnalysisService {
 		this.customerMapper = customerMapper;
 		this.modelClient = modelClient;
 		this.modelService = modelService;
+		this.modelCallRecorder = modelCallRecorder;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
 		this.organizationId = organizationId;
@@ -84,16 +97,55 @@ public class ChatAnalysisService {
 		var customer = requireCustomer(customerId);
 		var interaction = requireChatInteraction(customerId, interactionId);
 		var modelConfiguration = modelService.requireRuntimeConfiguration(organizationId);
+		var customerContext = customerContext(customer);
+		var chatContent = limitChatContent(interaction.getBodyText());
 
 		String rawOutput;
+		var startedAt = clock.instant();
+		var completedAt = startedAt;
+		QwenModelClient.QwenChatResult modelResult;
 		try {
-			rawOutput = modelClient.analyzeChat(
+			modelResult = modelClient.analyzeChat(
 					modelConfiguration,
-					customerContext(customer),
-					limitChatContent(interaction.getBodyText()));
+					customerContext,
+					chatContent);
+			completedAt = clock.instant();
 		}
 		catch (RuntimeException exception) {
 			throw new AiModelConnectionException("千问聊天分析失败，请检查模型配置和服务器网络", exception);
+		}
+		rawOutput = modelResult.content();
+		try {
+			modelCallRecorder.record(new ModelCallRecordRequest(
+					organizationId,
+					null,
+					null,
+					customerId,
+					"SALES_ANALYSIS",
+					"QWEN",
+					modelResult.model() == null ? modelConfiguration.model() : modelResult.model(),
+					modelResult.providerRequestId(),
+					PROMPT_VERSION,
+					"chat-analysis-json-v1",
+					"SUCCEEDED",
+					1,
+					modelResult.usage(),
+					Math.max(0, completedAt.toEpochMilli() - startedAt.toEpochMilli()),
+					sha256(customerContext + "\n\n" + chatContent),
+					sha256(rawOutput == null ? "" : rawOutput),
+					Map.of(
+							"customerId", customerId.toString(),
+							"interactionId", interactionId.toString(),
+							"customerContextChars", customerContext.length(),
+							"chatContentChars", chatContent.length()),
+					Map.of("outputChars", rawOutput == null ? 0 : rawOutput.length()),
+					null,
+					null,
+					startedAt,
+					completedAt));
+		}
+		catch (RuntimeException exception) {
+			LOGGER.warn("Failed to record Qwen model usage for chat analysis {}", interactionId, exception);
 		}
 
 		var output = parseAndValidate(rawOutput);
@@ -265,5 +317,15 @@ public class ChatAnalysisService {
 
 	private static String valueOrUnknown(String value) {
 		return StringUtils.hasText(value) ? value : "未知";
+	}
+
+	private static String sha256(String value) {
+		try {
+			var digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+			return HexFormat.of().formatHex(digest);
+		}
+		catch (NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 算法不可用", exception);
+		}
 	}
 }

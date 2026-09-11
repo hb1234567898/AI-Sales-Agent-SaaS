@@ -1,0 +1,117 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub Release tag，例如 desktop-v0.1.5"
+        required: true
+        default: "desktop-v0.1.5"
+      prerelease:
+        description: "是否发布为预发布版本"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish-windows:
+    name: Build and publish Windows desktop app
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify updater signing secret
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "缺少 GitHub Secret：TAURI_SIGNING_PRIVATE_KEY。请先把 Tauri updater 私钥配置到仓库 Secrets。"
+          }
+
+      - name: Publish desktop release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_API_BASE_URL: https://ai.likeasuka.icu
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: frontend
+          tauriScript: pnpm tauri
+          args: --bundles nsis
+          tagName: ${{ inputs.release_tag || github.ref_name }}
+          releaseName: AI Sales Agent Desktop ${{ inputs.release_tag || github.ref_name }}
+          releaseBody: |
+            AI Sales Agent 桌面端发布包。
+
+            - Windows 安装包由 Tauri / NSIS 生成。
+            - latest.json 用于桌面端自动更新。
+            - 更新包已使用 Tauri updater 私钥签名。
+          releaseDraft: false
+          prerelease: ${{ inputs.prerelease || false }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+
+      - name: Patch updater manifest download URL
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $release = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
+          $installer = $release.assets |
+            Where-Object { $_.name -like "*_x64-setup.exe" } |
+            Select-Object -First 1
+
+          if (-not $installer) {
+            throw "没有找到 Windows NSIS 安装包资产，无法修正 latest.json 下载地址。"
+          }
+
+          New-Item -ItemType Directory -Force -Path updater-json-patch | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern latest.json --dir updater-json-patch --clobber
+
+          $manifestPath = Join-Path "updater-json-patch" "latest.json"
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $encodedAssetName = [System.Uri]::EscapeDataString($installer.name)
+          $downloadUrl = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:RELEASE_TAG)/$encodedAssetName"
+
+          foreach ($platform in $manifest.platforms.PSObject.Properties) {
+            $platform.Value.url = $downloadUrl
+          }
+
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+          gh release upload $env:RELEASE_TAG $manifestPath --repo $env:GITHUB_REPOSITORY --clobber

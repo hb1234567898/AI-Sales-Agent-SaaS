@@ -97,6 +97,14 @@ describe('ProtectedApp', () => {
     expect(await screen.findByRole('heading', { name: '登录页面' })).toBeInTheDocument()
   })
 
+  it('桌面端首次启动时会话接口不可达且没有本地 Token 时跳转登录页', async () => {
+    vi.mocked(getAuthSession).mockRejectedValue(new ApiError('请求失败，请检查网络连接', 0))
+    renderProtectedApp()
+
+    expect(await screen.findByRole('heading', { name: '登录页面' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '客户页面' })).not.toBeInTheDocument()
+  })
+
   it('会话接口短暂返回 401 但本地 Token 仍存在时不跳转登录页', async () => {
     saveAuthTokens({
       accessToken: 'access.jwt',

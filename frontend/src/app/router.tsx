@@ -52,6 +52,12 @@ export const router = createBrowserRouter([
         }),
       },
       {
+        path: 'mcp',
+        lazy: async () => ({
+          Component: (await import('../pages/McpAssistantPage')).McpAssistantPage,
+        }),
+      },
+      {
         path: 'analytics',
         lazy: async () => ({
           Component: (await import('../pages/AnalyticsPage')).AnalyticsPage,

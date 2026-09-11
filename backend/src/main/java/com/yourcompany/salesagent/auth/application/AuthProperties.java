@@ -10,5 +10,8 @@ public record AuthProperties(
 		Duration sessionDuration,
 		Duration rememberDuration,
 		String jwtIssuer,
-		String jwtSigningKey) {
+		String jwtSigningKey,
+		String passwordEncryptionKeyId,
+		String passwordEncryptionPublicKey,
+		String passwordEncryptionPrivateKey) {
 }

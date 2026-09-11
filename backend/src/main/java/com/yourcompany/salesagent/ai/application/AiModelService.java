@@ -11,8 +11,11 @@ import org.springframework.util.StringUtils;
 import com.yourcompany.salesagent.ai.api.AiModelStatusResponse;
 import com.yourcompany.salesagent.ai.api.AiModelTestResponse;
 import com.yourcompany.salesagent.ai.api.AiModelUpdateRequest;
+import com.yourcompany.salesagent.ai.api.AiModelUsageResponse;
 import com.yourcompany.salesagent.ai.domain.AiModelConfiguration;
 import com.yourcompany.salesagent.ai.infrastructure.AiModelConfigurationMapper;
+import com.yourcompany.salesagent.ai.infrastructure.ModelCallMapper;
+import com.yourcompany.salesagent.ai.infrastructure.ModelUsageSummaryRow;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
 import com.yourcompany.salesagent.shared.security.SecretCipher;
@@ -23,6 +26,7 @@ public class AiModelService {
 
 	private final QwenModelClient modelClient;
 	private final AiModelConfigurationMapper configurationMapper;
+	private final ModelCallMapper modelCallMapper;
 	private final SecretCipher secretCipher;
 	private final QwenModelProperties properties;
 	private final Clock clock;
@@ -30,11 +34,13 @@ public class AiModelService {
 	public AiModelService(
 			QwenModelClient modelClient,
 			AiModelConfigurationMapper configurationMapper,
+			ModelCallMapper modelCallMapper,
 			SecretCipher secretCipher,
 			QwenModelProperties properties,
 			Clock clock) {
 		this.modelClient = modelClient;
 		this.configurationMapper = configurationMapper;
+		this.modelCallMapper = modelCallMapper;
 		this.secretCipher = secretCipher;
 		this.properties = properties;
 		this.clock = clock;
@@ -50,7 +56,8 @@ public class AiModelService {
 					properties.baseUrl(),
 					false,
 					false,
-					"MISSING_API_KEY");
+					"MISSING_API_KEY",
+					usageSummary(organizationId, "QWEN"));
 		}
 		var ready = canDecrypt(configuration);
 		return new AiModelStatusResponse(
@@ -59,7 +66,8 @@ public class AiModelService {
 				configuration.getBaseUrl(),
 				true,
 				ready,
-				ready ? "READY" : "ENCRYPTION_KEY_UNAVAILABLE");
+				ready ? "READY" : "ENCRYPTION_KEY_UNAVAILABLE",
+				usageSummary(organizationId, configuration.getProvider()));
 	}
 
 	@Transactional
@@ -141,5 +149,21 @@ public class AiModelService {
 		catch (IllegalArgumentException exception) {
 			throw new AiModelConfigurationException("API 地址必须是有效的 HTTPS 地址");
 		}
+	}
+
+	private AiModelUsageResponse usageSummary(UUID organizationId, String provider) {
+		ModelUsageSummaryRow summary = modelCallMapper.selectUsageSummary(organizationId, provider);
+		var inputTokens = summary == null ? 0 : summary.getInputTokens();
+		var outputTokens = summary == null ? 0 : summary.getOutputTokens();
+		var cachedInputTokens = summary == null ? 0 : summary.getCachedInputTokens();
+		return new AiModelUsageResponse(
+				inputTokens,
+				outputTokens,
+				cachedInputTokens,
+				inputTokens + outputTokens,
+				summary == null ? 0 : summary.getSuccessfulCalls(),
+				summary == null ? null : summary.getLastCalledAt(),
+				null,
+				"CHAT_API_DOES_NOT_RETURN_ACCOUNT_REMAINING");
 	}
 }

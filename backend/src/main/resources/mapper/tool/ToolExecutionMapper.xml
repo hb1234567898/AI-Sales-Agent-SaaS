@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+		PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+		"https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.tool.infrastructure.ToolExecutionMapper">
+
+	<resultMap id="ActionRequestMap" type="com.yourcompany.salesagent.tool.infrastructure.ActionRequestRow" autoMapping="true">
+		<id property="id" column="id" />
+		<result property="payload" column="payload" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+		<result property="preview" column="preview" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+	</resultMap>
+
+	<select id="selectActionRequestForExecution" resultMap="ActionRequestMap">
+		SELECT id,
+			   organization_id,
+			   run_id,
+			   step_id,
+			   customer_id,
+			   requested_by_member_id,
+			   action_type,
+			   risk_level,
+			   status,
+			   tool_name,
+			   tool_version,
+			   reason,
+			   payload,
+			   preview,
+			   requires_approval,
+			   policy_decision,
+			   idempotency_key,
+			   approved_at
+		FROM action_request
+		WHERE organization_id = #{organizationId}
+		  AND id = #{actionRequestId}
+		LIMIT 1
+	</select>
+
+	<update id="lockActionRequestForExecution">
+		UPDATE action_request
+		SET status = 'EXECUTING',
+			execution_started_at = #{now},
+			updated_at = #{now},
+			version = version + 1
+		WHERE organization_id = #{organizationId}
+		  AND id = #{actionRequestId}
+		  AND status IN ('APPROVED', 'EXECUTING')
+	</update>
+
+	<update id="updateActionExecuting">
+		UPDATE action_request
+		SET status = 'EXECUTING',
+			execution_started_at = coalesce(execution_started_at, #{now}),
+			updated_at = #{now},
+			version = version + 1
+		WHERE organization_id = #{organizationId}
+		  AND id = #{actionRequestId}
+	</update>
+
+	<update id="markActionApproved">
+		UPDATE action_request
+		SET status = 'APPROVED',
+			approved_at = #{now},
+			updated_at = #{now},
+			version = version + 1
+		WHERE organization_id = #{organizationId}
+		  AND id = #{actionRequestId}
+		  AND status = 'AWAITING_APPROVAL'
+	</update>
+
+	<update id="updateActionSucceeded">
+		UPDATE action_request
+		SET status = 'SUCCEEDED',
+			approved_at = coalesce(approved_at, #{now}),
+			completed_at = #{now},
+			updated_at = #{now},
+			version = version + 1
+		WHERE organization_id = #{organizationId}
+		  AND id = #{actionRequestId}
+	</update>
+
+	<update id="updateActionFailed">
+		UPDATE action_request
+		SET status = 'FAILED',
+			completed_at = #{now},
+			failure_code = #{failureCode},
+			failure_message = #{failureMessage},
+			updated_at = #{now},
+			version = version + 1
+		WHERE organization_id = #{organizationId}
+		  AND id = #{actionRequestId}
+	</update>
+
+	<insert id="insertToolInvocation">
+		INSERT INTO tool_invocation (
+			id,
+			organization_id,
+			action_request_id,
+			run_id,
+			step_id,
+			tool_name,
+			tool_version,
+			attempt_no,
+			idempotency_key,
+			status,
+			request_payload,
+			started_at,
+			created_at
+		)
+		VALUES (
+			gen_random_uuid(),
+			#{organizationId},
+			#{actionRequestId},
+			#{runId},
+			#{stepId},
+			#{toolName},
+			#{toolVersion},
+			#{attemptNo},
+			#{idempotencyKey},
+			#{status},
+			#{requestPayload,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+			#{now},
+			#{now}
+		)
+	</insert>
+
+	<update id="completeToolInvocation">
+		UPDATE tool_invocation
+		SET status = #{status},
+			response_payload = #{responsePayload,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+			external_operation_id = #{externalOperationId},
+			retryable = #{retryable},
+			error_code = #{errorCode},
+			error_message = #{errorMessage},
+			latency_ms = #{latencyMs},
+			completed_at = #{now}
+		WHERE organization_id = #{organizationId}
+		  AND action_request_id = #{actionRequestId}
+		  AND attempt_no = #{attemptNo}
+	</update>
+
+	<insert id="insertInteractionFromExecution">
+		INSERT INTO interaction (
+			id,
+			organization_id,
+			customer_id,
+			created_by_member_id,
+			type,
+			direction,
+			occurred_at,
+			subject,
+			body_text,
+			source,
+			source_payload,
+			created_at
+		)
+		VALUES (
+			gen_random_uuid(),
+			#{organizationId},
+			#{customerId},
+			#{createdByMemberId},
+			#{type},
+			#{direction},
+			#{occurredAt},
+			#{subject},
+			#{bodyText},
+			'INTERNAL',
+			#{sourcePayload,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+			#{now}
+		)
+	</insert>
+</mapper>

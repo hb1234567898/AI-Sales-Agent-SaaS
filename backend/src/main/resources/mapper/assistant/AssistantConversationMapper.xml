@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.assistant.infrastructure.AssistantConversationMapper">
+
+    <resultMap id="ConversationMap" type="com.yourcompany.salesagent.assistant.infrastructure.AssistantConversationRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" />
+            <arg column="organization_id" javaType="java.util.UUID" />
+            <arg column="user_id" javaType="java.util.UUID" />
+            <arg column="member_id" javaType="java.util.UUID" />
+            <arg column="title" javaType="java.lang.String" />
+            <arg column="channel" javaType="java.lang.String" />
+            <arg column="status" javaType="java.lang.String" />
+            <arg column="last_message_at" javaType="java.time.Instant" />
+            <arg column="created_at" javaType="java.time.Instant" />
+            <arg column="updated_at" javaType="java.time.Instant" />
+            <arg column="version" javaType="java.lang.Integer" />
+        </constructor>
+    </resultMap>
+
+    <resultMap id="MessageMap" type="com.yourcompany.salesagent.assistant.infrastructure.AssistantMessageRow">
+        <constructor>
+            <idArg column="id" javaType="java.util.UUID" />
+            <arg column="organization_id" javaType="java.util.UUID" />
+            <arg column="conversation_id" javaType="java.util.UUID" />
+            <arg column="role" javaType="java.lang.String" />
+            <arg column="content" javaType="java.lang.String" />
+            <arg column="reasoning_summary" javaType="java.lang.String" />
+            <arg column="tool_traces_json" javaType="java.lang.String" />
+            <arg column="data" javaType="java.util.Map" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
+            <arg column="created_at" javaType="java.time.Instant" />
+        </constructor>
+    </resultMap>
+
+    <select id="selectConversation" resultMap="ConversationMap">
+        SELECT id,
+               organization_id,
+               user_id,
+               member_id,
+               title,
+               channel,
+               status,
+               last_message_at,
+               created_at,
+               updated_at,
+               version
+        FROM assistant_conversation
+        WHERE organization_id = #{organizationId}
+          AND id = #{conversationId}
+        LIMIT 1
+    </select>
+
+    <select id="selectConversations" resultMap="ConversationMap">
+        SELECT id,
+               organization_id,
+               user_id,
+               member_id,
+               title,
+               channel,
+               status,
+               last_message_at,
+               created_at,
+               updated_at,
+               version
+        FROM assistant_conversation
+        WHERE organization_id = #{organizationId}
+          AND (member_id = #{memberId} OR member_id IS NULL)
+        ORDER BY COALESCE(last_message_at, created_at) DESC, created_at DESC
+    </select>
+
+    <insert id="insertConversation">
+        INSERT INTO assistant_conversation (
+            id,
+            organization_id,
+            user_id,
+            member_id,
+            title,
+            channel,
+            status,
+            last_message_at,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            #{id},
+            #{organizationId},
+            #{userId},
+            #{memberId},
+            #{title},
+            #{channel},
+            'OPEN',
+            #{now},
+            #{now},
+            #{now}
+        )
+    </insert>
+
+    <update id="touchConversation">
+        UPDATE assistant_conversation
+        SET last_message_at = #{now},
+            updated_at = #{now},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{conversationId}
+    </update>
+
+    <insert id="insertMessage">
+        INSERT INTO assistant_message (
+            id,
+            organization_id,
+            conversation_id,
+            role,
+            content,
+            reasoning_summary,
+            tool_traces,
+            data,
+            created_at
+        )
+        VALUES (
+            #{id},
+            #{organizationId},
+            #{conversationId},
+            #{role},
+            #{content},
+            #{reasoningSummary},
+            CAST(#{toolTracesJson} AS jsonb),
+            #{data,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
+            #{createdAt}
+        )
+    </insert>
+
+    <select id="selectMessages" resultMap="MessageMap">
+        SELECT id,
+               organization_id,
+               conversation_id,
+               role,
+               content,
+               reasoning_summary,
+               tool_traces::text AS tool_traces_json,
+               data,
+               created_at
+        FROM assistant_message
+        WHERE organization_id = #{organizationId}
+          AND conversation_id = #{conversationId}
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+</mapper>

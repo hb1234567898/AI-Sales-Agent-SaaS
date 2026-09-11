@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import com.yourcompany.salesagent.auth.application.AuthProperties;
+import com.yourcompany.salesagent.shared.security.Base64KeyDecoder;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -170,7 +171,7 @@ public class JwtTokenService {
 			throw new JwtConfigurationException("服务器尚未配置 AUTH_JWT_SIGNING_KEY");
 		}
 		try {
-			var key = Base64.getDecoder().decode(properties.jwtSigningKey().strip());
+			var key = Base64KeyDecoder.decode(properties.jwtSigningKey());
 			if (key.length < 32) {
 				throw new JwtConfigurationException("AUTH_JWT_SIGNING_KEY 解码后至少需要 32 字节");
 			}
