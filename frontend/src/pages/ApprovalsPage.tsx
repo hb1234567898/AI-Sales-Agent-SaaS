@@ -115,6 +115,8 @@ function EmailPreview({ approval }: { approval: Approval }) {
   const to = previewText(approval.preview.to)
   const subject = previewText(approval.preview.subject)
   const body = previewText(approval.preview.body)
+  const attachmentRequired = approval.preview.attachmentRequired === true
+  const attachments = previewAttachments(approval.preview.attachments)
   return (
     <section className="email-approval-preview" aria-label="邮件发送预览">
       <div className="email-approval-title"><EnvelopeSimple size={15} />邮件内容</div>
@@ -123,8 +125,37 @@ function EmailPreview({ approval }: { approval: Approval }) {
         <div><dt>主题</dt><dd>{subject || '(无主题)'}</dd></div>
       </dl>
       <p>{body || '暂无邮件正文'}</p>
+      {attachments.length ? (
+        <div className="email-attachment-list">
+          <strong>{attachmentRequired ? '必需附件' : '附件'}</strong>
+          {attachments.map((attachment) => (
+            <span key={attachment.id} title={attachment.name}>{attachment.name}<small>{formatFileSize(attachment.sizeBytes)}</small></span>
+          ))}
+        </div>
+      ) : attachmentRequired ? (
+        <div className="email-attachment-warning">需要附件：请先在客户档案上传报价、方案或合同文件，再批准发送。</div>
+      ) : null}
     </section>
   )
+}
+
+interface PreviewAttachment {
+  id: string
+  name: string
+  sizeBytes: number
+}
+
+function previewAttachments(value: unknown): PreviewAttachment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const id = previewText(record.id)
+    const name = previewText(record.name)
+    const sizeBytes = typeof record.sizeBytes === 'number' ? record.sizeBytes : Number(record.sizeBytes)
+    if (!id || !name || !Number.isFinite(sizeBytes)) return []
+    return [{ id, name, sizeBytes }]
+  })
 }
 
 function previewAction(approval: Approval) {
@@ -137,6 +168,12 @@ function previewText(value: unknown) {
 
 function shortId(value: string) {
   return value.length > 14 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
+}
+
+function formatFileSize(value: number) {
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`
+  if (value >= 1024) return `${Math.ceil(value / 1024)} KB`
+  return `${value} B`
 }
 
 function formatDateTime(value: string) {

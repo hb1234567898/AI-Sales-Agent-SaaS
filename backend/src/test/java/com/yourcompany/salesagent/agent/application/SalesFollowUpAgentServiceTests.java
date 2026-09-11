@@ -23,6 +23,7 @@ import com.yourcompany.salesagent.agent.api.AgentRunCreateRequest;
 import com.yourcompany.salesagent.agent.infrastructure.AgentRunRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentWorkflowMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.file.application.FileStorageService;
 import com.yourcompany.salesagent.interaction.api.ChatAnalysisResponse;
 import com.yourcompany.salesagent.interaction.application.ChatAnalysisService;
 import com.yourcompany.salesagent.interaction.domain.ChatAnalysisStatus;
@@ -34,9 +35,11 @@ class SalesFollowUpAgentServiceTests {
 
 	private final AgentWorkflowMapper mapper = mock(AgentWorkflowMapper.class);
 	private final ChatAnalysisService chatAnalysisService = mock(ChatAnalysisService.class);
+	private final FileStorageService fileStorageService = mock(FileStorageService.class);
 	private final SalesFollowUpAgentService service = new SalesFollowUpAgentService(
 			mapper,
 			chatAnalysisService,
+			fileStorageService,
 			Clock.fixed(NOW, ZoneOffset.UTC),
 			ORGANIZATION_ID);
 
@@ -131,7 +134,7 @@ class SalesFollowUpAgentServiceTests {
 				List.of(),
 				List.of(),
 				List.of("SEND_EMAIL"),
-				"发送报价跟进邮件",
+				"发送报价文件给客户",
 				null,
 				null,
 				null,
@@ -157,6 +160,8 @@ class SalesFollowUpAgentServiceTests {
 		});
 		var payload = ArgumentCaptor.forClass(Map.class);
 		var preview = ArgumentCaptor.forClass(Map.class);
+		when(fileStorageService.findRecentForCustomer(ORGANIZATION_ID, customerId, 3)).thenReturn(List.of());
+		when(fileStorageService.preview(List.of())).thenReturn(List.of());
 
 		service.runNow(principal, new AgentRunCreateRequest(5, 30, List.of(customerId)));
 
@@ -182,12 +187,16 @@ class SalesFollowUpAgentServiceTests {
 				any());
 		assertThat(payload.getValue())
 				.containsEntry("to", "hecheng@example.test")
-				.containsEntry("subject", "跟进提醒：宁波海天机械");
+				.containsEntry("subject", "跟进提醒：宁波海天机械")
+				.containsEntry("attachmentRequired", true)
+				.containsEntry("attachments", List.of());
 		assertThat(payload.getValue().get("body")).asString().contains("客户希望本周看报价");
 		assertThat(preview.getValue())
 				.containsEntry("to", "hecheng@example.test")
 				.containsEntry("subject", "跟进提醒：宁波海天机械")
-				.containsEntry("action", "发送报价跟进邮件");
+				.containsEntry("action", "发送报价文件给客户")
+				.containsEntry("attachmentRequired", true)
+				.containsEntry("attachments", List.of());
 		assertThat(preview.getValue().get("body")).asString().contains("客户希望本周看报价");
 	}
 

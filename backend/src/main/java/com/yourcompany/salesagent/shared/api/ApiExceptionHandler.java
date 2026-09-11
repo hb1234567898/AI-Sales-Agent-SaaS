@@ -27,6 +27,7 @@ import com.yourcompany.salesagent.agent.application.AgentWorkflowException;
 import com.yourcompany.salesagent.approval.application.ApprovalWorkflowException;
 import com.yourcompany.salesagent.assistant.application.AssistantWorkflowException;
 import com.yourcompany.salesagent.followup.application.FollowUpWorkflowException;
+import com.yourcompany.salesagent.file.application.FileStorageException;
 import com.yourcompany.salesagent.tool.email.EmailConfigurationException;
 import com.yourcompany.salesagent.tool.email.EmailConnectionException;
 
@@ -47,6 +48,7 @@ public class ApiExceptionHandler {
 			AgentWorkflowException.class,
 			ApprovalWorkflowException.class,
 			AssistantWorkflowException.class,
+			FileStorageException.class,
 			FollowUpWorkflowException.class
 	})
 	ProblemDetail handleWorkflow(RuntimeException exception) {
