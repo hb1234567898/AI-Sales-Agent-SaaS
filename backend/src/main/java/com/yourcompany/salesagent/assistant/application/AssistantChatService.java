@@ -1,7 +1,11 @@
 package com.yourcompany.salesagent.assistant.application;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,7 +13,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.function.BiConsumer;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -21,6 +28,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yourcompany.salesagent.agent.api.AgentRunCreateRequest;
 import com.yourcompany.salesagent.ai.application.AiModelService;
 import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
+import com.yourcompany.salesagent.ai.application.ModelCallRecordRequest;
+import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
+import com.yourcompany.salesagent.ai.application.ModelUsage;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.agent.api.AgentRunResponse;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
@@ -53,6 +63,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class AssistantChatService {
 
+	private static final Logger LOGGER = LoggerFactory.getLogger(AssistantChatService.class);
 	private static final Pattern UUID_PATTERN = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 	private static final Pattern CREATE_CUSTOMER_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80})");
 	private static final Pattern CREATE_AND_IMPORT_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80}).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
@@ -71,6 +82,7 @@ public class AssistantChatService {
 	private final Clock clock;
 	private final AiModelService aiModelService;
 	private final QwenModelClient modelClient;
+	private final ModelCallRecorder modelCallRecorder;
 	private final TransactionTemplate transactions;
 
 	public AssistantChatService(
@@ -84,6 +96,7 @@ public class AssistantChatService {
 			Clock clock,
 			AiModelService aiModelService,
 			QwenModelClient modelClient,
+			ModelCallRecorder modelCallRecorder,
 			PlatformTransactionManager transactionManager) {
 		this.conversationMapper = conversationMapper;
 		this.customerService = customerService;
@@ -95,6 +108,7 @@ public class AssistantChatService {
 		this.clock = clock;
 		this.aiModelService = aiModelService;
 		this.modelClient = modelClient;
+		this.modelCallRecorder = modelCallRecorder;
 		this.transactions = new TransactionTemplate(transactionManager);
 	}
 
@@ -131,14 +145,40 @@ public class AssistantChatService {
 			events.accept("result", result);
 			try {
 				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId());
+				var verifiedResult = objectMapper.writeValueAsString(result);
+				var startedAt = clock.instant();
+				var streamUsage = new AtomicReference<ModelUsage>();
+				var providerRequestId = new AtomicReference<String>();
+				var responseModel = new AtomicReference<String>();
 				events.accept("progress", Map.of("text", "业务执行已结束，模型正在生成回答。"));
-				modelClient.streamAssistantReply(configuration, message, objectMapper.writeValueAsString(result))
+				modelClient.streamAssistantReplyWithUsage(configuration, message, verifiedResult)
 						.timeout(Duration.ofSeconds(45))
-						.doOnNext(delta -> {
-							content.append(delta);
-							events.accept("delta", Map.of("text", delta));
+						.doOnNext(chunk -> {
+							if (chunk.usage() != null) streamUsage.set(chunk.usage());
+							if (StringUtils.hasText(chunk.providerRequestId())) providerRequestId.set(chunk.providerRequestId());
+							if (StringUtils.hasText(chunk.model())) responseModel.set(chunk.model());
+							if (StringUtils.hasText(chunk.text())) {
+								content.append(chunk.text());
+								events.accept("delta", Map.of("text", chunk.text()));
+							}
 						}).blockLast(Duration.ofMinutes(2));
 				if (content.isEmpty()) throw new IllegalStateException("Empty model response");
+				var completedAt = clock.instant();
+				var usage = streamUsage.get();
+				if (usage != null) {
+					data.put("modelUsage", usageSnapshot(usage));
+				}
+				recordAssistantModelCall(
+						principal,
+						configuration.model(),
+						responseModel.get(),
+						providerRequestId.get(),
+						usage,
+						startedAt,
+						completedAt,
+						message,
+						verifiedResult,
+						content.toString());
 			}
 			catch (AiModelNotConfiguredException exception) {
 				// 没有模型时仍支持业务工具，明确返回原始结果，不模拟打字效果。
@@ -620,6 +660,59 @@ public class AssistantChatService {
 				traces.stream().filter(trace -> !trace.status().equals("RUNNING")).toList(), data, clock.instant());
 	}
 
+	private void recordAssistantModelCall(
+			AuthPrincipal principal,
+			String configuredModel,
+			String responseModel,
+			String providerRequestId,
+			ModelUsage usage,
+			java.time.Instant startedAt,
+			java.time.Instant completedAt,
+			String userMessage,
+			String verifiedResult,
+			String output) {
+		try {
+			modelCallRecorder.record(new ModelCallRecordRequest(
+					principal.organizationId(),
+					null,
+					null,
+					null,
+					"SUMMARY",
+					"QWEN",
+					StringUtils.hasText(responseModel) ? responseModel : configuredModel,
+					providerRequestId,
+					"mcp-assistant-summary-v1",
+					null,
+					"SUCCEEDED",
+					1,
+					usage,
+					Math.max(0, completedAt.toEpochMilli() - startedAt.toEpochMilli()),
+					sha256(userMessage + "\n\n" + verifiedResult),
+					sha256(output == null ? "" : output),
+					Map.of(
+							"channel", "MCP_ASSISTANT",
+							"userMessageChars", userMessage == null ? 0 : userMessage.length(),
+							"verifiedResultChars", verifiedResult == null ? 0 : verifiedResult.length()),
+					Map.of("outputChars", output == null ? 0 : output.length()),
+					null,
+					null,
+					startedAt,
+					completedAt));
+		}
+		catch (RuntimeException exception) {
+			LOGGER.warn("Failed to record Qwen model usage for MCP assistant summary", exception);
+		}
+	}
+
+	private static Map<String, Object> usageSnapshot(ModelUsage usage) {
+		var snapshot = new LinkedHashMap<String, Object>();
+		snapshot.put("promptTokens", usage.promptTokens());
+		snapshot.put("completionTokens", usage.completionTokens());
+		snapshot.put("totalTokens", usage.totalTokens());
+		snapshot.put("cachedInputTokens", usage.cachedInputTokens());
+		return snapshot;
+	}
+
 	private static String normalizeChannel(String channel) {
 		return "DESKTOP".equals(channel) ? "DESKTOP" : "WEB";
 	}
@@ -642,6 +735,16 @@ public class AssistantChatService {
 			}
 		}
 		return map;
+	}
+
+	private static String sha256(String value) {
+		try {
+			var digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+			return HexFormat.of().formatHex(digest);
+		}
+		catch (NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 算法不可用", exception);
+		}
 	}
 
 	private record ImportCommand(String customerName, String content) {
