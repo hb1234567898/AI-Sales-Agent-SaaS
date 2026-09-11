@@ -9,6 +9,18 @@ export interface AiModelStatus {
   apiKeyConfigured: boolean
   ready: boolean
   status: AiModelStatusCode
+  usage?: AiModelUsage
+}
+
+export interface AiModelUsage {
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  totalTokens: number
+  successfulCalls: number
+  lastCalledAt: string | null
+  remainingTokens: number | null
+  remainingStatus: string
 }
 
 export interface AiModelTestResult {

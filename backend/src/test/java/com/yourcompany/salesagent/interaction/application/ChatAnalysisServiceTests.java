@@ -19,6 +19,9 @@ import org.mockito.ArgumentCaptor;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.ai.application.AiModelRuntimeConfiguration;
 import com.yourcompany.salesagent.ai.application.AiModelService;
+import com.yourcompany.salesagent.ai.application.ModelCallRecordRequest;
+import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
+import com.yourcompany.salesagent.ai.application.ModelUsage;
 import com.yourcompany.salesagent.customer.domain.Customer;
 import com.yourcompany.salesagent.customer.infrastructure.CustomerMapper;
 import com.yourcompany.salesagent.interaction.domain.ChatAnalysis;
@@ -44,6 +47,7 @@ class ChatAnalysisServiceTests {
 		var customerMapper = mock(CustomerMapper.class);
 		var modelClient = mock(QwenModelClient.class);
 		var modelService = mock(AiModelService.class);
+		var modelCallRecorder = mock(ModelCallRecorder.class);
 		var customer = Customer.create(ORGANIZATION_ID, "云岚科技", NOW);
 		var interaction = Interaction.create(
 				ORGANIZATION_ID,
@@ -63,7 +67,7 @@ class ChatAnalysisServiceTests {
 		when(analysisMapper.selectOne(any())).thenReturn(null);
 		when(modelService.requireRuntimeConfiguration(ORGANIZATION_ID)).thenReturn(
 				new AiModelRuntimeConfiguration("QWEN", "qwen-test", "https://example.invalid", "sk-test"));
-		when(modelClient.analyzeChat(any(), any(), any())).thenReturn("""
+		when(modelClient.analyzeChat(any(), any(), any())).thenReturn(new QwenModelClient.QwenChatResult("""
 				{
 				  "summary":"客户关注部署周期，销售已承诺补充。",
 				  "intentScore":82,
@@ -80,7 +84,10 @@ class ChatAnalysisServiceTests {
 				  "decisionMakerSignal":"",
 				  "evidence":["方案能否补充部署周期"]
 				}
-				""");
+				""",
+				new ModelUsage(320, 96, 416, 0L, null),
+				"chatcmpl-test",
+				"qwen-test"));
 
 		var service = new ChatAnalysisService(
 				analysisMapper,
@@ -88,6 +95,7 @@ class ChatAnalysisServiceTests {
 				customerMapper,
 				modelClient,
 				modelService,
+				modelCallRecorder,
 				new ObjectMapper(),
 				Clock.fixed(NOW, ZoneOffset.UTC),
 				ORGANIZATION_ID);
@@ -95,10 +103,15 @@ class ChatAnalysisServiceTests {
 		var response = service.analyze(CUSTOMER_ID, interaction.getId());
 
 		var captor = ArgumentCaptor.forClass(ChatAnalysis.class);
+		var modelCall = ArgumentCaptor.forClass(ModelCallRecordRequest.class);
 		verify(analysisMapper).insert(captor.capture());
+		verify(modelCallRecorder).record(modelCall.capture());
 		assertThat(response.intentScore()).isEqualTo(82);
 		assertThat(response.status()).isEqualTo(ChatAnalysisStatus.DRAFT);
 		assertThat(response.suggestedNextAction()).contains("部署周期");
 		assertThat(captor.getValue().getPromptVersion()).isEqualTo("chat-analysis-v1");
+		assertThat(modelCall.getValue().purpose()).isEqualTo("SALES_ANALYSIS");
+		assertThat(modelCall.getValue().usage().promptTokens()).isEqualTo(320);
+		assertThat(modelCall.getValue().usage().completionTokens()).isEqualTo(96);
 	}
 }

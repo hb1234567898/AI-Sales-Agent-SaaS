@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import com.yourcompany.salesagent.ai.api.AiModelUpdateRequest;
 import com.yourcompany.salesagent.ai.domain.AiModelConfiguration;
 import com.yourcompany.salesagent.ai.infrastructure.AiModelConfigurationMapper;
+import com.yourcompany.salesagent.ai.infrastructure.ModelCallMapper;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
 import com.yourcompany.salesagent.shared.security.SecretCipher;
@@ -31,10 +32,12 @@ class AiModelServiceTests {
 	void reportsMissingApiKeyWithoutCallingProvider() {
 		var client = mock(QwenModelClient.class);
 		var mapper = mock(AiModelConfigurationMapper.class);
+		var modelCallMapper = mock(ModelCallMapper.class);
 		var cipher = mock(SecretCipher.class);
 		var service = new AiModelService(
 				client,
 				mapper,
+				modelCallMapper,
 				cipher,
 				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 				clock);
@@ -51,6 +54,7 @@ class AiModelServiceTests {
 	void returnsSuccessfulConnectionResult() {
 		var client = mock(QwenModelClient.class);
 		var mapper = mock(AiModelConfigurationMapper.class);
+		var modelCallMapper = mock(ModelCallMapper.class);
 		var cipher = mock(SecretCipher.class);
 		var configuration = AiModelConfiguration.create(
 				organizationId,
@@ -64,6 +68,7 @@ class AiModelServiceTests {
 		var service = new AiModelService(
 				client,
 				mapper,
+				modelCallMapper,
 				cipher,
 				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 				clock);
@@ -79,11 +84,13 @@ class AiModelServiceTests {
 	void encryptsApiKeyBeforeSavingConfiguration() {
 		var client = mock(QwenModelClient.class);
 		var mapper = mock(AiModelConfigurationMapper.class);
+		var modelCallMapper = mock(ModelCallMapper.class);
 		var cipher = mock(SecretCipher.class);
 		when(cipher.encrypt(organizationId, "sk-manual")).thenReturn("v1.encrypted");
 		var service = new AiModelService(
 				client,
 				mapper,
+				modelCallMapper,
 				cipher,
 				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 				clock);

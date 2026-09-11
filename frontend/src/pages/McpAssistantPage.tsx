@@ -9,6 +9,7 @@ import {
   type AssistantMessage,
   type AssistantToolTrace,
 } from '../api/mcp-chat-api'
+import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
 import { useIsGuest } from '../auth/use-auth'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 
@@ -88,6 +89,11 @@ export function McpAssistantPage() {
     queryFn: () => getMcpMessages(activeConversationId!),
     enabled: !isGuest && Boolean(activeConversationId),
   })
+  const modelQuery = useQuery({
+    queryKey: ['ai-model-status'],
+    queryFn: getAiModelStatus,
+    enabled: !isGuest,
+  })
 
   const conversations = conversationsQuery.data?.content ?? []
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
@@ -130,6 +136,7 @@ export function McpAssistantPage() {
       void queryClient.invalidateQueries({ queryKey: ['approvals'] })
       void queryClient.invalidateQueries({ queryKey: ['follow-ups'] })
       void queryClient.invalidateQueries({ queryKey: ['customers'] })
+      void queryClient.invalidateQueries({ queryKey: ['ai-model-status'] })
     },
     onError: (error) => {
       setMessages((current) => current.map((message) => message.id !== pendingId.current ? message : {
@@ -270,6 +277,21 @@ export function McpAssistantPage() {
               submit()
             }}
           >
+            <div className="mcp-tool-capsules" aria-label="可调用工具">
+              {toolGuides.map((guide) => (
+                <button
+                  key={guide.tool}
+                  type="button"
+                  disabled={chatMutation.isPending}
+                  aria-label={`套用 ${guide.tool} 工具模板`}
+                  title={`${guide.tool}：${guide.result}`}
+                  onClick={() => applyToolTemplate(guide.say)}
+                >
+                  <Wrench size={13} />
+                  <span>{guide.tool}</span>
+                </button>
+              ))}
+            </div>
             <textarea
               ref={composerRef}
               value={input}
@@ -285,23 +307,7 @@ export function McpAssistantPage() {
         </section>
 
         <aside className="surface mcp-side-panel">
-          <h2><Wrench size={18} />可调用工具</h2>
-          <div className="mcp-tool-list">
-            {toolGuides.map((guide) => (
-              <button
-                key={guide.tool}
-                type="button"
-                disabled={chatMutation.isPending}
-                aria-label={`套用 ${guide.tool} 工具模板`}
-                onClick={() => applyToolTemplate(guide.say)}
-              >
-                <strong>{guide.tool}</strong>
-                <span>你可以说：{guide.say}</span>
-                <small>结果：{guide.result}</small>
-                <em>点击套用模板</em>
-              </button>
-            ))}
-          </div>
+          <ModelInfoPanel status={modelQuery.data} loading={modelQuery.isLoading} />
 
           <h2>快捷指令</h2>
           <div className="mcp-quick-list">
@@ -313,6 +319,37 @@ export function McpAssistantPage() {
           </div>
         </aside>
       </div>
+    </section>
+  )
+}
+
+function ModelInfoPanel({ status, loading }: { status?: AiModelStatus; loading: boolean }) {
+  const usage = status?.usage
+  return (
+    <section className="mcp-model-panel" aria-label="模型信息">
+      <h2><Sparkle size={18} />模型信息</h2>
+      {loading ? (
+        <div className="mcp-model-loading"><span /><span /><span /></div>
+      ) : (
+        <>
+          <dl>
+            <div><dt>供应商</dt><dd>{status?.provider ?? 'QWEN'}</dd></div>
+            <div><dt>模型</dt><dd>{status?.model ?? '-'}</dd></div>
+            <div><dt>连接状态</dt><dd>{modelStatusLabel(status?.status)}</dd></div>
+            <div><dt>API 地址</dt><dd>{shortBaseUrl(status?.baseUrl)}</dd></div>
+          </dl>
+          <div className="mcp-token-grid">
+            <span><small>总 Token</small><strong>{formatCompactNumber(usage?.totalTokens ?? 0)}</strong></span>
+            <span><small>输入</small><strong>{formatCompactNumber(usage?.inputTokens ?? 0)}</strong></span>
+            <span><small>输出</small><strong>{formatCompactNumber(usage?.outputTokens ?? 0)}</strong></span>
+            <span><small>调用</small><strong>{formatCompactNumber(usage?.successfulCalls ?? 0)}</strong></span>
+          </div>
+          <p className="mcp-quota-note">
+            剩余额度：{usage?.remainingTokens == null ? '千问聊天接口未返回账户余额' : formatCompactNumber(usage.remainingTokens)}
+          </p>
+          {usage?.lastCalledAt ? <p className="mcp-model-time">最近调用：{formatTime(usage.lastCalledAt)}</p> : null}
+        </>
+      )}
     </section>
   )
 }
@@ -403,4 +440,24 @@ function formatTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value))
+}
+
+function modelStatusLabel(status?: string) {
+  if (status === 'READY') return '可用'
+  if (status === 'MISSING_API_KEY') return '未配置 Key'
+  if (status === 'ENCRYPTION_KEY_UNAVAILABLE') return '密钥不可解密'
+  return status ?? '-'
+}
+
+function shortBaseUrl(value?: string) {
+  if (!value) return '-'
+  try {
+    return new URL(value).host
+  } catch {
+    return value
+  }
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
