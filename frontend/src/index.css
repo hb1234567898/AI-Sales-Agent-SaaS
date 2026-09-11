@@ -5745,6 +5745,48 @@ input:focus-visible {
   background: #fff;
 }
 
+.mcp-tool-capsules {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: -3px;
+}
+
+.mcp-tool-capsules button {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 5px 9px;
+  color: var(--blue-700);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.mcp-tool-capsules button:hover:not(:disabled) {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.mcp-tool-capsules button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+.mcp-tool-capsules span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mcp-composer textarea {
   resize: none;
   width: 100%;
@@ -5783,6 +5825,100 @@ input:focus-visible {
   margin: 0;
   color: var(--ink);
   font-size: 15px;
+}
+
+.mcp-model-panel {
+  display: grid;
+  gap: 13px;
+}
+
+.mcp-model-panel dl {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.mcp-model-panel dl > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mcp-model-panel dt {
+  color: var(--muted-light);
+  font-size: 9px;
+}
+
+.mcp-model-panel dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.mcp-token-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mcp-token-grid span {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mcp-token-grid small {
+  color: var(--muted-light);
+  font-size: 9px;
+}
+
+.mcp-token-grid strong {
+  color: var(--blue-700);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mcp-quota-note,
+.mcp-model-time {
+  margin: 0;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.mcp-quota-note {
+  padding: 8px 9px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mcp-model-loading {
+  display: grid;
+  gap: 8px;
+}
+
+.mcp-model-loading span {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #eaf2ff 0%, #f8fafc 45%, #eaf2ff 90%);
+  background-size: 220% 100%;
+  animation: mcp-shimmer 1.4s ease-in-out infinite;
+}
+
+.mcp-model-loading span:nth-child(2) {
+  width: 78%;
+}
+
+.mcp-model-loading span:nth-child(3) {
+  width: 58%;
 }
 
 .mcp-tool-list,
