@@ -5261,7 +5261,8 @@ input:focus-visible {
 }
 
 .mcp-page {
-  min-height: 100dvh;
+  height: calc(100dvh - 64px);
+  min-height: 0;
   display: grid;
   grid-template-rows: 64px minmax(0, 1fr);
   overflow: hidden;
@@ -5330,6 +5331,7 @@ input:focus-visible {
 }
 
 .mcp-layout {
+  height: 100%;
   min-height: 0;
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
@@ -5494,10 +5496,11 @@ input:focus-visible {
 
 .mcp-message-list {
   position: relative;
+  min-height: 0;
   display: grid;
   align-content: start;
   gap: 16px;
-  padding: 28px clamp(20px, 6vw, 84px) 18px;
+  padding: 28px clamp(20px, 6vw, 84px);
   overflow: auto;
   background: #fff;
 }
@@ -5897,13 +5900,11 @@ input:focus-visible {
 }
 
 .mcp-composer {
-  position: sticky;
-  bottom: 10px;
   z-index: 5;
   width: min(100% - 56px, 1640px);
   display: grid;
   gap: 6px;
-  margin: 0 auto 10px;
+  margin: 0 auto 12px;
   padding: 8px 10px;
   border: 1px solid #dbe3ef;
   border-radius: 10px;
