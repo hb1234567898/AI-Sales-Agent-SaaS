@@ -1,4 +1,4 @@
-import { getJson, requestJson } from './http-client'
+import { getJson, requestJson } from './axios-client'
 
 export type InteractionType = 'EMAIL_SENT' | 'EMAIL_RECEIVED' | 'EMAIL_OPENED' | 'CALL' | 'MEETING' | 'NOTE' | 'CHAT_IMPORT' | 'TASK_CREATED' | 'TASK_COMPLETED' | 'CRM_UPDATE'
 export type InteractionDirection = 'INBOUND' | 'OUTBOUND' | 'NONE'
@@ -82,14 +82,14 @@ export function getCustomerInteractions(customerId: string) {
 export function createCustomerInteraction(customerId: string, input: InteractionCreateInput) {
   return requestJson<CustomerInteraction>(`/api/v1/customers/${customerId}/interactions`, {
     method: 'POST',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
 
 export function importCustomerChat(customerId: string, input: ChatImportInput) {
   return requestJson<CustomerInteraction>(`/api/v1/customers/${customerId}/interactions/chat-import`, {
     method: 'POST',
-    body: JSON.stringify(input),
+    data: input,
   })
 }
 

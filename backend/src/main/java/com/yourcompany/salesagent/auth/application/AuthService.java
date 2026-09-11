@@ -3,11 +3,9 @@ package com.yourcompany.salesagent.auth.application;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,23 +15,23 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.yourcompany.salesagent.auth.api.AuthSessionResponse;
 import com.yourcompany.salesagent.auth.domain.AuthSession;
 import com.yourcompany.salesagent.auth.infrastructure.AuthAccountRow;
 import com.yourcompany.salesagent.auth.infrastructure.AuthMapper;
 import com.yourcompany.salesagent.auth.infrastructure.AuthSessionMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.auth.security.JwtTokenException;
+import com.yourcompany.salesagent.auth.security.JwtTokenService;
 
 @Service
 public class AuthService {
 
 	private static final int MAX_FAILED_ATTEMPTS = 5;
 	private static final Duration LOCK_DURATION = Duration.ofMinutes(15);
-	private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
 	private final AuthMapper authMapper;
 	private final AuthSessionMapper sessionMapper;
 	private final PasswordEncoder passwordEncoder;
+	private final JwtTokenService jwtTokenService;
 	private final Clock clock;
 	private final AuthProperties properties;
 	private final UUID organizationId;
@@ -42,19 +40,21 @@ public class AuthService {
 			AuthMapper authMapper,
 			AuthSessionMapper sessionMapper,
 			PasswordEncoder passwordEncoder,
+			JwtTokenService jwtTokenService,
 			Clock clock,
 			AuthProperties properties,
 			@Value("${app.demo.organization-id}") UUID organizationId) {
 		this.authMapper = authMapper;
 		this.sessionMapper = sessionMapper;
 		this.passwordEncoder = passwordEncoder;
+		this.jwtTokenService = jwtTokenService;
 		this.clock = clock;
 		this.properties = properties;
 		this.organizationId = organizationId;
 	}
 
 	@Transactional(noRollbackFor = { InvalidCredentialsException.class, LoginLockedException.class })
-	public LoginResult login(String email, String password, boolean rememberMe, String userAgent, String ipAddress) {
+	public AuthTokenPair login(String email, String password, boolean rememberMe, String userAgent, String ipAddress) {
 		var now = clock.instant();
 		var account = authMapper.selectLoginAccount(email.strip(), organizationId);
 		if (account == null) {
@@ -71,36 +71,58 @@ public class AuthService {
 		}
 
 		authMapper.recordLoginSuccess(account.userId(), now);
-		var rawToken = generateToken();
 		var duration = rememberMe ? properties.rememberDuration() : properties.sessionDuration();
 		var expiresAt = now.plus(duration);
+		var sessionId = UUID.randomUUID();
+		var principal = toPrincipal(account, sessionId, expiresAt);
+		var tokenPair = issueTokens(principal);
 		var session = AuthSession.create(
+				sessionId,
 				account.userId(),
 				account.organizationId(),
 				account.memberId(),
-				hashToken(rawToken),
+				hashToken(tokenPair.refreshToken()),
 				expiresAt,
 				userAgent,
 				ipAddress,
 				now);
 		sessionMapper.insert(session);
+		return tokenPair;
+	}
 
-		var principal = toPrincipal(account, session.getId(), expiresAt);
-		return new LoginResult(AuthSessionResponse.from(principal), rawToken, duration);
+	public Optional<AuthPrincipal> resolveAccessToken(String accessToken) {
+		if (accessToken == null || accessToken.isBlank()) {
+			return Optional.empty();
+		}
+		try {
+			return Optional.of(jwtTokenService.parseAccessToken(accessToken));
+		}
+		catch (JwtTokenException exception) {
+			return Optional.empty();
+		}
 	}
 
 	@Transactional
-	public Optional<AuthPrincipal> resolveSession(String rawToken) {
-		if (rawToken == null || rawToken.isBlank()) {
-			return Optional.empty();
+	public AuthTokenPair refresh(String refreshToken) {
+		try {
+			var claims = jwtTokenService.parseRefreshToken(refreshToken);
+			var now = clock.instant();
+			var currentTokenHash = hashToken(refreshToken);
+			var row = authMapper.selectActiveSession(currentTokenHash, now);
+			if (row == null || !row.sessionId().equals(claims.sessionId()) || !row.userId().equals(claims.userId())) {
+				throw new InvalidRefreshTokenException();
+			}
+			var principal = AuthPrincipal.from(row);
+			var tokenPair = issueTokens(principal);
+			if (authMapper.rotateSessionToken(
+					row.sessionId(), currentTokenHash, hashToken(tokenPair.refreshToken()), now) == 0) {
+				throw new InvalidRefreshTokenException();
+			}
+			return tokenPair;
 		}
-		var now = clock.instant();
-		var row = authMapper.selectActiveSession(hashToken(rawToken), now);
-		if (row == null) {
-			return Optional.empty();
+		catch (JwtTokenException exception) {
+			throw new InvalidRefreshTokenException();
 		}
-		authMapper.touchSession(row.sessionId(), now.minus(Duration.ofMinutes(5)), now);
-		return Optional.of(AuthPrincipal.from(row));
 	}
 
 	@Transactional
@@ -133,10 +155,16 @@ public class AuthService {
 				expiresAt);
 	}
 
-	private static String generateToken() {
-		var bytes = new byte[32];
-		SECURE_RANDOM.nextBytes(bytes);
-		return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+	private AuthTokenPair issueTokens(AuthPrincipal principal) {
+		var accessToken = jwtTokenService.issueAccessToken(principal);
+		var refreshToken = jwtTokenService.issueRefreshToken(
+				principal.sessionId(), principal.userId(), principal.expiresAt());
+		return new AuthTokenPair(
+				accessToken.value(),
+				accessToken.expiresAt(),
+				refreshToken.value(),
+				refreshToken.expiresAt(),
+				principal);
 	}
 
 	static String hashToken(String token) {
@@ -149,6 +177,4 @@ public class AuthService {
 		}
 	}
 
-	public record LoginResult(AuthSessionResponse session, String rawToken, Duration cookieMaxAge) {
-	}
 }

@@ -65,9 +65,9 @@ public class DemoCustomerDataInitializer implements ApplicationRunner {
 		demoDataMapper.insertUser(USER_CHEN, "chen.mo@demo.local", "陈默", "demo-chen");
 		demoDataMapper.insertUser(USER_LI, "li.xin@demo.local", "李昕", "demo-li");
 		demoDataMapper.insertUser(USER_WANG, "wang.ning@demo.local", "王宁", "demo-wang");
-		demoDataMapper.insertMember(MEMBER_CHEN, organizationId, USER_CHEN);
-		demoDataMapper.insertMember(MEMBER_LI, organizationId, USER_LI);
-		demoDataMapper.insertMember(MEMBER_WANG, organizationId, USER_WANG);
+		demoDataMapper.insertMember(MEMBER_CHEN, organizationId, USER_CHEN, "OWNER");
+		demoDataMapper.insertMember(MEMBER_LI, organizationId, USER_LI, "SALES");
+		demoDataMapper.insertMember(MEMBER_WANG, organizationId, USER_WANG, "SALES");
 		var passwordHash = passwordEncoder.encode(loginPassword);
 		demoDataMapper.insertCredential(USER_CHEN, passwordHash);
 		demoDataMapper.insertCredential(USER_LI, passwordHash);

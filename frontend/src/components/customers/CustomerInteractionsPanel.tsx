@@ -29,9 +29,10 @@ import {
   type InteractionDirection,
   type InteractionType,
 } from '../../api/interactions-api'
+import { getCustomerFiles, uploadCustomerFile, type UploadedFile } from '../../api/files-api'
 import { SelectField } from '../forms/SelectField'
 
-type ComposerMode = 'manual' | 'chat' | null
+type ComposerMode = 'manual' | 'chat' | 'file' | null
 
 const typeLabels: Record<InteractionType, string> = {
   EMAIL_SENT: '已发送邮件',
@@ -137,6 +138,23 @@ function interactionIcon(type: InteractionType) {
   return <NotePencil size={16} />
 }
 
+function formatFileSize(value: number) {
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`
+  if (value >= 1024) return `${Math.ceil(value / 1024)} KB`
+  return `${value} B`
+}
+
+function UploadedFilesStrip({ files }: { files: UploadedFile[] }) {
+  if (!files.length) return null
+  return (
+    <div className="customer-file-strip" aria-label="客户附件">
+      {files.slice(0, 6).map((file) => (
+        <span key={file.id} title={file.filename}>{file.filename}<small>{formatFileSize(file.sizeBytes)}</small></span>
+      ))}
+    </div>
+  )
+}
+
 interface CustomerInteractionsPanelProps {
   customerId: string
   readOnly?: boolean
@@ -160,6 +178,7 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
     content: '',
     participantName: '',
   })
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   const interactionsQuery = useQuery({
     queryKey: ['customer-interactions', customerId],
@@ -169,11 +188,16 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
     queryKey: ['customer-chat-analyses', customerId],
     queryFn: () => getCustomerChatAnalyses(customerId),
   })
+  const filesQuery = useQuery({
+    queryKey: ['customer-files', customerId],
+    queryFn: () => getCustomerFiles(customerId),
+  })
 
   async function refreshCustomerData() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['customer-interactions', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customer-chat-analyses', customerId] }),
+      queryClient.invalidateQueries({ queryKey: ['customer-files', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customers'] }),
     ])
@@ -199,6 +223,14 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
       queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customers'] }),
     ]),
+  })
+  const fileMutation = useMutation({
+    mutationFn: (file: File) => uploadCustomerFile(customerId, file),
+    onSuccess: async () => {
+      setSelectedFile(null)
+      await queryClient.invalidateQueries({ queryKey: ['customer-files', customerId] })
+      setComposer(null)
+    },
   })
 
   async function submitManual(event: FormEvent<HTMLFormElement>) {
@@ -231,10 +263,21 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
     }
   }
 
-  const mutationError = manualMutation.error?.message ?? chatMutation.error?.message
+  async function submitFile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedFile) return
+    try {
+      await fileMutation.mutateAsync(selectedFile)
+    } catch {
+      // Mutation error is rendered in the composer.
+    }
+  }
+
+  const mutationError = manualMutation.error?.message ?? chatMutation.error?.message ?? fileMutation.error?.message
   const analysisError = analyzeMutation.error?.message ?? applyMutation.error?.message ?? analysesQuery.error?.message
   const pending = manualMutation.isPending || chatMutation.isPending
   const interactions = interactionsQuery.data?.content ?? []
+  const files = filesQuery.data ?? []
   const analysisRecords = Array.isArray(analysesQuery.data) ? analysesQuery.data : []
   const analyses = new Map(analysisRecords.map((analysis) => [analysis.interactionId, analysis]))
 
@@ -245,8 +288,10 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
         <div>
           <button className="button button-secondary" type="button" disabled={readOnly} onClick={() => { setComposer('manual'); manualMutation.reset(); chatMutation.reset() }}><Plus size={14} />记录互动</button>
           <button className="button button-primary" type="button" disabled={readOnly} onClick={() => { setComposer('chat'); manualMutation.reset(); chatMutation.reset() }}><UploadSimple size={14} />导入聊天</button>
+          <button className="button button-secondary" type="button" disabled={readOnly} onClick={() => { setComposer('file'); fileMutation.reset() }}><UploadSimple size={14} />上传附件</button>
         </div>
       </div>
+      <UploadedFilesStrip files={files} />
 
       {composer === 'manual' ? (
         <form className="interaction-composer" onSubmit={(event) => void submitManual(event)}>
@@ -277,6 +322,17 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
           </div>
           {mutationError ? <p className="form-error" role="alert">{mutationError}</p> : null}
           <footer><span>{chat.content.length.toLocaleString('zh-CN')} / 100,000 字符</span><button className="button button-secondary" type="button" onClick={() => setComposer(null)} disabled={pending}>取消</button><button className="button button-primary" type="submit" disabled={pending || !chat.content.trim()}>{pending ? '导入中…' : '确认导入'}</button></footer>
+        </form>
+      ) : null}
+
+      {composer === 'file' ? (
+        <form className="interaction-composer" onSubmit={(event) => void submitFile(event)}>
+          <header><div><UploadSimple size={16} /><strong>上传客户附件</strong></div><button type="button" onClick={() => setComposer(null)} aria-label="关闭附件上传表单"><X size={16} /></button></header>
+          <div className="interaction-form-grid">
+            <label className="field-span-2"><span>附件文件 <b>*</b></span><input type="file" required disabled={fileMutation.isPending} onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} /><small>用于发送报价、方案、合同等邮件附件，单个文件不超过 10MB。</small></label>
+          </div>
+          {mutationError ? <p className="form-error" role="alert">{mutationError}</p> : null}
+          <footer><span>{selectedFile ? `${selectedFile.name} · ${formatFileSize(selectedFile.size)}` : '请选择文件'}</span><button className="button button-secondary" type="button" onClick={() => setComposer(null)} disabled={fileMutation.isPending}>取消</button><button className="button button-primary" type="submit" disabled={fileMutation.isPending || !selectedFile}>{fileMutation.isPending ? '上传中…' : '确认上传'}</button></footer>
         </form>
       ) : null}
 

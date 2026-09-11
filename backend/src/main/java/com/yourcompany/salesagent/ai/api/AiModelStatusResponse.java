@@ -6,5 +6,6 @@ public record AiModelStatusResponse(
 		String baseUrl,
 		boolean apiKeyConfigured,
 		boolean ready,
-		String status) {
+		String status,
+		AiModelUsageResponse usage) {
 }

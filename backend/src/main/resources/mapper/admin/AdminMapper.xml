@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.admin.infrastructure.AdminMapper">
+
+    <select id="selectMembers" resultType="com.yourcompany.salesagent.admin.infrastructure.AdminMemberRow">
+        SELECT member.id,
+               member.user_id,
+               app_user.email,
+               app_user.display_name,
+               member.role,
+               member.status,
+               member.joined_at,
+               app_user.last_login_at,
+               member.created_at
+        FROM organization_member member
+        JOIN app_user ON app_user.id = member.user_id
+        WHERE member.organization_id = #{organizationId}
+        <if test="keyword != null and keyword != ''">
+            AND (
+                lower(app_user.display_name) LIKE lower(concat('%', #{keyword}, '%'))
+                OR lower(app_user.email) LIKE lower(concat('%', #{keyword}, '%'))
+            )
+        </if>
+        <if test="role != null">
+            AND member.role = #{role}
+        </if>
+        <if test="status != null">
+            AND member.status = #{status}
+        </if>
+        ORDER BY CASE member.role
+                     WHEN 'OWNER' THEN 0
+                     WHEN 'ADMIN' THEN 1
+                     WHEN 'MANAGER' THEN 2
+                     WHEN 'SALES' THEN 3
+                     ELSE 4
+                 END,
+                 member.created_at ASC
+    </select>
+
+    <select id="selectMember" resultType="com.yourcompany.salesagent.admin.infrastructure.AdminMemberRow">
+        SELECT member.id,
+               member.user_id,
+               app_user.email,
+               app_user.display_name,
+               member.role,
+               member.status,
+               member.joined_at,
+               app_user.last_login_at,
+               member.created_at
+        FROM organization_member member
+        JOIN app_user ON app_user.id = member.user_id
+        WHERE member.organization_id = #{organizationId}
+          AND member.id = #{memberId}
+        LIMIT 1
+    </select>
+
+    <select id="selectTeam" resultType="com.yourcompany.salesagent.admin.infrastructure.AdminTeamRow">
+        SELECT organization.id,
+               organization.slug,
+               organization.name,
+               organization.timezone,
+               organization.locale,
+               organization.plan_code,
+               organization.status,
+               count(member.id) FILTER (WHERE member.status &lt;&gt; 'LEFT') AS total_members,
+               count(member.id) FILTER (WHERE member.status = 'ACTIVE') AS active_members,
+               count(member.id) FILTER (WHERE member.status = 'ACTIVE' AND member.role IN ('OWNER', 'ADMIN')) AS admin_members,
+               organization.created_at,
+               organization.updated_at
+        FROM organization
+        LEFT JOIN organization_member member ON member.organization_id = organization.id
+        WHERE organization.id = #{organizationId}
+        GROUP BY organization.id
+    </select>
+
+    <select id="countEmail" resultType="long">
+        SELECT count(*) FROM app_user WHERE lower(email) = lower(#{email})
+    </select>
+
+    <insert id="insertUser">
+        INSERT INTO app_user (
+            id, email, display_name, auth_provider, auth_subject, status, locale, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{email}, #{displayName}, 'LOCAL', #{authSubject}, 'ACTIVE', 'zh-CN', #{now}, #{now}
+        )
+    </insert>
+
+    <insert id="insertCredential">
+        INSERT INTO local_user_credential (user_id, password_hash, created_at, updated_at)
+        VALUES (#{userId}, #{passwordHash}, #{now}, #{now})
+    </insert>
+
+    <insert id="insertMember">
+        INSERT INTO organization_member (
+            id, organization_id, user_id, role, status, permissions, joined_at, created_at, updated_at
+        ) VALUES (
+            #{memberId}, #{organizationId}, #{userId}, #{role}, 'ACTIVE', '[]'::jsonb, #{now}, #{now}, #{now}
+        )
+    </insert>
+
+    <update id="updateMember">
+        WITH updated_user AS (
+            UPDATE app_user
+            SET display_name = #{displayName},
+                updated_at = #{now},
+                version = version + 1
+            WHERE id = (
+                SELECT user_id
+                FROM organization_member
+                WHERE organization_id = #{organizationId}
+                  AND id = #{memberId}
+            )
+        )
+        UPDATE organization_member
+        SET role = #{role},
+            status = #{status},
+            updated_at = #{now},
+            version = version + 1
+        WHERE organization_id = #{organizationId}
+          AND id = #{memberId}
+    </update>
+
+    <update id="revokeMemberSessions">
+        UPDATE auth_session
+        SET revoked_at = #{now}
+        WHERE organization_id = #{organizationId}
+          AND member_id = #{memberId}
+          AND revoked_at IS NULL
+    </update>
+
+    <update id="updateTeam">
+        UPDATE organization
+        SET name = #{name},
+            timezone = #{timezone},
+            locale = #{locale},
+            updated_at = #{now},
+            version = version + 1
+        WHERE id = #{organizationId}
+    </update>
+
+</mapper>

@@ -1,7 +1,6 @@
 import {
   ArrowRight,
   CheckCircle,
-  CirclesThreePlus,
   Eye,
   EyeSlash,
   LockKey,
@@ -11,7 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { login } from '../api/auth-api'
-import { ApiError } from '../api/http-client'
+import { ApiError, getApiBaseUrlSetting, saveApiBaseUrlSetting } from '../api/axios-client'
 import { enterGuestMode, leaveGuestMode } from '../auth/guest-session'
 
 interface LoginLocationState {
@@ -26,6 +25,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
+  const [apiBaseUrl, setApiBaseUrl] = useState(getApiBaseUrlSetting)
 
   const loginMutation = useMutation({
     mutationFn: login,
@@ -39,6 +39,8 @@ export function LoginPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    loginMutation.reset()
+    saveApiBaseUrlSetting(apiBaseUrl)
     loginMutation.mutate({ email: email.trim(), password, rememberMe })
   }
 
@@ -50,6 +52,8 @@ export function LoginPage() {
 
   const errorMessage = loginMutation.error instanceof ApiError
     ? loginMutation.error.message
+    : loginMutation.error instanceof Error
+      ? loginMutation.error.message
     : loginMutation.isError
       ? '暂时无法连接登录服务，请稍后重试'
       : null
@@ -58,7 +62,7 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-story" aria-label="产品介绍">
         <div className="login-brand">
-          <span className="brand-symbol" aria-hidden><CirclesThreePlus size={20} weight="fill" /></span>
+          <span className="brand-symbol" aria-hidden><img src="/brand-logo.png" alt="" /></span>
           <span>
             <strong>Sales Agent</strong>
             <small>销售运营工作台</small>
@@ -82,7 +86,7 @@ export function LoginPage() {
 
       <section className="login-form-side">
         <div className="login-mobile-brand">
-          <span className="brand-symbol" aria-hidden><CirclesThreePlus size={20} weight="fill" /></span>
+          <span className="brand-symbol" aria-hidden><img src="/brand-logo.png" alt="" /></span>
           <strong>Sales Agent</strong>
         </div>
 
@@ -129,6 +133,19 @@ export function LoginPage() {
             </span>
           </label>
 
+          <label className="login-field">
+            <span>服务地址</span>
+            <input
+              type="text"
+              value={apiBaseUrl}
+              onChange={(event) => setApiBaseUrl(event.target.value)}
+              placeholder="留空使用当前网页；桌面端可填 https://ai.likeasuka.icu"
+              autoComplete="url"
+              maxLength={255}
+            />
+            <small>桌面端建议填写生产服务地址；浏览器部署版通常留空即可。</small>
+          </label>
+
           <div className="login-options">
             <label className="remember-option">
               <input
@@ -154,7 +171,7 @@ export function LoginPage() {
 
           <div className="login-security-note">
             <ShieldCheck size={17} />
-            <span>采用安全会话与请求防伪保护，退出后会立即撤销当前会话。</span>
+            <span>采用 JWT 双令牌与 Refresh Token 轮换，退出后会撤销当前刷新会话。</span>
           </div>
         </form>
 

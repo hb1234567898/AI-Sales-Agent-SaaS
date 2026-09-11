@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CustomersPage } from './CustomersPage'
+import { fetchRequestUrl } from '../test/fetch-request'
 
 const customer = {
   id: '30000000-0000-0000-0000-000000000001',
@@ -34,7 +35,7 @@ afterEach(() => {
 describe('CustomersPage', () => {
   it('loads real customer APIs and opens the create drawer', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = String(input)
+      const url = fetchRequestUrl(input)
       const payload = url.includes('/metrics')
         ? { total: 1, highIntent: 1, activeOpportunities: 1, averageScore: 92 }
         : url.includes('/owners')
@@ -54,7 +55,7 @@ describe('CustomersPage', () => {
     expect(await screen.findByText('共 1 条真实记录')).toBeInTheDocument()
     expect(screen.getByText('云岚科技')).toBeInTheDocument()
     expect(screen.getByText('发送方案确认邮件')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v1/customers?'), expect.anything())
+    expect(fetchMock.mock.calls.some(([input]) => fetchRequestUrl(input).includes('/api/v1/customers?'))).toBe(true)
 
     await user.click(screen.getByRole('button', { name: '添加客户' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()

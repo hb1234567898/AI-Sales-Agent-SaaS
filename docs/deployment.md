@@ -27,7 +27,7 @@ sudo install -m 0644 deploy/server/nginx.conf /etc/nginx/conf.d/ai-sales-agent.c
 sudo install -m 0600 -o root -g root deploy/server/backend.env.example /etc/ai-sales-agent/backend.env
 ```
 
-编辑 `/etc/ai-sales-agent/backend.env`，填入真实数据库密码和千问 Key。不要把该文件提交到 Git。
+编辑 `/etc/ai-sales-agent/backend.env`，填入真实数据库密码、模型配置加密密钥和 JWT 签名密钥。不要把该文件提交到 Git。模型 API Key 在系统设置页录入，不写入服务器环境文件。
 
 检查并启动服务配置：
 
@@ -85,7 +85,7 @@ ssh-keyscan -p 22 117.72.109.112
 
 ## Nginx 与 HTTPS
 
-模板默认监听 80 端口，前端由 Nginx 直接提供，`/api/` 和 `/actuator/health` 代理到 `127.0.0.1:8080`。配置域名后应申请证书并启用 HTTPS，同时保持 `AUTH_COOKIE_SECURE=true`。
+模板默认监听 80 端口，前端由 Nginx 直接提供，`/api/` 和 `/actuator/health` 代理到 `127.0.0.1:8080`。配置域名后应申请证书并强制跳转 HTTPS，避免 Bearer Token 在明文 HTTP 中传输。
 
 如果使用宝塔 Nginx，请把站点运行目录设置为 `/www/wwwroot/ai.likeasuka.icu/current/frontend`，再把 `deploy/server/nginx.conf` 中的 `location` 段复制到对应站点配置；不要直接覆盖宝塔生成的 Nginx 主配置。
 

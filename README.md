@@ -58,7 +58,9 @@ pnpm dev
 密码：Demo@123456
 ```
 
-另外两个演示账号为 `li.xin@demo.local` 和 `wang.ning@demo.local`，初始密码相同。可通过 `DEMO_LOGIN_PASSWORD` 修改初始密码。部署到正式环境时请设置 `DEMO_SEED_ENABLED=false`、`AUTH_COOKIE_SECURE=true`，并通过正式的管理员流程创建账号。
+另外两个演示账号为 `li.xin@demo.local` 和 `wang.ning@demo.local`，初始密码相同。可通过 `DEMO_LOGIN_PASSWORD` 修改初始密码。部署到正式环境时请设置 `DEMO_SEED_ENABLED=false`，并通过正式的管理员流程创建账号。
+
+认证采用 JWT 双令牌：Access Token 默认有效 15 分钟，请求时通过 `Authorization: Bearer` 发送；Refresh Token 随登录会话保存并在每次刷新时轮换。生产环境必须配置固定的 `AUTH_JWT_SIGNING_KEY`，可使用 `openssl rand -base64 32` 生成。更换签名密钥会使现有登录全部失效。
 
 ## 验证
 

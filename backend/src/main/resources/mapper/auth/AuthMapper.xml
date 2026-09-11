@@ -72,11 +72,14 @@
         WHERE id IN (SELECT user_id FROM reset_credential)
     </update>
 
-    <update id="touchSession">
+    <update id="rotateSessionToken">
         UPDATE auth_session
-        SET last_seen_at = #{now}
+        SET token_hash = #{newTokenHash},
+            last_seen_at = #{now}
         WHERE id = #{sessionId}
-          AND last_seen_at &lt; #{seenBefore}
+          AND token_hash = #{currentTokenHash}
+          AND expires_at &gt; #{now}
+          AND revoked_at IS NULL
     </update>
 
     <update id="revokeSession">

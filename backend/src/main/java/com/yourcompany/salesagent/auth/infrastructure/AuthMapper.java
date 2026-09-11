@@ -18,9 +18,10 @@ public interface AuthMapper {
 
 	int recordLoginSuccess(@Param("userId") UUID userId, @Param("now") Instant now);
 
-	int touchSession(
+	int rotateSessionToken(
 			@Param("sessionId") UUID sessionId,
-			@Param("seenBefore") Instant seenBefore,
+			@Param("currentTokenHash") String currentTokenHash,
+			@Param("newTokenHash") String newTokenHash,
 			@Param("now") Instant now);
 
 	int revokeSession(@Param("sessionId") UUID sessionId, @Param("now") Instant now);

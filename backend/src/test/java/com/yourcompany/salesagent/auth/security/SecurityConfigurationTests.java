@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 class SecurityConfigurationTests {
 
 	@Test
-	void sessionFilterIsOnlyRegisteredInsideTheSpringSecurityChain() {
+	void bearerFilterIsOnlyRegisteredInsideTheSpringSecurityChain() {
 		var configuration = new SecurityConfiguration();
-		var registration = configuration.sessionAuthenticationFilterRegistration(
-				mock(SessionAuthenticationFilter.class));
+		var registration = configuration.bearerTokenAuthenticationFilterRegistration(
+				mock(BearerTokenAuthenticationFilter.class));
 
 		assertThat(registration.isEnabled()).isFalse();
 	}

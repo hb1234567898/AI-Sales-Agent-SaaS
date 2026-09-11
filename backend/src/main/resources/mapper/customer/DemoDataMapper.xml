@@ -18,8 +18,8 @@
 
     <insert id="insertMember">
         INSERT INTO organization_member (id, organization_id, user_id, role, status, permissions, joined_at)
-        VALUES (#{id}, #{organizationId}, #{userId}, 'SALES', 'ACTIVE', '[]'::jsonb, clock_timestamp())
-        ON CONFLICT (id) DO NOTHING
+        VALUES (#{id}, #{organizationId}, #{userId}, #{role}, 'ACTIVE', '[]'::jsonb, clock_timestamp())
+        ON CONFLICT (id) DO UPDATE SET role = excluded.role
     </insert>
 
     <insert id="insertCredential">

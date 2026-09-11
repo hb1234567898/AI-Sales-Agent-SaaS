@@ -20,6 +20,19 @@ spring:
     model:
       chat: none
       embedding: none
+  mail:
+    # 真实邮件发送通道。生产环境通过 .env 的 MAIL_* 变量注入；未配置时 SendEmailTool 会优雅失败（标记 FAILED 而非崩溃）。
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:25}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:false}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:false}
+            required: ${MAIL_SMTP_STARTTLS_REQUIRED:false}
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
@@ -49,15 +62,22 @@ info:
 
 app:
   auth:
-    cookie-name: ${AUTH_COOKIE_NAME:SALES_AGENT_SESSION}
-    cookie-secure: ${AUTH_COOKIE_SECURE:false}
+    access-token-duration: ${AUTH_ACCESS_TOKEN_DURATION:PT15M}
     session-duration: ${AUTH_SESSION_DURATION:PT12H}
     remember-duration: ${AUTH_REMEMBER_DURATION:P30D}
+    jwt-issuer: ${AUTH_JWT_ISSUER:ai-sales-agent}
+    jwt-signing-key: ${AUTH_JWT_SIGNING_KEY:}
+    password-encryption-key-id: ${AUTH_PASSWORD_ENCRYPTION_KEY_ID:}
+    password-encryption-public-key: ${AUTH_PASSWORD_ENCRYPTION_PUBLIC_KEY:}
+    password-encryption-private-key: ${AUTH_PASSWORD_ENCRYPTION_PRIVATE_KEY:}
   ai:
     qwen:
       base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       model: ${QWEN_MODEL:qwen-plus}
   security:
+    cors:
+      # Web 端同源部署一般不需要 CORS；桌面端、本地 Vite 开发和远程调试需要允许对应 Origin。
+      allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://tauri.localhost,tauri://localhost,https://ai.likeasuka.icu}
     secrets:
       encryption-key: ${APP_ENCRYPTION_KEY:}
   demo:
@@ -65,3 +85,5 @@ app:
     organization-id: ${DEMO_ORGANIZATION_ID:00000000-0000-0000-0000-000000000001}
     seed-enabled: ${DEMO_SEED_ENABLED:true}
     login-password: ${DEMO_LOGIN_PASSWORD:Demo@123456}
+  mail:
+    from: ${MAIL_FROM:${MAIL_USERNAME:}}

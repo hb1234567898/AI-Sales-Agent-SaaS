@@ -16,11 +16,44 @@ import com.yourcompany.salesagent.ai.application.AiModelConfigurationException;
 import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
 import com.yourcompany.salesagent.interaction.application.InteractionValidationException;
 import com.yourcompany.salesagent.auth.application.InvalidCredentialsException;
+import com.yourcompany.salesagent.auth.application.InvalidRefreshTokenException;
 import com.yourcompany.salesagent.auth.application.LoginLockedException;
+import com.yourcompany.salesagent.auth.security.JwtConfigurationException;
+import com.yourcompany.salesagent.auth.security.PasswordTransportException;
 import com.yourcompany.salesagent.shared.security.SecretEncryptionException;
+import com.yourcompany.salesagent.admin.application.AdminResourceNotFoundException;
+import com.yourcompany.salesagent.admin.application.AdminValidationException;
+import com.yourcompany.salesagent.agent.application.AgentWorkflowException;
+import com.yourcompany.salesagent.approval.application.ApprovalWorkflowException;
+import com.yourcompany.salesagent.assistant.application.AssistantWorkflowException;
+import com.yourcompany.salesagent.followup.application.FollowUpWorkflowException;
+import com.yourcompany.salesagent.file.application.FileStorageException;
+import com.yourcompany.salesagent.tool.email.EmailConfigurationException;
+import com.yourcompany.salesagent.tool.email.EmailConnectionException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+	@ExceptionHandler(AdminResourceNotFoundException.class)
+	ProblemDetail handleAdminNotFound(AdminResourceNotFoundException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+	}
+
+	@ExceptionHandler(AdminValidationException.class)
+	ProblemDetail handleAdminValidation(AdminValidationException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler({
+			AgentWorkflowException.class,
+			ApprovalWorkflowException.class,
+			AssistantWorkflowException.class,
+			FileStorageException.class,
+			FollowUpWorkflowException.class
+	})
+	ProblemDetail handleWorkflow(RuntimeException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
 
 	@ExceptionHandler(InvalidCredentialsException.class)
 	ProblemDetail handleInvalidCredentials(InvalidCredentialsException exception) {
@@ -44,8 +77,33 @@ public class ApiExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
 	}
 
+	@ExceptionHandler(EmailConnectionException.class)
+	ProblemDetail handleEmailConnection(EmailConnectionException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+	}
+
+	@ExceptionHandler(InvalidRefreshTokenException.class)
+	ProblemDetail handleInvalidRefreshToken(InvalidRefreshTokenException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, exception.getMessage());
+	}
+
+	@ExceptionHandler(JwtConfigurationException.class)
+	ProblemDetail handleJwtConfiguration(JwtConfigurationException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+	}
+
+	@ExceptionHandler(PasswordTransportException.class)
+	ProblemDetail handlePasswordTransport(PasswordTransportException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
 	@ExceptionHandler(AiModelConfigurationException.class)
 	ProblemDetail handleAiModelConfiguration(AiModelConfigurationException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler(EmailConfigurationException.class)
+	ProblemDetail handleEmailConfiguration(EmailConfigurationException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
 	}
 

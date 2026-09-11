@@ -17,7 +17,8 @@ public interface DemoDataMapper {
 	int insertMember(
 			@Param("id") UUID id,
 			@Param("organizationId") UUID organizationId,
-			@Param("userId") UUID userId);
+			@Param("userId") UUID userId,
+			@Param("role") String role);
 
 	int insertCredential(@Param("userId") UUID userId, @Param("passwordHash") String passwordHash);
 }
