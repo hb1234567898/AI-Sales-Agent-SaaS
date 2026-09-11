@@ -36,6 +36,7 @@ class AssistantStreamingTests {
 	final ApprovalService approvals = mock(ApprovalService.class);
 	final AiModelService settings = mock(AiModelService.class);
 	final QwenModelClient model = mock(QwenModelClient.class);
+	final ModelCallRecorder modelCallRecorder = mock(ModelCallRecorder.class);
 	final PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
 	final UUID conversationId = UUID.randomUUID();
 	final AuthPrincipal principal = new AuthPrincipal(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -52,7 +53,7 @@ class AssistantStreamingTests {
 		when(settings.requireRuntimeConfiguration(any())).thenReturn(new AiModelRuntimeConfiguration("QWEN", "test", "https://example.test", "test-key"));
 		service = new AssistantChatService(mapper, mock(CustomerService.class), mock(InteractionService.class),
 				mock(SalesFollowUpAgentService.class), approvals, mock(FollowUpService.class),
-				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, tx);
+				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, tx);
 	}
 
 	void receive(String type, Object data) {
@@ -62,19 +63,24 @@ class AssistantStreamingTests {
 
 	@Test
 	void emitsModelDeltasBeforeCompletionAndDoneAfterCommit() {
-		when(model.streamAssistantReply(any(), anyString(), anyString())).thenReturn(Flux.just("没有", "待审批建议")
+		when(model.streamAssistantReplyWithUsage(any(), anyString(), anyString())).thenReturn(Flux.just(
+						new QwenModelClient.QwenStreamChunk("没有", null, null, "test"),
+						new QwenModelClient.QwenStreamChunk("待审批建议", new ModelUsage(20, 8, 28, 0L, null), "chatcmpl-test", "test"))
 				.doOnComplete(() -> assertThat(events).contains("delta").doesNotContain("done")));
 		service.streamChat(principal, conversationId, "查看待审批", this::receive);
 		assertThat(saved.content()).isEqualTo("没有待审批建议");
 		assertThat(events).containsSubsequence("tool", "result", "delta", "delta", "commit", "done");
 		assertThat(saved.toolTraces()).allMatch(trace -> trace.status().equals("SUCCEEDED"));
+		assertThat(saved.data()).containsKey("modelUsage");
 		verify(approvals, times(1)).findApprovals("PENDING", 0, 10);
+		verify(modelCallRecorder).record(any());
 	}
 
 	@Test
 	void keepsPartialAnswerAndBusinessResultOnModelFailureWithoutRepeatingTools() {
-		when(model.streamAssistantReply(any(), anyString(), anyString())).thenReturn(
-				Flux.concat(Flux.just("已查询"), Flux.error(new IllegalStateException("secret provider detail"))));
+		when(model.streamAssistantReplyWithUsage(any(), anyString(), anyString())).thenReturn(
+				Flux.concat(Flux.just(new QwenModelClient.QwenStreamChunk("已查询", null, null, "test")),
+						Flux.error(new IllegalStateException("secret provider detail"))));
 		service.streamChat(principal, conversationId, "查看待审批", this::receive);
 		assertThat(saved.content()).startsWith("已查询").contains("现在没有待审批建议").doesNotContain("secret provider detail");
 		assertThat(saved.data()).containsEntry("streamStatus", "INTERRUPTED");
