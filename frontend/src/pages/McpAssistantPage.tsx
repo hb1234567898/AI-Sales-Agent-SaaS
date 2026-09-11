@@ -1,6 +1,6 @@
 import { ArrowRight, CheckCircle, ClockCounterClockwise, CircleNotch, DotsThree, Plus, Robot, Sparkle, UserCircle, WarningCircle, Wrench } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getMcpConversations,
   getMcpMessages,
@@ -325,6 +325,9 @@ export function McpAssistantPage() {
 
 function ModelInfoPanel({ status, loading }: { status?: AiModelStatus; loading: boolean }) {
   const usage = status?.usage
+  const totalTokens = usage?.totalTokens ?? 0
+  const remainingTokens = usage?.remainingTokens ?? null
+  const quotaTotal = remainingTokens == null ? null : totalTokens + remainingTokens
   return (
     <section className="mcp-model-panel" aria-label="模型信息">
       <h2><Sparkle size={18} />模型信息</h2>
@@ -338,19 +341,39 @@ function ModelInfoPanel({ status, loading }: { status?: AiModelStatus; loading: 
             <div><dt>连接状态</dt><dd>{modelStatusLabel(status?.status)}</dd></div>
             <div><dt>API 地址</dt><dd>{shortBaseUrl(status?.baseUrl)}</dd></div>
           </dl>
-          <div className="mcp-token-grid">
-            <span><small>总 Token</small><strong>{formatCompactNumber(usage?.totalTokens ?? 0)}</strong></span>
-            <span><small>输入</small><strong>{formatCompactNumber(usage?.inputTokens ?? 0)}</strong></span>
-            <span><small>输出</small><strong>{formatCompactNumber(usage?.outputTokens ?? 0)}</strong></span>
-            <span><small>调用</small><strong>{formatCompactNumber(usage?.successfulCalls ?? 0)}</strong></span>
+          <div className="mcp-token-usage">
+            <header>
+              <span>累计 Token</span>
+              <strong>{formatCompactNumber(totalTokens)}</strong>
+            </header>
+            <TokenProgress label="输入" value={usage?.inputTokens ?? 0} total={totalTokens} />
+            <TokenProgress label="输出" value={usage?.outputTokens ?? 0} total={totalTokens} tone="green" />
+            {(usage?.cachedInputTokens ?? 0) > 0 ? (
+              <TokenProgress label="缓存" value={usage?.cachedInputTokens ?? 0} total={totalTokens} tone="amber" />
+            ) : null}
+            <div className="mcp-call-count"><span>成功调用</span><strong>{formatCompactNumber(usage?.successfulCalls ?? 0)}</strong></div>
           </div>
-          <p className="mcp-quota-note">
-            剩余额度：{usage?.remainingTokens == null ? '千问聊天接口未返回账户余额' : formatCompactNumber(usage.remainingTokens)}
-          </p>
+          {quotaTotal == null ? (
+            <p className="mcp-quota-note">剩余额度：千问聊天接口未返回账户余额</p>
+          ) : (
+            <TokenProgress label="额度已用" value={totalTokens} total={quotaTotal} tone="blue" />
+          )}
           {usage?.lastCalledAt ? <p className="mcp-model-time">最近调用：{formatTime(usage.lastCalledAt)}</p> : null}
         </>
       )}
     </section>
+  )
+}
+
+function TokenProgress({ label, value, total, tone = 'blue' }: { label: string; value: number; total: number; tone?: 'blue' | 'green' | 'amber' }) {
+  const percent = percentage(value, total)
+  return (
+    <div className={`mcp-token-progress is-${tone}`}>
+      <div><span>{label}</span><strong>{percent}%</strong></div>
+      <progress value={percent} max={100} aria-label={`${label} ${percent}%`} />
+      <span style={{ '--progress': `${percent}%` } as CSSProperties} aria-hidden />
+      <small>{formatCompactNumber(value)} / {formatCompactNumber(total)}</small>
+    </div>
   )
 }
 
@@ -460,4 +483,9 @@ function shortBaseUrl(value?: string) {
 
 function formatCompactNumber(value: number) {
   return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function percentage(value: number, total: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
 }

@@ -5858,30 +5858,92 @@ input:focus-visible {
   font-weight: 750;
 }
 
-.mcp-token-grid {
+.mcp-token-usage {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.mcp-token-grid span {
-  display: grid;
-  gap: 4px;
-  padding: 10px;
+  gap: 10px;
+  padding: 11px;
   background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
-.mcp-token-grid small {
-  color: var(--muted-light);
-  font-size: 9px;
+.mcp-token-usage > header,
+.mcp-call-count,
+.mcp-token-progress > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.mcp-token-grid strong {
-  color: var(--blue-700);
-  font-size: 16px;
+.mcp-token-usage > header span,
+.mcp-call-count span,
+.mcp-token-progress > div span {
+  color: var(--muted-light);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.mcp-token-usage > header strong {
+  color: var(--ink);
+  font-size: 17px;
   line-height: 1;
+}
+
+.mcp-call-count {
+  padding-top: 2px;
+}
+
+.mcp-call-count strong,
+.mcp-token-progress > div strong {
+  color: var(--blue-700);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.mcp-token-progress {
+  display: grid;
+  gap: 5px;
+  position: relative;
+}
+
+.mcp-token-progress progress {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.mcp-token-progress > span {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5edf7;
+}
+
+.mcp-token-progress > span::before {
+  content: '';
+  display: block;
+  width: var(--progress);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue-600);
+}
+
+.mcp-token-progress.is-green > span::before {
+  background: #10b981;
+}
+
+.mcp-token-progress.is-amber > span::before {
+  background: #f59e0b;
+}
+
+.mcp-token-progress small {
+  color: #64748b;
+  font-size: 9px;
+  line-height: 1.4;
 }
 
 .mcp-quota-note,
