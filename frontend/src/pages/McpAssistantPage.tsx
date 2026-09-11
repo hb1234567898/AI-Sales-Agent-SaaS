@@ -329,7 +329,7 @@ export function McpAssistantPage() {
                 submit()
               }}
               placeholder={isGuest ? '游客模式不能执行自动化操作' : '例如：给云岚科技导入聊天。输入消息，按 Shift + Enter 换行，按 Enter 发送'}
-              rows={3}
+              rows={2}
             />
             <div className="mcp-composer-footer">
               <div className="mcp-composer-tools">
