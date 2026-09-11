@@ -491,9 +491,11 @@ input:focus-visible {
 }
 
 .app-shell {
+  height: 100dvh;
   min-height: 100dvh;
   display: grid;
   grid-template-columns: 216px minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .app-sidebar {
@@ -823,7 +825,11 @@ input:focus-visible {
 
 .shell-content {
   min-width: 0;
+  height: 100dvh;
   grid-column: 2;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .app-topbar {
@@ -1044,10 +1050,18 @@ input:focus-visible {
 
 .app-main {
   width: 100%;
+  min-height: 0;
+  overflow: auto;
   padding:
     26px
     clamp(20px, 1.6vw, 40px)
     40px;
+}
+
+.app-main:has(.mcp-page) {
+  display: grid;
+  overflow: hidden;
+  padding-bottom: 24px;
 }
 
 .dashboard-page,
@@ -5261,7 +5275,7 @@ input:focus-visible {
 }
 
 .mcp-page {
-  height: calc(100dvh - 64px);
+  height: 100%;
   min-height: 0;
   display: grid;
   grid-template-rows: 64px minmax(0, 1fr);
