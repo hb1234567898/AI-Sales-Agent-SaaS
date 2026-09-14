@@ -73,6 +73,8 @@ public class AssistantChatService {
 	private static final Pattern CREATE_AND_IMPORT_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80}).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
 	private static final Pattern IMPORT_PATTERN = Pattern.compile("给\\s*(?<customer>[^，,：:\\n]{2,40})\\s*(导入|添加|记录).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
 	private static final Pattern IMPORT_ALT_PATTERN = Pattern.compile("导入\\s*(?<customer>[^，,：:\\n]{2,40})(?:的)?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
+	private static final Pattern SEND_DOCUMENT_PATTERN = Pattern.compile(
+			"给\\s*(?<customer>[^，,：:\\n]{2,40}?)\\s*发送(?:一下|一份|这份)?(?<document>方案|报价单?|合同|文件|邮件)");
 	private static final TypeReference<List<AssistantToolTrace>> TOOL_TRACE_LIST_TYPE = new TypeReference<>() {
 	};
 
@@ -314,6 +316,9 @@ public class AssistantChatService {
 		if (looksLikeCustomerCreate(message)) {
 			return createCustomer(message, traces);
 		}
+		if (looksLikeDocumentSend(message)) {
+			return proposeDocumentEmail(principal, conversationId, message, traces, attachments);
+		}
 		if (containsAny(message, "审批通过", "批准")) {
 			return approveById(principal, message, traces);
 		}
@@ -334,6 +339,44 @@ public class AssistantChatService {
 					attachments.data());
 		}
 		return help(traces);
+	}
+
+	private AssistantChatResponse proposeDocumentEmail(AuthPrincipal principal, UUID conversationId, String message,
+			List<AssistantToolTrace> traces, AttachmentContext attachments) {
+		var command = parseDocumentSendCommand(message);
+		if (command == null || !StringUtils.hasText(command.customerName())) {
+			return reply("我还缺准确的客户名称。可以这样发：给和成科技发送方案。",
+					"识别为文件邮件发送意图，但未解析到客户名称，因此没有创建发送审批。", traces,
+					Map.of("intent", "SEND_DOCUMENT_EMAIL"));
+		}
+		if (attachments.isEmpty()) {
+			traces.add(new AssistantToolTrace("email.send.prepare", "FAILED", "发送" + command.documentType() + "需要先选择附件"));
+			return reply(
+					"发送" + command.documentType() + "需要带上文件。请先点击输入框旁的附件按钮选择方案文件，再发送同一句指令；文件会在你点击发送后上传，不会在选择时提前上传。",
+					"识别到给客户发送文件的意图，但本次消息没有附件。为避免发错或漏发文件，未创建审批，也未发送邮件。",
+					traces,
+					Map.of("intent", "SEND_DOCUMENT_EMAIL", "customerName", command.customerName(), "attachmentRequired", true));
+		}
+
+		var customer = resolveCustomer(command.customerName());
+		traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
+		traces.add(new AssistantToolTrace("email.send.prepare", "RUNNING", "正在生成带附件的邮件发送审批"));
+		var proposal = agentService.proposeDocumentEmailFromMcpAssistant(
+				principal, customer, conversationId, command.documentType(), attachments.ids());
+		traces.add(new AssistantToolTrace("email.send.prepare", "SUCCEEDED", "已生成待审批邮件：" + proposal.approvalId()));
+		return reply(
+				"已为客户「" + customer.name() + "」生成一封带 " + attachments.ids().size() + " 个附件的"
+						+ command.documentType() + "邮件，当前尚未发送。请在审批中心核对收件人、主题、正文和附件，审批通过后系统才会发送。",
+				"识别文件发送指令 → 校验客户与附件 → 生成邮件预览 → 创建高风险待审批动作；未直接发送邮件。",
+				traces,
+				Map.of(
+						"customerId", customer.id(),
+						"customerName", customer.name(),
+						"agentRunId", proposal.runId(),
+						"approvalId", proposal.approvalId(),
+						"to", proposal.to(),
+						"subject", proposal.subject(),
+						"attachments", attachments.preview()));
 	}
 
 	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
@@ -485,6 +528,9 @@ public class AssistantChatService {
 
 				7. 查看跟进任务
 				示例：查看跟进任务
+
+				8. 给客户发送方案、报价或合同附件
+				示例：选择文件后输入：给和成科技发送方案
 				""", "没有匹配到明确业务指令，因此返回当前支持的工具调用方式和示例。", traces, Map.of("intent", "HELP"));
 	}
 
@@ -557,6 +603,18 @@ public class AssistantChatService {
 
 	private static boolean looksLikeCustomerCreate(String message) {
 		return containsAny(message, "新增客户", "创建客户", "新建客户");
+	}
+
+	private static boolean looksLikeDocumentSend(String message) {
+		return SEND_DOCUMENT_PATTERN.matcher(message).find();
+	}
+
+	private static DocumentSendCommand parseDocumentSendCommand(String message) {
+		var matcher = SEND_DOCUMENT_PATTERN.matcher(message);
+		if (!matcher.find()) {
+			return null;
+		}
+		return new DocumentSendCommand(matcher.group("customer").strip(), matcher.group("document").strip());
 	}
 
 	private static ImportCommand parseImportCommand(String message) {
@@ -836,6 +894,9 @@ public class AssistantChatService {
 	}
 
 	private record ImportCommand(String customerName, String content) {
+	}
+
+	private record DocumentSendCommand(String customerName, String documentType) {
 	}
 
 	private record CustomerDraft(
