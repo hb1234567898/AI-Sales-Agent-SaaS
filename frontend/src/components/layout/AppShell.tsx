@@ -13,6 +13,9 @@ import {
   SignOut,
   Eye,
   FileText,
+  Funnel,
+  Kanban,
+  PresentationChart,
   Target,
   UsersThree,
   UserList,
@@ -37,8 +40,11 @@ interface NavItem {
 
 const workNavigation: NavItem[] = [
   { to: '/app/today', label: '今日工作台', icon: House },
+  { to: '/app/leads', label: '线索', icon: Funnel },
   { to: '/app/customers', label: '客户', icon: UsersThree },
+  { to: '/app/opportunities', label: '商机', icon: Kanban },
   { to: '/app/follow-ups', label: '跟进任务', icon: Target },
+  { to: '/app/forecast', label: '销售预测', icon: PresentationChart },
   { to: '/app/approvals', label: '审批', icon: CheckSquareOffset },
 ]
 
