@@ -26,6 +26,14 @@ interface ChatMessage {
   error?: string
 }
 
+interface ComposerAttachment {
+  id: string
+  file: File
+  filename: string
+  sizeBytes: number
+  uploaded?: UploadedFile
+}
+
 const assistantTabs = ['AI对话', '助手列表', '技能管理', '额度管理', '设置']
 
 const toolGuides = [
@@ -66,7 +74,7 @@ export function McpAssistantPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
   const [useLocalMessages, setUseLocalMessages] = useState(true)
-  const [attachments, setAttachments] = useState<UploadedFile[]>([])
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState('')
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const pendingId = useRef('')
@@ -164,7 +172,7 @@ export function McpAssistantPage() {
     })
   }, [displayedMessages, chatMutation.isPending])
 
-  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+  function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? [])
     event.target.value = ''
     if (!selectedFiles.length || chatMutation.isPending || uploadingAttachments) return
@@ -178,15 +186,12 @@ export function McpAssistantPage() {
       setAttachmentError(`${oversized.name} 超过 10MB，请压缩后再上传`)
       return
     }
-    setUploadingAttachments(true)
-    try {
-      const uploaded = await Promise.all(selectedFiles.map((file) => uploadFile(file)))
-      setAttachments((current) => [...current, ...uploaded])
-    } catch (error) {
-      setAttachmentError(error instanceof Error ? error.message : '附件上传失败，请重试')
-    } finally {
-      setUploadingAttachments(false)
-    }
+    setAttachments((current) => [...current, ...selectedFiles.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      filename: file.name,
+      sizeBytes: file.size,
+    }))])
   }
 
   function removeAttachment(fileId: string) {
@@ -194,13 +199,30 @@ export function McpAssistantPage() {
     setAttachments((current) => current.filter((file) => file.id !== fileId))
   }
 
-  function submit(message = input) {
+  async function submit(message = input) {
     const content = message.trim()
     if (!content || busy.current || isGuest || uploadingAttachments) return
     busy.current = true
+    setAttachmentError('')
+    setUploadingAttachments(true)
+    let submittedAttachments: UploadedFile[]
+    try {
+      submittedAttachments = await Promise.all(attachments.map((attachment) => (
+        attachment.uploaded ?? uploadFile(attachment.file)
+      )))
+      setAttachments((current) => current.map((attachment, index) => ({
+        ...attachment,
+        uploaded: submittedAttachments[index] ?? attachment.uploaded,
+      })))
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : '附件上传失败，请重试')
+      busy.current = false
+      setUploadingAttachments(false)
+      return
+    }
+    setUploadingAttachments(false)
     streamController.current = new AbortController()
     pendingId.current = crypto.randomUUID()
-    const submittedAttachments = [...attachments]
     setUseLocalMessages(true)
     setMessages([...displayedMessages, {
       id: crypto.randomUUID(),
@@ -356,7 +378,7 @@ export function McpAssistantPage() {
               ))}
             </div>
             {attachments.length ? (
-              <div className="mcp-attachment-list" aria-label="已上传附件">
+              <div className="mcp-attachment-list" aria-label="已选择附件">
                 {attachments.map((file) => (
                   <span key={file.id} title={file.filename}>
                     <Paperclip size={13} />
@@ -391,12 +413,12 @@ export function McpAssistantPage() {
                   type="file"
                   multiple
                   aria-label="选择 MCP 聊天附件"
-                  onChange={(event) => void handleAttachmentChange(event)}
+                  onChange={handleAttachmentChange}
                 />
                 <button
                   type="button"
-                  aria-label="上传附件"
-                  title="上传报价、方案、合同等附件"
+                  aria-label="选择附件"
+                  title="选择报价、方案、合同等附件，发送消息时才会上传"
                   disabled={isGuest || chatMutation.isPending || uploadingAttachments || attachments.length >= 5}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -404,7 +426,7 @@ export function McpAssistantPage() {
                 </button>
                 <span><Sparkle size={15} />{modelQuery.data?.model ?? 'qwen3.5-plus'}</span>
                 <span><MagicWand size={15} />智能模式</span>
-                {uploadingAttachments ? <span><CircleNotch size={15} className="mcp-spin" />上传中</span> : null}
+                {uploadingAttachments ? <span><CircleNotch size={15} className="mcp-spin" />正在上传附件</span> : null}
               </div>
               <button className="mcp-send-button" type="submit" aria-label="发送指令" disabled={isGuest || chatMutation.isPending || uploadingAttachments || !input.trim()}>
                 <PaperPlaneTilt size={21} weight="fill" />

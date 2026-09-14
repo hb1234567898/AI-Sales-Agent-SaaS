@@ -137,7 +137,7 @@ describe('McpAssistantPage', () => {
     expect(screen.getByRole('button', { name: /发送指令/ })).toBeEnabled()
   })
 
-  it('上传附件后发送时携带附件 ID', async () => {
+  it('选择附件时保留在本地，发送后才上传并携带附件 ID', async () => {
     const response: AssistantChatResponse = {
       conversationId: 'conversation-1',
       messageId: 'message-1',
@@ -163,14 +163,33 @@ describe('McpAssistantPage', () => {
 
     await user.upload(screen.getByLabelText('选择 MCP 聊天附件'), new File(['quote'], 'quote.pdf', { type: 'application/pdf' }))
     expect(await screen.findByText('quote.pdf')).toBeInTheDocument()
+    expect(uploadFile).not.toHaveBeenCalled()
+    expect(streamMcpChatMessage).not.toHaveBeenCalled()
 
     await user.type(screen.getByPlaceholderText(/给云岚科技导入聊天/), '运行 Agent 分析云岚科技')
     await user.click(screen.getByRole('button', { name: /发送指令/ }))
 
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(streamMcpChatMessage).toHaveBeenCalledWith(
       expect.objectContaining({ attachmentIds: ['file-1'] }),
       expect.any(Function),
       expect.any(AbortSignal),
     ))
+  })
+
+  it('附件上传失败时保留消息和文件且不调用 AI', async () => {
+    vi.mocked(uploadFile).mockRejectedValue(new Error('附件上传失败'))
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.upload(screen.getByLabelText('选择 MCP 聊天附件'), new File(['quote'], 'quote.pdf', { type: 'application/pdf' }))
+    const composer = screen.getByPlaceholderText(/给云岚科技导入聊天/)
+    await user.type(composer, '请分析报价附件')
+    await user.click(screen.getByRole('button', { name: /发送指令/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('附件上传失败')
+    expect(composer).toHaveValue('请分析报价附件')
+    expect(screen.getByText('quote.pdf')).toBeInTheDocument()
+    expect(streamMcpChatMessage).not.toHaveBeenCalled()
   })
 })
