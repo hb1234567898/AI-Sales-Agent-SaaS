@@ -23,6 +23,10 @@ import com.yourcompany.salesagent.agent.api.AgentRunCreateRequest;
 import com.yourcompany.salesagent.agent.infrastructure.AgentRunRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentWorkflowMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.customer.api.CustomerResponse;
+import com.yourcompany.salesagent.customer.domain.CustomerSource;
+import com.yourcompany.salesagent.customer.domain.CustomerStage;
+import com.yourcompany.salesagent.customer.domain.CustomerStatus;
 import com.yourcompany.salesagent.file.application.FileStorageService;
 import com.yourcompany.salesagent.file.domain.UploadedFile;
 import com.yourcompany.salesagent.interaction.api.ChatAnalysisResponse;
@@ -261,6 +265,44 @@ class SalesFollowUpAgentServiceTests {
 				.containsEntry("attachmentRequired", true)
 				.containsEntry("attachments", List.of());
 		assertThat(preview.getValue().get("body")).asString().contains("客户希望本周看报价");
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@Test
+	void explicitDocumentEmailCreatesHighRiskApprovalWithUploadedAttachment() {
+		var principal = principal();
+		var configId = UUID.randomUUID();
+		var customerId = UUID.randomUUID();
+		var fileId = UUID.randomUUID();
+		var file = UploadedFile.create(fileId, ORGANIZATION_ID, principal.memberId(), null,
+				"和成科技方案.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				"docx".getBytes(), "hash", NOW);
+		var attachmentPreview = List.<Map<String, Object>>of(Map.of("id", fileId.toString(), "name", "和成科技方案.docx"));
+		var customer = new CustomerResponse(customerId, "和成科技", null, "软件服务", "9999+",
+				CustomerStage.LEAD, CustomerStatus.ACTIVE, CustomerSource.CHAT, principal.memberId(), "蔡景辉",
+				88, null, null, NOW, null,
+				new CustomerResponse.PrimaryContactResponse("李春和", "2564942830@qq.com", "13800000011"), NOW, NOW, 1);
+		when(mapper.selectDefaultConfigId(ORGANIZATION_ID)).thenReturn(configId);
+		when(fileStorageService.requireActive(ORGANIZATION_ID, fileId)).thenReturn(file);
+		when(fileStorageService.preview(List.of(file))).thenReturn(attachmentPreview);
+		var payload = ArgumentCaptor.forClass(Map.class);
+		var preview = ArgumentCaptor.forClass(Map.class);
+
+		var result = service.proposeDocumentEmailFromMcpAssistant(
+				principal, customer, UUID.randomUUID(), "方案", List.of(fileId));
+
+		assertThat(result.to()).isEqualTo("2564942830@qq.com");
+		verify(mapper).insertActionRequest(
+				any(), eq(ORGANIZATION_ID), eq(result.runId()), any(), eq(customerId), eq(principal.memberId()),
+				eq("SEND_EMAIL"), eq("HIGH"), eq("AWAITING_APPROVAL"), eq("email.send"), eq("v1"),
+				eq(true), eq("REQUIRE_APPROVAL"), any(), payload.capture(), any(), preview.capture(), any(), any());
+		assertThat(payload.getValue())
+				.containsEntry("to", "2564942830@qq.com")
+				.containsEntry("attachmentRequired", true)
+				.containsEntry("attachments", attachmentPreview);
+		assertThat(preview.getValue()).containsEntry("attachments", attachmentPreview);
+		verify(mapper).completeRun(eq(result.runId()), eq(ORGANIZATION_ID), eq("WAITING_APPROVAL"),
+				eq(1), eq(1), eq(1), eq(0), eq(0), eq(1), any(), eq(null), eq(NOW));
 	}
 
 	private static AuthPrincipal principal() {
