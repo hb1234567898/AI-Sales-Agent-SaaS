@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -22,6 +23,7 @@ public class ApprovalService {
 	private final ApprovalMapper mapper;
 	private final ToolExecutionMapper toolMapper;
 	private final ToolExecutionService toolExecutionService;
+	private final TransactionTemplate transactions;
 	private final Clock clock;
 	private final UUID organizationId;
 
@@ -29,11 +31,13 @@ public class ApprovalService {
 			ApprovalMapper mapper,
 			ToolExecutionMapper toolMapper,
 			ToolExecutionService toolExecutionService,
+			TransactionTemplate transactions,
 			Clock clock,
 			@Value("${app.demo.organization-id}") UUID organizationId) {
 		this.mapper = mapper;
 		this.toolMapper = toolMapper;
 		this.toolExecutionService = toolExecutionService;
+		this.transactions = transactions;
 		this.clock = clock;
 		this.organizationId = organizationId;
 	}
@@ -45,16 +49,40 @@ public class ApprovalService {
 				.setRecords(rows.getRecords().stream().map(ApprovalResponse::from).toList());
 	}
 
-	@Transactional
 	public ApprovalResponse approve(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
-		decide(principal, approvalId, request, "APPROVED");
-		var approval = requireApproval(approvalId);
-		// 动作进入 APPROVED，交由 Tool 执行层真正发生副作用（发邮件 / 建任务 / 回写）。
-		toolMapper.markActionApproved(organizationId, approval.actionRequestId(), clock.instant());
-		toolExecutionService.execute(approval.actionRequestId());
-		var now = clock.instant();
-		mapper.refreshRunApprovalState(organizationId, approval.runId(), now);
-		return requireApproval(approvalId);
+		var approved = transactions.execute(status -> {
+			decide(principal, approvalId, request, "APPROVED");
+			var approval = requireApproval(approvalId);
+			// 先提交动作状态，再交给 Tool 执行层真正发生副作用（发邮件 / 建任务 / 回写）。
+			var actionUpdated = toolMapper.markActionApproved(organizationId, approval.actionRequestId(), clock.instant());
+			if (actionUpdated == 0) {
+				throw new ApprovalWorkflowException("审批关联动作已被处理或状态已变化，请刷新后重试");
+			}
+			return approval;
+		});
+		if (approved == null) {
+			throw new ApprovalWorkflowException("审批处理失败，请刷新后重试");
+		}
+
+		RuntimeException executionError = null;
+		try {
+			toolExecutionService.execute(approved.actionRequestId());
+		}
+		catch (RuntimeException exception) {
+			executionError = exception;
+		}
+
+		var refreshed = transactions.execute(status -> {
+			mapper.refreshRunApprovalState(organizationId, approved.runId(), clock.instant());
+			return requireApproval(approvalId);
+		});
+		if (executionError != null) {
+			throw executionError;
+		}
+		if (refreshed == null) {
+			throw new ApprovalWorkflowException("审批记录不存在");
+		}
+		return refreshed;
 	}
 
 	@Transactional

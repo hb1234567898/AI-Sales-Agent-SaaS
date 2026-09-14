@@ -430,10 +430,18 @@ public class AssistantChatService {
 		var approvalId = UUID.fromString(matcher.group());
 		traces.add(new AssistantToolTrace("approval.approve", "RUNNING", "正在审批并执行对应动作"));
 		var approval = approvalService.approve(principal, approvalId, new ApprovalDecisionRequest(null, "由 MCP 助手聊天入口批准"));
-		traces.add(new AssistantToolTrace("approval.approve", "SUCCEEDED", "已批准审批：" + approval.id()));
-		return reply("已审批通过「" + approval.customerName() + "」的建议，系统会继续执行对应工具并刷新 Agent 运行状态。", "识别审批通过指令 → 校验审批 ID → 调用审批通过接口 → 返回审批后的业务状态。", traces, Map.of(
+		var actionStatus = approval.actionStatus();
+		var failureMessage = approval.failureMessage();
+		var actionMessage = "FAILED".equals(actionStatus)
+				? "已批准，但工具执行失败：" + (failureMessage == null ? "请查看审批记录" : failureMessage)
+				: "SUCCEEDED".equals(actionStatus)
+						? "已批准并执行成功"
+						: "已批准，工具正在执行";
+		traces.add(new AssistantToolTrace("approval.approve", "FAILED".equals(actionStatus) ? "FAILED" : "SUCCEEDED", actionMessage));
+		return reply("已审批通过「" + approval.customerName() + "」的建议。" + actionMessage + "。", "识别审批通过指令 → 校验审批 ID → 调用审批通过接口 → 返回审批后的业务状态。", traces, Map.of(
 				"approvalId", approval.id(),
 				"status", approval.status(),
+				"actionStatus", actionStatus,
 				"customerName", approval.customerName()));
 	}
 

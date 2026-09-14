@@ -217,6 +217,9 @@
                CASE
                    WHEN run.status = 'RUNNING' THEN run.status
                    WHEN coalesce(review.pending_approval_count, 0) &gt; 0 THEN 'WAITING_APPROVAL'
+                   WHEN coalesce(review.executing_action_count, 0) &gt; 0 THEN 'RUNNING'
+                   WHEN coalesce(review.failed_action_count, 0) &gt; 0 AND coalesce(review.succeeded_action_count, 0) &gt; 0 THEN 'PARTIALLY_COMPLETED'
+                   WHEN coalesce(review.failed_action_count, 0) &gt; 0 THEN 'FAILED'
                    WHEN run.status = 'WAITING_APPROVAL' AND run.failed_count &gt; 0 AND run.succeeded_count &gt; 0 THEN 'PARTIALLY_COMPLETED'
                    WHEN run.status = 'WAITING_APPROVAL' AND run.failed_count &gt; 0 THEN 'FAILED'
                    WHEN run.status = 'WAITING_APPROVAL' THEN 'COMPLETED'
@@ -226,10 +229,27 @@
                run.scope,
                CASE
                    WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.executing_action_count, 0) &gt; 0
                        THEN jsonb_set(
                            coalesce(run.output_summary, '{}'::jsonb),
                            '{message}',
-                           to_jsonb('审批已全部处理，跟进任务已更新'::text),
+                           to_jsonb('审批已通过，工具正在执行'::text),
+                           true
+                       )
+                   WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.failed_action_count, 0) &gt; 0
+                       THEN jsonb_set(
+                           coalesce(run.output_summary, '{}'::jsonb),
+                           '{message}',
+                           to_jsonb('审批已处理，但有工具执行失败，请查看审批记录'::text),
+                           true
+                       )
+                   WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.succeeded_action_count, 0) &gt; 0
+                       THEN jsonb_set(
+                           coalesce(run.output_summary, '{}'::jsonb),
+                           '{message}',
+                           to_jsonb('审批已处理，工具执行成功，客户记录已更新'::text),
                            true
                        )
                    ELSE run.output_summary
@@ -244,8 +264,11 @@
                run.queued_at,
                run.started_at,
                CASE
+                   WHEN coalesce(review.executing_action_count, 0) &gt; 0 THEN NULL::timestamp with time zone
                    WHEN run.completed_at IS NOT NULL THEN run.completed_at
-                   WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0 THEN run.updated_at
+                   WHEN run.status = 'WAITING_APPROVAL'
+                    AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.executing_action_count, 0) = 0 THEN run.updated_at
                    ELSE run.completed_at
                END AS completed_at,
                run.created_at
@@ -257,7 +280,10 @@
             SELECT count(*) FILTER (
                 WHERE a.status = 'PENDING'
                   AND ar.status = 'AWAITING_APPROVAL'
-            )::integer AS pending_approval_count
+            )::integer AS pending_approval_count,
+            count(*) FILTER (WHERE ar.status IN ('APPROVED', 'EXECUTING'))::integer AS executing_action_count,
+            count(*) FILTER (WHERE ar.status = 'SUCCEEDED')::integer AS succeeded_action_count,
+            count(*) FILTER (WHERE ar.status = 'FAILED')::integer AS failed_action_count
             FROM action_request ar
             LEFT JOIN approval a
               ON a.organization_id = ar.organization_id
@@ -276,6 +302,9 @@
                CASE
                    WHEN run.status = 'RUNNING' THEN run.status
                    WHEN coalesce(review.pending_approval_count, 0) &gt; 0 THEN 'WAITING_APPROVAL'
+                   WHEN coalesce(review.executing_action_count, 0) &gt; 0 THEN 'RUNNING'
+                   WHEN coalesce(review.failed_action_count, 0) &gt; 0 AND coalesce(review.succeeded_action_count, 0) &gt; 0 THEN 'PARTIALLY_COMPLETED'
+                   WHEN coalesce(review.failed_action_count, 0) &gt; 0 THEN 'FAILED'
                    WHEN run.status = 'WAITING_APPROVAL' AND run.failed_count &gt; 0 AND run.succeeded_count &gt; 0 THEN 'PARTIALLY_COMPLETED'
                    WHEN run.status = 'WAITING_APPROVAL' AND run.failed_count &gt; 0 THEN 'FAILED'
                    WHEN run.status = 'WAITING_APPROVAL' THEN 'COMPLETED'
@@ -285,10 +314,27 @@
                run.scope,
                CASE
                    WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.executing_action_count, 0) &gt; 0
                        THEN jsonb_set(
                            coalesce(run.output_summary, '{}'::jsonb),
                            '{message}',
-                           to_jsonb('审批已全部处理，跟进任务已更新'::text),
+                           to_jsonb('审批已通过，工具正在执行'::text),
+                           true
+                       )
+                   WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.failed_action_count, 0) &gt; 0
+                       THEN jsonb_set(
+                           coalesce(run.output_summary, '{}'::jsonb),
+                           '{message}',
+                           to_jsonb('审批已处理，但有工具执行失败，请查看审批记录'::text),
+                           true
+                       )
+                   WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.succeeded_action_count, 0) &gt; 0
+                       THEN jsonb_set(
+                           coalesce(run.output_summary, '{}'::jsonb),
+                           '{message}',
+                           to_jsonb('审批已处理，工具执行成功，客户记录已更新'::text),
                            true
                        )
                    ELSE run.output_summary
@@ -303,8 +349,11 @@
                run.queued_at,
                run.started_at,
                CASE
+                   WHEN coalesce(review.executing_action_count, 0) &gt; 0 THEN NULL::timestamp with time zone
                    WHEN run.completed_at IS NOT NULL THEN run.completed_at
-                   WHEN run.status = 'WAITING_APPROVAL' AND coalesce(review.pending_approval_count, 0) = 0 THEN run.updated_at
+                   WHEN run.status = 'WAITING_APPROVAL'
+                    AND coalesce(review.pending_approval_count, 0) = 0
+                    AND coalesce(review.executing_action_count, 0) = 0 THEN run.updated_at
                    ELSE run.completed_at
                END AS completed_at,
                run.created_at
@@ -316,7 +365,10 @@
             SELECT count(*) FILTER (
                 WHERE a.status = 'PENDING'
                   AND ar.status = 'AWAITING_APPROVAL'
-            )::integer AS pending_approval_count
+            )::integer AS pending_approval_count,
+            count(*) FILTER (WHERE ar.status IN ('APPROVED', 'EXECUTING'))::integer AS executing_action_count,
+            count(*) FILTER (WHERE ar.status = 'SUCCEEDED')::integer AS succeeded_action_count,
+            count(*) FILTER (WHERE ar.status = 'FAILED')::integer AS failed_action_count
             FROM action_request ar
             LEFT JOIN approval a
               ON a.organization_id = ar.organization_id

@@ -2323,6 +2323,35 @@ input:focus-visible {
   color: var(--danger);
 }
 
+.approval-decision-result {
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.approval-decision-result.is-success {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.approval-decision-result.is-error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.approval-decision-result.is-pending {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
 .segmented-filter {
   height: 32px;
   display: flex;
