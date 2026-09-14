@@ -26,14 +26,6 @@ interface ChatMessage {
   error?: string
 }
 
-const quickPrompts = [
-  '新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com',
-  '查看待审批',
-  '查看跟进任务',
-  '运行 Agent 分析最近客户',
-  '新增客户云岚科技并导入聊天：客户说下周想看报价，需要私有化方案。',
-]
-
 const assistantTabs = ['AI对话', '助手列表', '技能管理', '额度管理', '设置']
 
 const toolGuides = [
@@ -316,14 +308,10 @@ export function McpAssistantPage() {
             ) : null}
             {chatMessages.length === 0 && !messagesQuery.isFetching ? (
               <div className="mcp-empty-chat">
-                <h2>有什么我能帮你的吗?</h2>
-                <div className="mcp-empty-prompts" aria-label="快捷指令">
-                  {quickPrompts.map((prompt) => (
-                    <button key={prompt} type="button" disabled={isGuest || chatMutation.isPending} onClick={() => submit(prompt)}>
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
+                <h2>销售自动化助手</h2>
+                <p className="mcp-empty-intro">
+                  把客户资料、聊天记录、跟进建议和审批动作放在同一个工作流里，帮助销售团队更快整理线索、沉淀过程，并把需要人工确认的动作留在可追踪的记录中。
+                </p>
               </div>
             ) : null}
             {chatMessages.map((message) => (
