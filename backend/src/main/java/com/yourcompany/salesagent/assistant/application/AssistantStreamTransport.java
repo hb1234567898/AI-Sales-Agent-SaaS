@@ -58,7 +58,7 @@ public class AssistantStreamTransport {
 					heartbeat = heartbeats.scheduleAtFixedRate(
 							() -> send.accept("ping", Map.of()), 15, 15, TimeUnit.SECONDS);
 					// 断开显示连接不重放或回滚已提交的业务动作，结果仍存入会话历史。
-					service.streamChat(principal, conversationId, request.message(), send);
+					service.streamChat(principal, conversationId, request.message(), request.attachmentIds(), send);
 				} catch (AssistantWorkflowException exception) {
 					send.accept("error", Map.of("message", exception.getMessage()));
 				} catch (RuntimeException exception) {

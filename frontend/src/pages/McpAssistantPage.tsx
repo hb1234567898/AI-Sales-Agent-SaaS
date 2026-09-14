@@ -1,6 +1,6 @@
-import { CheckCircle, CircleNotch, DotsThree, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench } from '@phosphor-icons/react'
+import { CheckCircle, CircleNotch, DotsThree, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench, X } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getMcpConversations,
   getMcpMessages,
@@ -10,6 +10,7 @@ import {
   type AssistantToolTrace,
 } from '../api/mcp-chat-api'
 import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
+import { uploadFile, type UploadedFile } from '../api/files-api'
 import { useIsGuest } from '../auth/use-auth'
 
 interface ChatMessage {
@@ -18,6 +19,7 @@ interface ChatMessage {
   content: string
   reasoningSummary?: string | null
   traces?: AssistantToolTrace[]
+  attachments?: UploadedFile[]
   createdAt: string
   streaming?: boolean
   progress?: string
@@ -72,12 +74,16 @@ export function McpAssistantPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
   const [useLocalMessages, setUseLocalMessages] = useState(true)
+  const [attachments, setAttachments] = useState<UploadedFile[]>([])
+  const [attachmentError, setAttachmentError] = useState('')
+  const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const pendingId = useRef('')
   const pendingConversationId = useRef<string | undefined>(undefined)
   const busy = useRef(false)
   const streamController = useRef<AbortController | null>(null)
   const messageListRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const conversationsQuery = useQuery({
     queryKey: ['mcp-conversations'],
@@ -123,6 +129,7 @@ export function McpAssistantPage() {
     }, streamController.current?.signal),
     onSuccess: (response) => {
       setActiveConversationId(response.conversationId)
+      setAttachments([])
       setMessages((current) => current.map((message) => message.id !== pendingId.current ? message : {
         id: response.messageId,
         role: 'assistant',
@@ -165,17 +172,49 @@ export function McpAssistantPage() {
     })
   }, [displayedMessages, chatMutation.isPending])
 
+  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!selectedFiles.length || chatMutation.isPending || uploadingAttachments) return
+    setAttachmentError('')
+    if (attachments.length + selectedFiles.length > 5) {
+      setAttachmentError('一次消息最多携带 5 个附件')
+      return
+    }
+    const oversized = selectedFiles.find((file) => file.size > 10 * 1024 * 1024)
+    if (oversized) {
+      setAttachmentError(`${oversized.name} 超过 10MB，请压缩后再上传`)
+      return
+    }
+    setUploadingAttachments(true)
+    try {
+      const uploaded = await Promise.all(selectedFiles.map((file) => uploadFile(file)))
+      setAttachments((current) => [...current, ...uploaded])
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : '附件上传失败，请重试')
+    } finally {
+      setUploadingAttachments(false)
+    }
+  }
+
+  function removeAttachment(fileId: string) {
+    if (chatMutation.isPending || uploadingAttachments) return
+    setAttachments((current) => current.filter((file) => file.id !== fileId))
+  }
+
   function submit(message = input) {
     const content = message.trim()
-    if (!content || busy.current || isGuest) return
+    if (!content || busy.current || isGuest || uploadingAttachments) return
     busy.current = true
     streamController.current = new AbortController()
     pendingId.current = crypto.randomUUID()
+    const submittedAttachments = [...attachments]
     setUseLocalMessages(true)
     setMessages([...displayedMessages, {
       id: crypto.randomUUID(),
       role: 'user',
       content,
+      attachments: submittedAttachments,
       createdAt: new Date().toISOString(),
     }, {
       id: pendingId.current,
@@ -186,7 +225,12 @@ export function McpAssistantPage() {
       createdAt: new Date().toISOString(),
     }])
     setInput('')
-    chatMutation.mutate({ conversationId: activeConversationId ?? pendingConversationId.current, message: content })
+    setAttachmentError('')
+    chatMutation.mutate({
+      conversationId: activeConversationId ?? pendingConversationId.current,
+      message: content,
+      attachmentIds: submittedAttachments.map((file) => file.id),
+    })
   }
 
   function applyToolTemplate(template: string) {
@@ -204,6 +248,8 @@ export function McpAssistantPage() {
     pendingConversationId.current = undefined
     setMessages([welcomeMessage])
     setInput('')
+    setAttachments([])
+    setAttachmentError('')
   }
 
   const readableStatus = chatMutation.isPending ? '正在执行' : activeConversation ? '历史已保存' : '新会话'
@@ -289,7 +335,10 @@ export function McpAssistantPage() {
                   {message.role === 'assistant' ? (
                     <AssistantOutput message={message} />
                   ) : (
-                    <p>{message.content}</p>
+                    <>
+                      <p>{message.content}</p>
+                      <MessageAttachmentList attachments={message.attachments ?? []} />
+                    </>
                   )}
                 </div>
               </article>
@@ -318,10 +367,25 @@ export function McpAssistantPage() {
                 </button>
               ))}
             </div>
+            {attachments.length ? (
+              <div className="mcp-attachment-list" aria-label="已上传附件">
+                {attachments.map((file) => (
+                  <span key={file.id} title={file.filename}>
+                    <Paperclip size={13} />
+                    <b>{file.filename}</b>
+                    <small>{formatFileSize(file.sizeBytes)}</small>
+                    <button type="button" aria-label={`移除附件 ${file.filename}`} disabled={chatMutation.isPending || uploadingAttachments} onClick={() => removeAttachment(file.id)}>
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {attachmentError ? <p className="mcp-attachment-error" role="alert">{attachmentError}</p> : null}
             <textarea
               ref={composerRef}
               value={input}
-              disabled={isGuest}
+              disabled={isGuest || uploadingAttachments}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
@@ -333,13 +397,28 @@ export function McpAssistantPage() {
             />
             <div className="mcp-composer-footer">
               <div className="mcp-composer-tools">
-                <button type="button" aria-label="上传附件" title="聊天附件稍后接入" disabled>
+                <input
+                  ref={fileInputRef}
+                  className="mcp-file-input"
+                  type="file"
+                  multiple
+                  aria-label="选择 MCP 聊天附件"
+                  onChange={(event) => void handleAttachmentChange(event)}
+                />
+                <button
+                  type="button"
+                  aria-label="上传附件"
+                  title="上传报价、方案、合同等附件"
+                  disabled={isGuest || chatMutation.isPending || uploadingAttachments || attachments.length >= 5}
+                  onClick={() => fileInputRef.current?.click()}
+                >
                   <Paperclip size={18} />
                 </button>
                 <span><Sparkle size={15} />{modelQuery.data?.model ?? 'qwen3.5-plus'}</span>
                 <span><MagicWand size={15} />智能模式</span>
+                {uploadingAttachments ? <span><CircleNotch size={15} className="mcp-spin" />上传中</span> : null}
               </div>
-              <button className="mcp-send-button" type="submit" aria-label="发送指令" disabled={isGuest || chatMutation.isPending || !input.trim()}>
+              <button className="mcp-send-button" type="submit" aria-label="发送指令" disabled={isGuest || chatMutation.isPending || uploadingAttachments || !input.trim()}>
                 <PaperPlaneTilt size={21} weight="fill" />
               </button>
             </div>
@@ -400,8 +479,24 @@ function toChatMessage(message: AssistantMessage): ChatMessage {
     content: message.content,
     reasoningSummary: message.reasoningSummary,
     traces: message.toolTraces,
+    attachments: dataAttachments(message.data),
     createdAt: message.createdAt,
   }
+}
+
+function MessageAttachmentList({ attachments }: { attachments: UploadedFile[] }) {
+  if (!attachments.length) return null
+  return (
+    <div className="mcp-message-attachments" aria-label="消息附件">
+      {attachments.map((file) => (
+        <span key={file.id} title={file.filename}>
+          <Paperclip size={13} />
+          <b>{file.filename}</b>
+          <small>{formatFileSize(file.sizeBytes)}</small>
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function AssistantOutput({ message }: { message: ChatMessage }) {
@@ -492,7 +587,36 @@ function formatCompactNumber(value: number) {
   return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
+function formatFileSize(value: number) {
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`
+  if (value >= 1024) return `${Math.ceil(value / 1024)} KB`
+  return `${value} B`
+}
+
 function percentage(value: number, total: number) {
   if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0
   return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
+}
+
+function dataAttachments(data: Record<string, unknown> | null | undefined): UploadedFile[] {
+  const value = data?.attachments
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const id = typeof record.id === 'string' ? record.id : ''
+    const filename = typeof record.filename === 'string'
+      ? record.filename
+      : typeof record.name === 'string' ? record.name : ''
+    if (!id || !filename) return []
+    return [{
+      id,
+      customerId: typeof record.customerId === 'string' ? record.customerId : null,
+      filename,
+      contentType: typeof record.contentType === 'string' ? record.contentType : 'application/octet-stream',
+      sizeBytes: typeof record.sizeBytes === 'number' ? record.sizeBytes : 0,
+      sha256: typeof record.sha256 === 'string' ? record.sha256 : '',
+      createdAt: typeof record.createdAt === 'string' ? record.createdAt : '',
+    }]
+  })
 }

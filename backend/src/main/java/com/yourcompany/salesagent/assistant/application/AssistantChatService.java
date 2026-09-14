@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.function.BiConsumer;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -52,6 +54,8 @@ import com.yourcompany.salesagent.customer.application.CustomerNotFoundException
 import com.yourcompany.salesagent.customer.domain.CustomerSource;
 import com.yourcompany.salesagent.customer.domain.CustomerStage;
 import com.yourcompany.salesagent.customer.domain.CustomerStatus;
+import com.yourcompany.salesagent.file.application.FileStorageException;
+import com.yourcompany.salesagent.file.application.FileStorageService;
 import com.yourcompany.salesagent.followup.application.FollowUpService;
 import com.yourcompany.salesagent.interaction.api.ChatImportRequest;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
@@ -83,6 +87,7 @@ public class AssistantChatService {
 	private final AiModelService aiModelService;
 	private final QwenModelClient modelClient;
 	private final ModelCallRecorder modelCallRecorder;
+	private final FileStorageService fileStorageService;
 	private final TransactionTemplate transactions;
 
 	public AssistantChatService(
@@ -97,6 +102,7 @@ public class AssistantChatService {
 			AiModelService aiModelService,
 			QwenModelClient modelClient,
 			ModelCallRecorder modelCallRecorder,
+			FileStorageService fileStorageService,
 			PlatformTransactionManager transactionManager) {
 		this.conversationMapper = conversationMapper;
 		this.customerService = customerService;
@@ -109,6 +115,7 @@ public class AssistantChatService {
 		this.aiModelService = aiModelService;
 		this.modelClient = modelClient;
 		this.modelCallRecorder = modelCallRecorder;
+		this.fileStorageService = fileStorageService;
 		this.transactions = new TransactionTemplate(transactionManager);
 	}
 
@@ -116,14 +123,15 @@ public class AssistantChatService {
 	public UUID beginStream(AuthPrincipal principal, AssistantChatRequest request) {
 		return transactions.execute(status -> {
 			var conversation = resolveConversation(principal, request.conversationId(), request.channel(), request.message().strip());
+			var attachments = resolveAttachmentContext(principal, request.attachmentIds());
 			conversationMapper.insertMessage(UUID.randomUUID(), principal.organizationId(), conversation.id(),
-					"USER", request.message().strip(), null, "[]", Map.of(), clock.instant());
+					"USER", request.message().strip(), null, "[]", attachments.data(), clock.instant());
 			return conversation.id();
 		});
 	}
 
 	/** 工具完成即发事件；模型增量即发事件；done 仅在最终消息提交后发送。 */
-	public void streamChat(AuthPrincipal principal, UUID conversationId, String message, BiConsumer<String, Object> events) {
+	public void streamChat(AuthPrincipal principal, UUID conversationId, String message, List<UUID> attachmentIds, BiConsumer<String, Object> events) {
 		var content = new StringBuilder();
 		var traces = new ArrayList<AssistantToolTrace>() {
 			@Override
@@ -137,8 +145,12 @@ public class AssistantChatService {
 		Map<String, Object> data = new LinkedHashMap<>();
 		String failure = null;
 		try {
+			var attachments = resolveAttachmentContext(principal, attachmentIds);
+			if (!attachments.isEmpty()) {
+				data.putAll(attachments.data());
+			}
 			events.accept("progress", Map.of("text", "正在识别业务指令并执行工具；分析客户时需要等待模型返回。"));
-			var result = route(principal, conversationId, message.strip(), traces);
+			var result = route(principal, conversationId, message.strip(), traces, attachments);
 			summary = result.reasoningSummary();
 			data.putAll(result.data());
 			events.accept("summary", Map.of("text", summary));
@@ -221,6 +233,7 @@ public class AssistantChatService {
 			throw new AssistantWorkflowException("请输入要自动化处理的业务指令");
 		}
 		var conversation = resolveConversation(principal, request.conversationId(), request.channel(), message);
+		var attachments = resolveAttachmentContext(principal, request.attachmentIds());
 		var userMessageTime = clock.instant();
 		conversationMapper.insertMessage(
 				UUID.randomUUID(),
@@ -230,10 +243,10 @@ public class AssistantChatService {
 				message,
 				null,
 				"[]",
-				Map.of(),
+				attachments.data(),
 				userMessageTime);
 
-		var response = route(principal, conversation.id(), message);
+		var response = route(principal, conversation.id(), message, attachments);
 		var assistantMessageId = UUID.randomUUID();
 		conversationMapper.insertMessage(
 				assistantMessageId,
@@ -281,18 +294,22 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, String message) {
-		return route(principal, null, message, new ArrayList<>());
+		return route(principal, null, message, new ArrayList<>(), AttachmentContext.empty());
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message) {
-		return route(principal, conversationId, message, new ArrayList<>());
+		return route(principal, conversationId, message, new ArrayList<>(), AttachmentContext.empty());
 	}
 
-	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, AttachmentContext attachments) {
+		return route(principal, conversationId, message, new ArrayList<>(), attachments);
+	}
+
+	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
 		var normalized = message.toLowerCase();
 
 		if (looksLikeChatImport(message)) {
-			return importChatAndRunAgent(principal, conversationId, message, traces);
+			return importChatAndRunAgent(principal, conversationId, message, traces, attachments);
 		}
 		if (looksLikeCustomerCreate(message)) {
 			return createCustomer(message, traces);
@@ -304,15 +321,22 @@ public class AssistantChatService {
 			return listPendingApprovals(traces);
 		}
 		if (containsAny(normalized, "agent", "分析客户", "运行分析", "跑一下")) {
-			return runAgent(principal, conversationId, message, traces);
+			return runAgent(principal, conversationId, message, traces, attachments);
 		}
 		if (containsAny(message, "跟进任务", "待跟进", "查看跟进")) {
 			return listFollowUps(traces);
 		}
+		if (!attachments.isEmpty()) {
+			return reply(
+					"我已收到 " + attachments.ids().size() + " 个附件。请说明要用于哪个客户或动作，例如：运行 Agent 分析云岚科技，或给云岚科技导入聊天：……",
+					"本次请求包含附件，但没有匹配到可使用附件的业务指令，因此只保存附件记录并提示补充动作。",
+					traces,
+					attachments.data());
+		}
 		return help(traces);
 	}
 
-	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
 		var command = parseImportCommand(message);
 		if (command == null || !StringUtils.hasText(command.customerName()) || !StringUtils.hasText(command.content())) {
 			return reply("我还缺客户名或聊天内容。可以这样发：\n\n给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。", "识别为聊天导入意图，但缺少客户名或聊天正文，因此没有调用业务写入工具。", traces, Map.of("intent", "CHAT_IMPORT"));
@@ -324,11 +348,11 @@ public class AssistantChatService {
 				new ChatImportRequest(ChatPlatform.OTHER, clock.instant(), "MCP 助手导入聊天", command.content().strip(), null));
 		traces.add(new AssistantToolTrace("interaction.chat_import", "SUCCEEDED", "已导入聊天记录：" + interaction.id()));
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在分析客户并生成待审批建议"));
-		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId);
+		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply(
 				"已完成自动化处理：我先找到客户「" + customer.name() + "」，导入聊天记录，然后只针对这个客户跑了一次跟进建议 Agent。"
-						+ nextRunHint(run),
+						+ nextRunHint(run) + attachmentHint(attachments),
 				"识别聊天导入指令 → 匹配或创建客户 → 写入互动记录 → 触发客户跟进建议 Agent → 返回待审批数量。",
 				traces,
 				Map.of(
@@ -336,27 +360,35 @@ public class AssistantChatService {
 						"interactionId", interaction.id(),
 						"agentRunId", run.id(),
 						"agentRunStatus", run.status(),
-						"pendingApprovalCount", run.pendingApprovalCount()));
+						"pendingApprovalCount", run.pendingApprovalCount(),
+						"attachments", attachments.preview()));
 	}
 
-	private AssistantChatResponse runAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse runAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在读取互动并调用模型分析客户"));
 		var customerName = extractCustomerName(message);
 		AgentRunResponse run;
 		if (StringUtils.hasText(customerName)) {
 			var customer = resolveCustomer(customerName);
 			traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
-			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId);
+			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
 		}
 		else {
+			if (!attachments.isEmpty()) {
+				return reply("我已收到附件，但为了避免把文件带给错误客户，请在指令里写清楚客户名，例如：运行 Agent 分析云岚科技。",
+						"识别到 Agent 运行意图和附件，但未指定客户；附件类动作必须绑定明确客户，未执行 Agent。",
+						traces,
+						attachments.data());
+			}
 			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, null), conversationId);
 		}
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
-		return reply("Agent 已运行完成。" + nextRunHint(run), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
+		return reply("Agent 已运行完成。" + nextRunHint(run) + attachmentHint(attachments), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
 				"agentRunId", run.id(),
 				"agentRunStatus", run.status(),
 				"processedCount", run.processedCount(),
-				"pendingApprovalCount", run.pendingApprovalCount()));
+				"pendingApprovalCount", run.pendingApprovalCount(),
+				"attachments", attachments.preview()));
 	}
 
 	private AssistantChatResponse createCustomer(String message, List<AssistantToolTrace> traces) {
@@ -591,6 +623,36 @@ public class AssistantChatService {
 		return " 没有产生待审批建议。";
 	}
 
+	private AttachmentContext resolveAttachmentContext(AuthPrincipal principal, List<UUID> attachmentIds) {
+		if (CollectionUtils.isEmpty(attachmentIds)) {
+			return AttachmentContext.empty();
+		}
+		var ids = attachmentIds.stream()
+				.filter(Objects::nonNull)
+				.distinct()
+				.limit(10)
+				.toList();
+		if (ids.isEmpty()) {
+			return AttachmentContext.empty();
+		}
+		try {
+			var files = ids.stream()
+					.map(id -> fileStorageService.requireActive(principal.organizationId(), id))
+					.toList();
+			return new AttachmentContext(ids, fileStorageService.preview(files));
+		}
+		catch (FileStorageException exception) {
+			throw new AssistantWorkflowException(exception.getMessage(), exception);
+		}
+	}
+
+	private static String attachmentHint(AttachmentContext attachments) {
+		if (attachments.isEmpty()) {
+			return "";
+		}
+		return " 本次已带上 " + attachments.ids().size() + " 个附件；如果后续建议是发送邮件，审批和发送时会优先使用这些附件。";
+	}
+
 	private AssistantConversationRow resolveConversation(AuthPrincipal principal, UUID conversationId, String rawChannel, String firstMessage) {
 		if (conversationId != null) {
 			return ensureConversation(principal, conversationId);
@@ -744,6 +806,24 @@ public class AssistantChatService {
 		}
 		catch (NoSuchAlgorithmException exception) {
 			throw new IllegalStateException("SHA-256 算法不可用", exception);
+		}
+	}
+
+	private record AttachmentContext(List<UUID> ids, List<Map<String, Object>> preview) {
+
+		static AttachmentContext empty() {
+			return new AttachmentContext(List.of(), List.of());
+		}
+
+		boolean isEmpty() {
+			return ids.isEmpty();
+		}
+
+		Map<String, Object> data() {
+			if (isEmpty()) {
+				return Map.of();
+			}
+			return Map.of("attachments", preview);
 		}
 	}
 

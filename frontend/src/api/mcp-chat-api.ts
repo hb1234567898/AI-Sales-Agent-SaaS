@@ -61,6 +61,7 @@ export interface AssistantMessagePage {
 export interface SendMcpChatMessageInput {
   conversationId?: string
   message: string
+  attachmentIds?: string[]
 }
 
 export function getMcpConversations() {
@@ -74,7 +75,7 @@ export function getMcpMessages(conversationId: string) {
 export function sendMcpChatMessage(input: SendMcpChatMessageInput) {
   return requestJson<AssistantChatResponse>('/api/v1/mcp/chat', {
     method: 'POST',
-    data: { conversationId: input.conversationId, message: input.message, channel: 'WEB' },
+    data: { conversationId: input.conversationId, message: input.message, attachmentIds: input.attachmentIds, channel: 'WEB' },
   })
 }
 
