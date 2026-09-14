@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,7 +29,9 @@ import com.yourcompany.salesagent.agent.infrastructure.AgentCandidateRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentRunRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentWorkflowMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.file.application.FileStorageException;
 import com.yourcompany.salesagent.file.application.FileStorageService;
+import com.yourcompany.salesagent.file.domain.UploadedFile;
 import com.yourcompany.salesagent.interaction.api.ChatAnalysisResponse;
 import com.yourcompany.salesagent.interaction.application.ChatAnalysisService;
 
@@ -85,9 +88,18 @@ public class SalesFollowUpAgentService {
 
 	@Transactional
 	public AgentRunResponse runFromMcpAssistant(AuthPrincipal principal, AgentRunCreateRequest request, UUID conversationId) {
+		return runFromMcpAssistant(principal, request, conversationId, List.of());
+	}
+
+	@Transactional
+	public AgentRunResponse runFromMcpAssistant(AuthPrincipal principal, AgentRunCreateRequest request, UUID conversationId, List<UUID> attachmentIds) {
 		var triggerContext = conversationId == null
-				? Map.<String, Object>of()
-				: Map.<String, Object>of("conversationId", conversationId.toString());
+				? new LinkedHashMap<String, Object>()
+				: new LinkedHashMap<String, Object>(Map.of("conversationId", conversationId.toString()));
+		if (!CollectionUtils.isEmpty(attachmentIds)) {
+			triggerContext.put("attachmentIds", attachmentIds.stream().map(UUID::toString).toList());
+			triggerContext.put("attachmentSource", "MCP_ASSISTANT_UPLOAD");
+		}
 		return runNow(principal, request, "MCP_ASSISTANT", triggerContext);
 	}
 
@@ -129,8 +141,11 @@ public class SalesFollowUpAgentService {
 					var emailTo = mapper.selectNotificationEmail(organizationId, candidate.getCustomerId(), candidate.getOwnerMemberId());
 					var emailSubject = "跟进提醒：" + candidate.getCustomerName();
 					var emailBody = buildEmailBody(candidate.getCustomerName(), analysis);
-					var attachmentRequired = emailAttachmentRequired(actionPlan.suggestedNextAction());
-					var attachments = attachmentRequired
+					var explicitAttachments = resolveMcpAttachments(triggerContext, candidate.getCustomerId());
+					var attachmentRequired = emailAttachmentRequired(actionPlan.suggestedNextAction()) || !explicitAttachments.isEmpty();
+					var attachments = !explicitAttachments.isEmpty()
+							? fileStorageService.preview(explicitAttachments)
+							: attachmentRequired
 							? fileStorageService.preview(fileStorageService.findRecentForCustomer(organizationId, candidate.getCustomerId(), 3))
 							: List.<Map<String, Object>>of();
 					var email = new LinkedHashMap<String, Object>();
@@ -261,6 +276,49 @@ public class SalesFollowUpAgentService {
 		snapshot.put("triggerType", triggerType);
 		snapshot.putAll(triggerContext);
 		return snapshot;
+	}
+
+	private List<UploadedFile> resolveMcpAttachments(Map<String, Object> triggerContext, UUID customerId) {
+		var ids = attachmentIds(triggerContext);
+		if (ids.isEmpty()) {
+			return List.of();
+		}
+		try {
+			var files = new ArrayList<UploadedFile>();
+			for (var id : ids) {
+				var file = fileStorageService.requireActive(organizationId, id);
+				if (file.getCustomerId() != null && !file.getCustomerId().equals(customerId)) {
+					throw new AgentWorkflowException("附件不属于当前客户，已阻止发送邮件附件: " + file.getOriginalFilename());
+				}
+				files.add(file);
+			}
+			return files;
+		}
+		catch (FileStorageException exception) {
+			throw new AgentWorkflowException("附件不存在或已删除，无法生成邮件发送建议: " + exception.getMessage());
+		}
+	}
+
+	private static List<UUID> attachmentIds(Map<String, Object> triggerContext) {
+		var value = triggerContext.get("attachmentIds");
+		if (!(value instanceof Iterable<?> items)) {
+			return List.of();
+		}
+		var ids = new ArrayList<UUID>();
+		for (var item : items) {
+			try {
+				if (item instanceof UUID id) {
+					ids.add(id);
+				}
+				else if (item != null && StringUtils.hasText(String.valueOf(item))) {
+					ids.add(UUID.fromString(String.valueOf(item).strip()));
+				}
+			}
+			catch (IllegalArgumentException ignored) {
+				// Ignore malformed values from trigger context; upload validation happens earlier.
+			}
+		}
+		return ids.stream().distinct().toList();
 	}
 
 	private static Map<String, Object> followUpPayload(AgentCandidateRow candidate, ChatAnalysisResponse analysis,

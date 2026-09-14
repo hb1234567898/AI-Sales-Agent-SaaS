@@ -8,6 +8,7 @@ import {
   streamMcpChatMessage,
   type AssistantChatResponse,
 } from '../api/mcp-chat-api'
+import { uploadFile } from '../api/files-api'
 import { McpAssistantPage } from './McpAssistantPage'
 
 vi.mock('../auth/use-auth', () => ({
@@ -18,6 +19,10 @@ vi.mock('../api/mcp-chat-api', () => ({
   getMcpConversations: vi.fn(),
   getMcpMessages: vi.fn(),
   streamMcpChatMessage: vi.fn(),
+}))
+
+vi.mock('../api/files-api', () => ({
+  uploadFile: vi.fn(),
 }))
 
 function renderMcpAssistantPage() {
@@ -52,6 +57,7 @@ describe('McpAssistantPage', () => {
       last: true,
     })
     vi.mocked(streamMcpChatMessage).mockReset()
+    vi.mocked(uploadFile).mockReset()
   })
 
   afterEach(() => {
@@ -129,5 +135,42 @@ describe('McpAssistantPage', () => {
     expect(screen.getByText('正在返回的第一段')).toBeInTheDocument()
     await user.type(composer, '查看跟进任务')
     expect(screen.getByRole('button', { name: /发送指令/ })).toBeEnabled()
+  })
+
+  it('上传附件后发送时携带附件 ID', async () => {
+    const response: AssistantChatResponse = {
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      role: 'assistant',
+      content: 'Agent 已运行完成。',
+      reasoningSummary: null,
+      toolTraces: [],
+      data: {},
+      createdAt: '2026-09-05T08:00:00Z',
+    }
+    vi.mocked(uploadFile).mockResolvedValue({
+      id: 'file-1',
+      customerId: null,
+      filename: 'quote.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 2048,
+      sha256: 'hash',
+      createdAt: '2026-09-05T08:00:00Z',
+    })
+    vi.mocked(streamMcpChatMessage).mockResolvedValue(response)
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.upload(screen.getByLabelText('选择 MCP 聊天附件'), new File(['quote'], 'quote.pdf', { type: 'application/pdf' }))
+    expect(await screen.findByText('quote.pdf')).toBeInTheDocument()
+
+    await user.type(screen.getByPlaceholderText(/给云岚科技导入聊天/), '运行 Agent 分析云岚科技')
+    await user.click(screen.getByRole('button', { name: /发送指令/ }))
+
+    await waitFor(() => expect(streamMcpChatMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ attachmentIds: ['file-1'] }),
+      expect.any(Function),
+      expect.any(AbortSignal),
+    ))
   })
 })

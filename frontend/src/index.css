@@ -5974,6 +5974,71 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.mcp-attachment-list,
+.mcp-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mcp-attachment-list span,
+.mcp-message-attachments span {
+  min-width: 0;
+  max-width: 280px;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.mcp-attachment-list b,
+.mcp-message-attachments b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-attachment-list small,
+.mcp-message-attachments small {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.mcp-attachment-list button {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.mcp-attachment-list button:hover:not(:disabled) {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.mcp-attachment-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 11px;
+}
+
 .mcp-composer textarea {
   resize: none;
   width: 100%;
@@ -6035,6 +6100,15 @@ input:focus-visible {
 .mcp-composer-tools button:hover {
   color: var(--blue-700);
   background: #eff6ff;
+}
+
+.mcp-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .mcp-send-button {

@@ -26,6 +26,8 @@ import com.yourcompany.salesagent.assistant.application.*;
 import com.yourcompany.salesagent.assistant.infrastructure.*;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
 import com.yourcompany.salesagent.customer.application.CustomerService;
+import com.yourcompany.salesagent.file.application.FileStorageService;
+import com.yourcompany.salesagent.file.domain.UploadedFile;
 import com.yourcompany.salesagent.followup.application.FollowUpService;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
 import reactor.core.publisher.Flux;
@@ -37,6 +39,7 @@ class AssistantStreamingTests {
 	final AiModelService settings = mock(AiModelService.class);
 	final QwenModelClient model = mock(QwenModelClient.class);
 	final ModelCallRecorder modelCallRecorder = mock(ModelCallRecorder.class);
+	final FileStorageService fileStorageService = mock(FileStorageService.class);
 	final PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
 	final UUID conversationId = UUID.randomUUID();
 	final AuthPrincipal principal = new AuthPrincipal(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -53,7 +56,7 @@ class AssistantStreamingTests {
 		when(settings.requireRuntimeConfiguration(any())).thenReturn(new AiModelRuntimeConfiguration("QWEN", "test", "https://example.test", "test-key"));
 		service = new AssistantChatService(mapper, mock(CustomerService.class), mock(InteractionService.class),
 				mock(SalesFollowUpAgentService.class), approvals, mock(FollowUpService.class),
-				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, tx);
+				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, fileStorageService, tx);
 	}
 
 	void receive(String type, Object data) {
@@ -67,7 +70,7 @@ class AssistantStreamingTests {
 						new QwenModelClient.QwenStreamChunk("没有", null, null, "test"),
 						new QwenModelClient.QwenStreamChunk("待审批建议", new ModelUsage(20, 8, 28, 0L, null), "chatcmpl-test", "test"))
 				.doOnComplete(() -> assertThat(events).contains("delta").doesNotContain("done")));
-		service.streamChat(principal, conversationId, "查看待审批", this::receive);
+		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).isEqualTo("没有待审批建议");
 		assertThat(events).containsSubsequence("tool", "result", "delta", "delta", "commit", "done");
 		assertThat(saved.toolTraces()).allMatch(trace -> trace.status().equals("SUCCEEDED"));
@@ -81,7 +84,7 @@ class AssistantStreamingTests {
 		when(model.streamAssistantReplyWithUsage(any(), anyString(), anyString())).thenReturn(
 				Flux.concat(Flux.just(new QwenModelClient.QwenStreamChunk("已查询", null, null, "test")),
 						Flux.error(new IllegalStateException("secret provider detail"))));
-		service.streamChat(principal, conversationId, "查看待审批", this::receive);
+		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).startsWith("已查询").contains("现在没有待审批建议").doesNotContain("secret provider detail");
 		assertThat(saved.data()).containsEntry("streamStatus", "INTERRUPTED");
 		assertThat(events).containsSubsequence("commit", "error", "done");
@@ -91,7 +94,7 @@ class AssistantStreamingTests {
 	@Test
 	void stillReturnsBusinessResultsWithoutConfiguredModel() {
 		when(settings.requireRuntimeConfiguration(any())).thenThrow(new AiModelNotConfiguredException("未配置"));
-		service.streamChat(principal, conversationId, "查看待审批", this::receive);
+		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).isEqualTo("现在没有待审批建议。");
 		verifyNoInteractions(model);
 	}
@@ -101,7 +104,7 @@ class AssistantStreamingTests {
 		when(settings.requireRuntimeConfiguration(any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		when(mapper.insertMessage(any(), any(), any(), anyString(), anyString(), any(), anyString(), anyMap(), any()))
 				.thenThrow(new IllegalStateException("database unavailable"));
-		assertThatThrownBy(() -> service.streamChat(principal, conversationId, "查看待审批", this::receive)).isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(() -> service.streamChat(principal, conversationId, "查看待审批", null, this::receive)).isInstanceOf(IllegalStateException.class);
 		assertThat(events).doesNotContain("done");
 	}
 
@@ -109,8 +112,29 @@ class AssistantStreamingTests {
 	void refusesAnotherMembersConversationBeforeExecutingTools() {
 		when(mapper.selectConversation(principal.organizationId(), conversationId)).thenReturn(new AssistantConversationRow(
 				conversationId, principal.organizationId(), UUID.randomUUID(), UUID.randomUUID(), "会话", "WEB", "OPEN", null, null, null, 0));
-		assertThatThrownBy(() -> service.beginStream(principal, new AssistantChatRequest(conversationId, "查看待审批", "WEB")))
+		assertThatThrownBy(() -> service.beginStream(principal, new AssistantChatRequest(conversationId, "查看待审批", null, "WEB")))
 				.isInstanceOf(AssistantWorkflowException.class);
 		verifyNoInteractions(approvals, model);
+	}
+
+	@Test
+	void savesAttachmentPreviewWithUserMessageBeforeStreaming() {
+		var fileId = UUID.randomUUID();
+		var now = Instant.parse("2026-09-14T09:00:00Z");
+		var file = UploadedFile.create(fileId, principal.organizationId(), principal.memberId(), null,
+				"quote.pdf", "application/pdf", "pdf".getBytes(), "hash", now);
+		when(mapper.selectConversation(principal.organizationId(), conversationId)).thenReturn(new AssistantConversationRow(
+				conversationId, principal.organizationId(), principal.userId(), principal.memberId(), "会话", "WEB", "OPEN", null, now, now, 0));
+		when(fileStorageService.requireActive(principal.organizationId(), fileId)).thenReturn(file);
+		when(fileStorageService.preview(List.of(file))).thenReturn(List.of(Map.of(
+				"id", fileId.toString(),
+				"name", "quote.pdf",
+				"contentType", "application/pdf",
+				"sizeBytes", 3L)));
+
+		service.beginStream(principal, new AssistantChatRequest(conversationId, "运行 Agent 分析云岚科技", List.of(fileId), "WEB"));
+
+		verify(mapper).insertMessage(any(), eq(principal.organizationId()), eq(conversationId), eq("USER"),
+				eq("运行 Agent 分析云岚科技"), isNull(), eq("[]"), argThat(data -> data.containsKey("attachments")), any());
 	}
 }
