@@ -14,6 +14,9 @@ public class ApprovalRow {
 	private String customerName;
 	private String actionType;
 	private String riskLevel;
+	private String actionStatus;
+	private String failureCode;
+	private String failureMessage;
 	private String status;
 	private String reason;
 	private Map<String, Object> preview = new HashMap<>();
@@ -21,6 +24,7 @@ public class ApprovalRow {
 	private Long version;
 	private Instant requestedAt;
 	private Instant expiresAt;
+	private Instant actionCompletedAt;
 
 	public UUID getId() { return id; }
 	public void setId(UUID id) { this.id = id; }
@@ -36,6 +40,12 @@ public class ApprovalRow {
 	public void setActionType(String actionType) { this.actionType = actionType; }
 	public String getRiskLevel() { return riskLevel; }
 	public void setRiskLevel(String riskLevel) { this.riskLevel = riskLevel; }
+	public String getActionStatus() { return actionStatus; }
+	public void setActionStatus(String actionStatus) { this.actionStatus = actionStatus; }
+	public String getFailureCode() { return failureCode; }
+	public void setFailureCode(String failureCode) { this.failureCode = failureCode; }
+	public String getFailureMessage() { return failureMessage; }
+	public void setFailureMessage(String failureMessage) { this.failureMessage = failureMessage; }
 	public String getStatus() { return status; }
 	public void setStatus(String status) { this.status = status; }
 	public String getReason() { return reason; }
@@ -50,4 +60,6 @@ public class ApprovalRow {
 	public void setRequestedAt(Instant requestedAt) { this.requestedAt = requestedAt; }
 	public Instant getExpiresAt() { return expiresAt; }
 	public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+	public Instant getActionCompletedAt() { return actionCompletedAt; }
+	public void setActionCompletedAt(Instant actionCompletedAt) { this.actionCompletedAt = actionCompletedAt; }
 }

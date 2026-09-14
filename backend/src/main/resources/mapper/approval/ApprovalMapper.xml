@@ -12,9 +12,13 @@
         <result property="customerName" column="customer_name" />
         <result property="actionType" column="action_type" />
         <result property="riskLevel" column="risk_level" />
+        <result property="actionStatus" column="action_status" />
+        <result property="failureCode" column="failure_code" />
+        <result property="failureMessage" column="failure_message" />
         <result property="preview" column="preview" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
         <result property="requestedAt" column="requested_at" />
         <result property="expiresAt" column="expires_at" />
+        <result property="actionCompletedAt" column="action_completed_at" />
     </resultMap>
 
     <sql id="ApprovalSelect">
@@ -28,8 +32,12 @@
                ar.customer_id,
                ar.action_type,
                ar.risk_level,
+               ar.status AS action_status,
+               ar.failure_code,
+               ar.failure_message,
                ar.reason,
                ar.preview,
+               ar.completed_at AS action_completed_at,
                c.name AS customer_name,
                coalesce(u.email::text, 'Agent') AS requester
         FROM approval a
@@ -160,7 +168,13 @@
     <update id="refreshRunApprovalState">
         WITH approval_state AS (
             SELECT ar.run_id,
-                   count(*) FILTER (WHERE a.status = 'PENDING')::integer AS pending_count
+                   count(*) FILTER (
+                       WHERE a.status = 'PENDING'
+                         AND ar.status = 'AWAITING_APPROVAL'
+                   )::integer AS pending_count,
+                   count(*) FILTER (WHERE ar.status IN ('APPROVED', 'EXECUTING'))::integer AS executing_count,
+                   count(*) FILTER (WHERE ar.status = 'SUCCEEDED')::integer AS succeeded_action_count,
+                   count(*) FILTER (WHERE ar.status = 'FAILED')::integer AS failed_action_count
             FROM action_request ar
             LEFT JOIN approval a
               ON a.organization_id = ar.organization_id
@@ -170,15 +184,36 @@
             GROUP BY ar.run_id
         )
         UPDATE agent_run run
-        SET pending_approval_count = coalesce(state.pending_count, 0),
+            SET pending_approval_count = coalesce(state.pending_count, 0),
             status = CASE
                 WHEN coalesce(state.pending_count, 0) &gt; 0 THEN 'WAITING_APPROVAL'
+                WHEN coalesce(state.executing_count, 0) &gt; 0 THEN 'RUNNING'
+                WHEN coalesce(state.failed_action_count, 0) &gt; 0 AND coalesce(state.succeeded_action_count, 0) &gt; 0 THEN 'PARTIALLY_COMPLETED'
+                WHEN coalesce(state.failed_action_count, 0) &gt; 0 THEN 'FAILED'
                 WHEN run.failed_count &gt; 0 AND run.succeeded_count &gt; 0 THEN 'PARTIALLY_COMPLETED'
                 WHEN run.failed_count &gt; 0 THEN 'FAILED'
                 ELSE 'COMPLETED'
             END,
             output_summary = CASE
                 WHEN coalesce(state.pending_count, 0) &gt; 0 THEN run.output_summary
+                WHEN coalesce(state.executing_count, 0) &gt; 0 THEN jsonb_set(
+                    coalesce(run.output_summary, '{}'::jsonb),
+                    '{message}',
+                    to_jsonb('审批已通过，工具正在执行'::text),
+                    true
+                )
+                WHEN coalesce(state.failed_action_count, 0) &gt; 0 THEN jsonb_set(
+                    coalesce(run.output_summary, '{}'::jsonb),
+                    '{message}',
+                    to_jsonb('审批已处理，但有工具执行失败，请查看审批记录'::text),
+                    true
+                )
+                WHEN coalesce(state.succeeded_action_count, 0) &gt; 0 THEN jsonb_set(
+                    coalesce(run.output_summary, '{}'::jsonb),
+                    '{message}',
+                    to_jsonb('审批已处理，工具执行成功，客户记录已更新'::text),
+                    true
+                )
                 ELSE jsonb_set(
                     coalesce(run.output_summary, '{}'::jsonb),
                     '{message}',
@@ -187,7 +222,10 @@
                 )
             END,
             completed_at = CASE
+                WHEN coalesce(state.executing_count, 0) &gt; 0
+                    THEN NULL::timestamp with time zone
                 WHEN coalesce(state.pending_count, 0) = 0
+                 AND coalesce(state.executing_count, 0) = 0
                     THEN CAST(#{now} AS timestamp with time zone)
                 ELSE run.completed_at
             END,

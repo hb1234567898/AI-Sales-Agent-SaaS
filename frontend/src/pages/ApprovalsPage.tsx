@@ -1,5 +1,6 @@
 import { Check, Clock, EnvelopeSimple, ShieldCheck, X } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { approveApproval, getPendingApprovals, rejectApproval, type Approval } from '../api/approvals-api'
 import { useIsGuest } from '../auth/use-auth'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
@@ -7,19 +8,25 @@ import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 export function ApprovalsPage() {
   const isGuest = useIsGuest()
   const queryClient = useQueryClient()
+  const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null)
   const query = useQuery({ queryKey: ['approvals', 'PENDING'], queryFn: getPendingApprovals })
   const pending = query.data?.content ?? []
   const approveMutation = useMutation({
     mutationFn: approveApproval,
-    onSuccess: () => {
+    onMutate: () => setDecisionResult(null),
+    onSuccess: (approval) => {
+      setDecisionResult(decisionResultFromApproval(approval))
       void queryClient.invalidateQueries({ queryKey: ['approvals'] })
       void queryClient.invalidateQueries({ queryKey: ['follow-ups'] })
       void queryClient.invalidateQueries({ queryKey: ['agent-runs'] })
+      void queryClient.invalidateQueries({ queryKey: ['customers'] })
     },
   })
   const rejectMutation = useMutation({
     mutationFn: rejectApproval,
+    onMutate: () => setDecisionResult(null),
     onSuccess: () => {
+      setDecisionResult({ tone: 'success', message: '已拒绝该审批，外部动作不会执行。' })
       void queryClient.invalidateQueries({ queryKey: ['approvals'] })
       void queryClient.invalidateQueries({ queryKey: ['agent-runs'] })
     },
@@ -37,6 +44,7 @@ export function ApprovalsPage() {
             <span className="count-label">{pending.length}</span>
           </div>
           {(approveMutation.isError || rejectMutation.isError) ? <div className="audit-state is-error">{(approveMutation.error ?? rejectMutation.error)?.message}</div> : null}
+          {decisionResult ? <div className={`approval-decision-result is-${decisionResult.tone}`} role="status">{decisionResult.message}</div> : null}
           <div className="approval-list">
             {pending.map((approval) => {
               const busy = decidingId === approval.id && (approveMutation.isPending || rejectMutation.isPending)
@@ -88,6 +96,30 @@ export function ApprovalsPage() {
       </div>
     </section>
   )
+}
+
+interface DecisionResult {
+  tone: 'success' | 'error' | 'pending'
+  message: string
+}
+
+function decisionResultFromApproval(approval: Approval): DecisionResult {
+  if (approval.actionType === 'SEND_EMAIL') {
+    if (approval.actionStatus === 'SUCCEEDED') {
+      return { tone: 'success', message: `邮件已发送给 ${previewText(approval.preview.to) ?? '客户'}，客户时间线已记录 EMAIL_SENT。` }
+    }
+    if (approval.actionStatus === 'FAILED') {
+      return { tone: 'error', message: `邮件审批已通过，但发送失败：${approval.failureMessage ?? '请检查邮箱配置、收件人和附件。'}` }
+    }
+    return { tone: 'pending', message: '邮件审批已通过，发送任务正在执行。' }
+  }
+  if (approval.actionStatus === 'FAILED') {
+    return { tone: 'error', message: `审批已通过，但工具执行失败：${approval.failureMessage ?? '请查看工具记录。'}` }
+  }
+  if (approval.actionStatus === 'SUCCEEDED') {
+    return { tone: 'success', message: '审批已通过，工具执行成功，业务记录已更新。' }
+  }
+  return { tone: 'pending', message: '审批已通过，工具正在执行。' }
 }
 
 function actionTypeLabel(value: string) {

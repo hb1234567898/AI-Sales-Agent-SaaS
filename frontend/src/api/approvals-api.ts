@@ -8,6 +8,9 @@ export interface Approval {
   customerName: string
   actionType: string
   riskLevel: string
+  actionStatus: string
+  failureCode: string | null
+  failureMessage: string | null
   status: string
   reason: string
   preview: Record<string, unknown>
@@ -15,6 +18,7 @@ export interface Approval {
   version: number
   requestedAt: string
   expiresAt: string | null
+  actionCompletedAt: string | null
 }
 
 export interface ApprovalPage {
