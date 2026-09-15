@@ -392,6 +392,7 @@ public class AssistantChatService {
 		traces.add(new AssistantToolTrace("interaction.chat_import", "SUCCEEDED", "已导入聊天记录：" + interaction.id()));
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在分析客户并生成待审批建议"));
 		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
+		var approvals = pendingApprovalsForRun(run.id());
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply(
 				"已完成自动化处理：我先找到客户「" + customer.name() + "」，导入聊天记录，然后只针对这个客户跑了一次跟进建议 Agent。"
@@ -404,6 +405,7 @@ public class AssistantChatService {
 						"agentRunId", run.id(),
 						"agentRunStatus", run.status(),
 						"pendingApprovalCount", run.pendingApprovalCount(),
+						"approvals", approvals,
 						"attachments", attachments.preview()));
 	}
 
@@ -426,12 +428,26 @@ public class AssistantChatService {
 			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, null), conversationId);
 		}
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
+		var approvals = pendingApprovalsForRun(run.id());
 		return reply("Agent 已运行完成。" + nextRunHint(run) + attachmentHint(attachments), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
 				"agentRunId", run.id(),
 				"agentRunStatus", run.status(),
 				"processedCount", run.processedCount(),
 				"pendingApprovalCount", run.pendingApprovalCount(),
+				"approvals", approvals,
 				"attachments", attachments.preview()));
+	}
+
+	private List<Map<String, Object>> pendingApprovalsForRun(UUID runId) {
+		return approvalService.findApprovals("PENDING", 0, 50).getRecords().stream()
+				.filter(approval -> runId.equals(approval.runId()))
+				.map(approval -> compactMap(
+						"id", approval.id(),
+						"customerName", approval.customerName(),
+						"actionType", approval.actionType(),
+						"riskLevel", approval.riskLevel(),
+						"version", approval.version()))
+				.toList();
 	}
 
 	private AssistantChatResponse createCustomer(String message, List<AssistantToolTrace> traces) {
@@ -457,6 +473,7 @@ public class AssistantChatService {
 						"customerName", approval.customerName(),
 						"actionType", approval.actionType(),
 						"riskLevel", approval.riskLevel(),
+						"version", approval.version(),
 						"reason", approval.reason()))
 				.toList();
 		var content = approvals.isEmpty()

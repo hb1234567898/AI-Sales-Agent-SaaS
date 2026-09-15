@@ -9,6 +9,7 @@ import {
   type AssistantChatResponse,
 } from '../api/mcp-chat-api'
 import { uploadFile } from '../api/files-api'
+import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
 import { McpAssistantPage } from './McpAssistantPage'
 
 vi.mock('../auth/use-auth', () => ({
@@ -23,6 +24,12 @@ vi.mock('../api/mcp-chat-api', () => ({
 
 vi.mock('../api/files-api', () => ({
   uploadFile: vi.fn(),
+}))
+
+vi.mock('../api/approvals-api', () => ({
+  getApproval: vi.fn(),
+  approveApproval: vi.fn(),
+  rejectApproval: vi.fn(),
 }))
 
 function renderMcpAssistantPage() {
@@ -58,6 +65,9 @@ describe('McpAssistantPage', () => {
     })
     vi.mocked(streamMcpChatMessage).mockReset()
     vi.mocked(uploadFile).mockReset()
+    vi.mocked(getApproval).mockReset()
+    vi.mocked(approveApproval).mockReset()
+    vi.mocked(rejectApproval).mockReset()
   })
 
   afterEach(() => {
@@ -191,5 +201,63 @@ describe('McpAssistantPage', () => {
     expect(composer).toHaveValue('请分析报价附件')
     expect(screen.getByText('quote.pdf')).toBeInTheDocument()
     expect(streamMcpChatMessage).not.toHaveBeenCalled()
+  })
+
+  it('在聊天结果中直接批准高风险动作并显示执行结果', async () => {
+    const pendingApproval: Approval = {
+      id: 'approval-1',
+      actionRequestId: 'action-1',
+      runId: 'run-1',
+      customerId: 'customer-1',
+      customerName: '和成科技',
+      actionType: 'SEND_EMAIL',
+      riskLevel: 'HIGH',
+      actionStatus: 'AWAITING_APPROVAL',
+      failureCode: null,
+      failureMessage: null,
+      status: 'PENDING',
+      reason: '用户请求给客户发送方案，需人工核对后发送',
+      preview: {
+        to: '2564942830@qq.com',
+        subject: '和成科技方案',
+        attachments: [{ id: 'file-1', name: '和成科技方案.docx', sizeBytes: 2048 }],
+      },
+      requester: '销售',
+      version: 1,
+      requestedAt: '2026-09-15T08:00:00Z',
+      expiresAt: null,
+      actionCompletedAt: null,
+    }
+    const completedApproval: Approval = {
+      ...pendingApproval,
+      status: 'APPROVED',
+      actionStatus: 'SUCCEEDED',
+      version: 2,
+      actionCompletedAt: '2026-09-15T08:01:00Z',
+    }
+    vi.mocked(getApproval).mockResolvedValue(pendingApproval)
+    vi.mocked(approveApproval).mockResolvedValue(completedApproval)
+    vi.mocked(streamMcpChatMessage).mockResolvedValue({
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      role: 'assistant',
+      content: '已生成待审批方案邮件。',
+      reasoningSummary: null,
+      toolTraces: [],
+      data: { approvalId: 'approval-1' },
+      createdAt: '2026-09-15T08:00:00Z',
+    })
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.type(screen.getByPlaceholderText(/给云岚科技导入聊天/), '给和成科技发送方案')
+    await user.click(screen.getByRole('button', { name: /发送指令/ }))
+
+    expect(await screen.findByText('高风险操作待确认')).toBeInTheDocument()
+    expect(screen.getByText('和成科技方案.docx')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '批准并发送' }))
+    await waitFor(() => expect(approveApproval).toHaveBeenCalled())
+    expect(vi.mocked(approveApproval).mock.calls[0]?.[0]).toEqual(pendingApproval)
+    expect(await screen.findByText('审批已通过，邮件发送成功。')).toBeInTheDocument()
   })
 })

@@ -35,6 +35,10 @@ export function getPendingApprovals() {
   return getJson<ApprovalPage>('/api/v1/approvals?status=PENDING&page=0&size=50')
 }
 
+export function getApproval(approvalId: string) {
+  return getJson<Approval>(`/api/v1/approvals/${approvalId}`)
+}
+
 export function approveApproval(approval: Approval) {
   return requestJson<Approval>(`/api/v1/approvals/${approval.id}/approve`, {
     method: 'POST',

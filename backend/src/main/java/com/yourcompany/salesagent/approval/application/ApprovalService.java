@@ -85,6 +85,11 @@ public class ApprovalService {
 		return refreshed;
 	}
 
+	@Transactional(readOnly = true)
+	public ApprovalResponse findApproval(UUID approvalId) {
+		return requireApproval(approvalId);
+	}
+
 	@Transactional
 	public ApprovalResponse reject(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
 		decide(principal, approvalId, request, "REJECTED");

@@ -39,6 +39,11 @@ public class ApprovalController {
 		return PageResponse.from(approvalService.findApprovals(status, page, size));
 	}
 
+	@GetMapping("/{approvalId}")
+	public ApprovalResponse findApproval(@PathVariable UUID approvalId) {
+		return approvalService.findApproval(approvalId);
+	}
+
 	@PostMapping("/{approvalId}/approve")
 	public ApprovalResponse approve(
 			Authentication authentication,
