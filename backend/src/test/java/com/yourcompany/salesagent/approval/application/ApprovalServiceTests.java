@@ -57,6 +57,19 @@ class ApprovalServiceTests {
 			ORGANIZATION_ID);
 
 	@Test
+	void findsApprovalForCurrentOrganization() {
+		var approvalId = UUID.randomUUID();
+		var row = approval(approvalId, UUID.randomUUID(), UUID.randomUUID(), "PENDING");
+		when(mapper.selectApproval(ORGANIZATION_ID, approvalId)).thenReturn(row);
+
+		var response = service.findApproval(approvalId);
+
+		assertThat(response.id()).isEqualTo(approvalId);
+		assertThat(response.customerName()).isEqualTo("宁波海天机械");
+		assertThat(response.version()).isEqualTo(2L);
+	}
+
+	@Test
 	void approvesActionBeforeExecutingToolInSeparateTransaction() {
 		var principal = principal();
 		var approvalId = UUID.randomUUID();

@@ -1,4 +1,4 @@
-import { CheckCircle, CircleNotch, DotsThree, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench, X } from '@phosphor-icons/react'
+import { Check, CheckCircle, CircleNotch, DotsThree, EnvelopeSimple, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, ShieldCheck, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench, X } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ChangeEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -11,6 +11,7 @@ import {
 } from '../api/mcp-chat-api'
 import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
 import { uploadFile, type UploadedFile } from '../api/files-api'
+import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
 import { useIsGuest } from '../auth/use-auth'
 
 interface ChatMessage {
@@ -20,6 +21,7 @@ interface ChatMessage {
   reasoningSummary?: string | null
   traces?: AssistantToolTrace[]
   attachments?: UploadedFile[]
+  data?: Record<string, unknown>
   createdAt: string
   streaming?: boolean
   progress?: string
@@ -136,6 +138,7 @@ export function McpAssistantPage() {
         content: response.content,
         reasoningSummary: response.reasoningSummary,
         traces: response.toolTraces,
+        data: response.data,
         createdAt: response.createdAt,
         error: message.error,
       }))
@@ -490,6 +493,7 @@ function toChatMessage(message: AssistantMessage): ChatMessage {
     reasoningSummary: message.reasoningSummary,
     traces: message.toolTraces,
     attachments: dataAttachments(message.data),
+    data: message.data,
     createdAt: message.createdAt,
   }
 }
@@ -511,6 +515,7 @@ function MessageAttachmentList({ attachments }: { attachments: UploadedFile[] })
 
 function AssistantOutput({ message }: { message: ChatMessage }) {
   const traces = message.traces ?? []
+  const approvalIds = dataApprovalIds(message.data)
   return (
     <div className="mcp-assistant-output">
       {message.streaming ? (
@@ -531,6 +536,10 @@ function AssistantOutput({ message }: { message: ChatMessage }) {
           <span>{message.reasoningSummary}</span>
         </section>
       ) : null}
+
+      {approvalIds.map((approvalId) => (
+        <InlineApproval key={approvalId} approvalId={approvalId} />
+      ))}
 
       {traces.length > 0 ? <ToolTraceList traces={traces} /> : null}
     </div>
@@ -577,6 +586,69 @@ function readableTraceStatus(status: string) {
   return status
 }
 
+function dataApprovalIds(data?: Record<string, unknown>) {
+  if (!data) return []
+  const ids: string[] = []
+  if (typeof data.approvalId === 'string') ids.push(data.approvalId)
+  if (Array.isArray(data.approvals)) {
+    data.approvals.forEach((item) => {
+      if (!item || typeof item !== 'object') return
+      const id = (item as Record<string, unknown>).id
+      if (typeof id === 'string') ids.push(id)
+    })
+  }
+  return [...new Set(ids)]
+}
+
+function previewText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : null
+}
+
+function previewAttachments(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const id = previewText(record.id)
+    const name = previewText(record.name)
+    return id && name ? [{ id, name }] : []
+  })
+}
+
+function actionLabel(value: string) {
+  if (value === 'SEND_EMAIL') return '发送邮件'
+  if (value === 'CREATE_CRM_TASK') return '创建 CRM 任务'
+  if (value === 'CREATE_INTERNAL_FOLLOW_UP') return '创建跟进任务'
+  return value
+}
+
+function approvalStatusLabel(value: string) {
+  if (value === 'APPROVED') return '审批已通过'
+  if (value === 'REJECTED') return '审批已拒绝'
+  if (value === 'EXPIRED') return '审批已过期'
+  return '审批已处理'
+}
+
+function riskText(value: string) {
+  if (value === 'HIGH') return '高'
+  if (value === 'MEDIUM') return '中'
+  return '低'
+}
+
+function approvalResultTone(approval: Approval) {
+  if (approval.status === 'REJECTED' || approval.status === 'EXPIRED' || approval.actionStatus === 'FAILED') return 'error'
+  if (approval.actionStatus === 'SUCCEEDED') return 'success'
+  return 'pending'
+}
+
+function approvalResultText(approval: Approval) {
+  if (approval.status === 'REJECTED') return '已拒绝，相关动作不会执行。'
+  if (approval.status === 'EXPIRED') return '审批已过期，未执行相关动作。'
+  if (approval.actionStatus === 'FAILED') return `审批已通过，但执行失败：${approval.failureMessage ?? '请检查配置后重新发起。'}`
+  if (approval.actionStatus === 'SUCCEEDED') return approval.actionType === 'SEND_EMAIL' ? '审批已通过，邮件发送成功。' : '审批已通过，业务动作执行成功。'
+  return '审批已通过，动作正在执行。'
+}
+
 function formatTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
@@ -595,6 +667,75 @@ function modelStatusLabel(status?: string) {
 
 function formatCompactNumber(value: number) {
   return new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function InlineApproval({ approvalId }: { approvalId: string }) {
+  const isGuest = useIsGuest()
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: ['approval', approvalId],
+    queryFn: () => getApproval(approvalId),
+  })
+  const approveMutation = useMutation({
+    mutationFn: approveApproval,
+    onSuccess: (approval) => finishDecision(approval),
+  })
+  const rejectMutation = useMutation({
+    mutationFn: rejectApproval,
+    onSuccess: (approval) => finishDecision(approval),
+  })
+
+  function finishDecision(approval: Approval) {
+    queryClient.setQueryData(['approval', approvalId], approval)
+    void queryClient.invalidateQueries({ queryKey: ['approvals'] })
+    void queryClient.invalidateQueries({ queryKey: ['agent-runs'] })
+    void queryClient.invalidateQueries({ queryKey: ['follow-ups'] })
+    void queryClient.invalidateQueries({ queryKey: ['customers'] })
+  }
+
+  if (query.isPending) {
+    return <section className="mcp-inline-approval is-loading"><CircleNotch size={16} className="mcp-spin" />正在读取审批状态</section>
+  }
+  if (query.isError || !query.data) {
+    return <section className="mcp-inline-approval is-error"><WarningCircle size={16} />审批状态暂时无法读取，请稍后重试</section>
+  }
+
+  const approval = query.data
+  const pending = approval.status === 'PENDING'
+  const busy = approveMutation.isPending || rejectMutation.isPending
+  const mutationError = approveMutation.error ?? rejectMutation.error
+  const to = previewText(approval.preview.to)
+  const subject = previewText(approval.preview.subject)
+  const attachments = previewAttachments(approval.preview.attachments)
+  return (
+    <section className={`mcp-inline-approval ${pending ? 'is-pending' : 'is-resolved'}`} aria-label="聊天内审批">
+      <header>
+        <span><ShieldCheck size={17} />{pending ? '高风险操作待确认' : approvalStatusLabel(approval.status)}</span>
+        <em className={`risk-label ${approval.riskLevel === 'HIGH' ? 'risk-high' : approval.riskLevel === 'MEDIUM' ? 'risk-medium' : 'risk-low'}`}>{riskText(approval.riskLevel)}风险</em>
+      </header>
+      <strong>{actionLabel(approval.actionType)} · {approval.customerName}</strong>
+      <p>{approval.reason}</p>
+      {approval.actionType === 'SEND_EMAIL' ? (
+        <dl>
+          <div><dt><EnvelopeSimple size={14} />收件人</dt><dd>{to ?? '未解析'}</dd></div>
+          <div><dt>主题</dt><dd>{subject ?? '(无主题)'}</dd></div>
+          <div><dt>附件</dt><dd>{attachments.length ? attachments.map((item) => item.name).join('、') : '无附件'}</dd></div>
+        </dl>
+      ) : null}
+      {pending ? (
+        <div className="mcp-inline-approval-actions">
+          <button type="button" className="button button-secondary" disabled={isGuest || busy} onClick={() => rejectMutation.mutate(approval)}><X size={15} />拒绝</button>
+          <button type="button" className="button button-primary" disabled={isGuest || busy} onClick={() => approveMutation.mutate(approval)}>
+            {approveMutation.isPending ? <CircleNotch size={15} className="mcp-spin" /> : <Check size={15} />}
+            {approval.actionType === 'SEND_EMAIL' ? '批准并发送' : '批准并执行'}
+          </button>
+        </div>
+      ) : (
+        <p className={`mcp-inline-approval-result is-${approvalResultTone(approval)}`}>{approvalResultText(approval)}</p>
+      )}
+      {mutationError ? <p className="mcp-inline-approval-error" role="alert">{mutationError.message}</p> : null}
+    </section>
+  )
 }
 
 function formatFileSize(value: number) {
