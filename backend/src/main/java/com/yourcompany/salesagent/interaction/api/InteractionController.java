@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.yourcompany.salesagent.interaction.application.ChatAnalysisService;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
+import com.yourcompany.salesagent.auth.security.AuthPrincipal;
 import com.yourcompany.salesagent.shared.api.PageResponse;
 
 import jakarta.validation.Valid;
@@ -66,9 +68,11 @@ public class InteractionController {
 
 	@PostMapping("/{interactionId}/analysis")
 	public ResponseEntity<ChatAnalysisResponse> analyzeChat(
+			Authentication authentication,
 			@PathVariable UUID customerId,
 			@PathVariable UUID interactionId) {
-		var analysis = chatAnalysisService.analyze(customerId, interactionId);
+		var principal = (AuthPrincipal) authentication.getPrincipal();
+		var analysis = chatAnalysisService.analyze(customerId, interactionId, principal.memberId());
 		return ResponseEntity.created(URI.create(interactionUri(customerId, interactionId) + "/analysis/" + analysis.id()))
 				.body(analysis);
 	}

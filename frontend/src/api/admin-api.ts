@@ -13,6 +13,9 @@ export interface AdminMember {
   joinedAt: string | null
   lastLoginAt: string | null
   createdAt: string
+  allocatedTokens: number | null
+  usedTokens: number
+  remainingTokens: number | null
 }
 
 export interface AdminMemberPage {
@@ -89,6 +92,13 @@ export function updateMember(memberId: string, input: UpdateMemberInput) {
   return requestJson<AdminMember>(`/api/v1/admin/members/${memberId}`, {
     method: 'PUT',
     data: input,
+  })
+}
+
+export function updateMemberTokenQuota(memberId: string, allocatedTokens: number | null) {
+  return requestJson<AdminMember>(`/api/v1/admin/members/${memberId}/token-quota`, {
+    method: 'PUT',
+    data: { allocatedTokens },
   })
 }
 

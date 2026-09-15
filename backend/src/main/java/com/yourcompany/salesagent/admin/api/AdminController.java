@@ -66,6 +66,14 @@ public class AdminController {
 		return adminService.updateMember(principal(authentication), memberId, request);
 	}
 
+	@PutMapping("/members/{memberId}/token-quota")
+	public AdminMemberResponse updateMemberTokenQuota(
+			Authentication authentication,
+			@PathVariable UUID memberId,
+			@Valid @RequestBody MemberTokenQuotaRequest request) {
+		return adminService.updateMemberTokenQuota(principal(authentication), memberId, request);
+	}
+
 	@GetMapping("/team")
 	public AdminTeamResponse getTeam(Authentication authentication) {
 		return adminService.getTeam(principal(authentication));

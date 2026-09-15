@@ -13,9 +13,21 @@
                member.status,
                member.joined_at,
                app_user.last_login_at,
-               member.created_at
+               member.created_at,
+               quota.allocated_tokens,
+               COALESCE(usage.used_tokens, 0)::bigint AS used_tokens
         FROM organization_member member
         JOIN app_user ON app_user.id = member.user_id
+        LEFT JOIN member_token_quota quota
+               ON quota.organization_id = member.organization_id AND quota.member_id = member.id
+        LEFT JOIN (
+            SELECT organization_id,
+                   member_id,
+                   COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0)::bigint AS used_tokens
+            FROM model_call
+            WHERE status = 'SUCCEEDED' AND member_id IS NOT NULL
+            GROUP BY organization_id, member_id
+        ) usage ON usage.organization_id = member.organization_id AND usage.member_id = member.id
         WHERE member.organization_id = #{organizationId}
         <if test="keyword != null and keyword != ''">
             AND (
@@ -48,9 +60,21 @@
                member.status,
                member.joined_at,
                app_user.last_login_at,
-               member.created_at
+               member.created_at,
+               quota.allocated_tokens,
+               COALESCE(usage.used_tokens, 0)::bigint AS used_tokens
         FROM organization_member member
         JOIN app_user ON app_user.id = member.user_id
+        LEFT JOIN member_token_quota quota
+               ON quota.organization_id = member.organization_id AND quota.member_id = member.id
+        LEFT JOIN (
+            SELECT organization_id,
+                   member_id,
+                   COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0)::bigint AS used_tokens
+            FROM model_call
+            WHERE status = 'SUCCEEDED' AND member_id IS NOT NULL
+            GROUP BY organization_id, member_id
+        ) usage ON usage.organization_id = member.organization_id AND usage.member_id = member.id
         WHERE member.organization_id = #{organizationId}
           AND member.id = #{memberId}
         LIMIT 1
@@ -139,5 +163,22 @@
             version = version + 1
         WHERE id = #{organizationId}
     </update>
+
+    <insert id="upsertMemberTokenQuota">
+        INSERT INTO member_token_quota (
+            organization_id, member_id, allocated_tokens, updated_by, created_at, updated_at
+        ) VALUES (
+            #{organizationId}, #{memberId}, #{allocatedTokens}, #{updatedBy}, #{now}, #{now}
+        )
+        ON CONFLICT (organization_id, member_id) DO UPDATE
+        SET allocated_tokens = EXCLUDED.allocated_tokens,
+            updated_by = EXCLUDED.updated_by,
+            updated_at = EXCLUDED.updated_at
+    </insert>
+
+    <delete id="deleteMemberTokenQuota">
+        DELETE FROM member_token_quota
+        WHERE organization_id = #{organizationId} AND member_id = #{memberId}
+    </delete>
 
 </mapper>

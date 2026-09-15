@@ -17,6 +17,7 @@ import com.yourcompany.salesagent.admin.api.AdminMemberResponse;
 import com.yourcompany.salesagent.admin.api.AdminMemberUpdateRequest;
 import com.yourcompany.salesagent.admin.api.AdminTeamResponse;
 import com.yourcompany.salesagent.admin.api.AdminTeamUpdateRequest;
+import com.yourcompany.salesagent.admin.api.MemberTokenQuotaRequest;
 import com.yourcompany.salesagent.admin.domain.MemberRole;
 import com.yourcompany.salesagent.admin.domain.MemberStatus;
 import com.yourcompany.salesagent.admin.infrastructure.AdminMapper;
@@ -98,6 +99,26 @@ public class AdminService {
 		}
 		if (request.status() != MemberStatus.ACTIVE || request.role() != current.role()) {
 			adminMapper.revokeMemberSessions(actor.organizationId(), memberId, now);
+		}
+		return AdminMemberResponse.from(requireMember(actor.organizationId(), memberId));
+	}
+
+	@Transactional
+	public AdminMemberResponse updateMemberTokenQuota(
+			AuthPrincipal actor,
+			UUID memberId,
+			MemberTokenQuotaRequest request) {
+		requireMember(actor.organizationId(), memberId);
+		var allocatedTokens = request.allocatedTokens();
+		if (allocatedTokens != null && allocatedTokens > 1_000_000_000_000L) {
+			throw new AdminValidationException("单个成员 Token 额度不能超过 1 万亿");
+		}
+		if (allocatedTokens == null) {
+			adminMapper.deleteMemberTokenQuota(actor.organizationId(), memberId);
+		}
+		else {
+			adminMapper.upsertMemberTokenQuota(
+					actor.organizationId(), memberId, allocatedTokens, actor.memberId(), clock.instant());
 		}
 		return AdminMemberResponse.from(requireMember(actor.organizationId(), memberId));
 	}

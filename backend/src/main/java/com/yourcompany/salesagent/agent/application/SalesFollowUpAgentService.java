@@ -218,7 +218,8 @@ public class SalesFollowUpAgentService {
 		var pendingApprovals = 0;
 		for (var candidate : candidates) {
 			try {
-				var analysis = chatAnalysisService.analyze(candidate.getCustomerId(), candidate.getInteractionId());
+				var analysis = chatAnalysisService.analyze(
+						candidate.getCustomerId(), candidate.getInteractionId(), principal.memberId());
 				var priority = priority(analysis);
 				var dueAt = now.plus(Duration.ofDays("HIGH".equals(analysis.intentLevel()) ? 1 : 3));
 				var actionPlan = resolveActionPlan(analysis);

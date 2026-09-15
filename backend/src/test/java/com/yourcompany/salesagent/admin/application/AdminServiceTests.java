@@ -90,6 +90,26 @@ class AdminServiceTests {
 				.hasMessageContaining("IANA 时区");
 	}
 
+	@Test
+	void ownerCanAssignTokenQuotaToMember() {
+		var mapper = mock(AdminMapper.class);
+		var current = member(SALES_MEMBER_ID, SALES_USER_ID, MemberRole.SALES, MemberStatus.ACTIVE);
+		var allocated = new AdminMemberRow(
+				current.id(), current.userId(), current.email(), current.displayName(), current.role(), current.status(),
+				current.joinedAt(), current.lastLoginAt(), current.createdAt(), 100_000L, 12_000L);
+		when(mapper.selectMember(ORGANIZATION_ID, SALES_MEMBER_ID)).thenReturn(current, allocated);
+		var service = service(mapper);
+
+		var result = service.updateMemberTokenQuota(
+				principal("OWNER", OWNER_MEMBER_ID),
+				SALES_MEMBER_ID,
+				new com.yourcompany.salesagent.admin.api.MemberTokenQuotaRequest(100_000L));
+
+		assertThat(result.remainingTokens()).isEqualTo(88_000L);
+		verify(mapper).upsertMemberTokenQuota(
+				ORGANIZATION_ID, SALES_MEMBER_ID, 100_000L, OWNER_MEMBER_ID, NOW);
+	}
+
 	private static AdminService service(AdminMapper mapper) {
 		return new AdminService(mapper, new BCryptPasswordEncoder(4), Clock.fixed(NOW, ZoneOffset.UTC));
 	}
@@ -103,6 +123,6 @@ class AdminServiceTests {
 	private static AdminMemberRow member(UUID memberId, UUID userId, MemberRole role, MemberStatus status) {
 		return new AdminMemberRow(
 				memberId, userId, role.name().toLowerCase() + "@example.com", "销售成员", role, status,
-				NOW.minusSeconds(3600), null, NOW.minusSeconds(3600));
+				NOW.minusSeconds(3600), null, NOW.minusSeconds(3600), null, 0L);
 	}
 }

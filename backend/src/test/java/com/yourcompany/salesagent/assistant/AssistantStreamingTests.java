@@ -59,7 +59,7 @@ class AssistantStreamingTests {
 		when(tx.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
 		doAnswer(invocation -> { events.add("commit"); return null; }).when(tx).commit(any());
 		when(approvals.findApprovals("PENDING", 0, 10)).thenReturn(Page.of(1, 10));
-		when(settings.requireRuntimeConfiguration(any())).thenReturn(new AiModelRuntimeConfiguration("QWEN", "test", "https://example.test", "test-key"));
+		when(settings.requireRuntimeConfiguration(any(), any())).thenReturn(new AiModelRuntimeConfiguration("QWEN", "test", "https://example.test", "test-key"));
 		service = new AssistantChatService(mapper, customers, mock(InteractionService.class),
 				agentService, approvals, mock(FollowUpService.class),
 				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, fileStorageService, tx);
@@ -99,7 +99,7 @@ class AssistantStreamingTests {
 
 	@Test
 	void stillReturnsBusinessResultsWithoutConfiguredModel() {
-		when(settings.requireRuntimeConfiguration(any())).thenThrow(new AiModelNotConfiguredException("未配置"));
+		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).isEqualTo("现在没有待审批建议。");
 		verifyNoInteractions(model);
@@ -107,7 +107,7 @@ class AssistantStreamingTests {
 
 	@Test
 	void doesNotEmitDoneIfHistoryCannotBeSaved() {
-		when(settings.requireRuntimeConfiguration(any())).thenThrow(new AiModelNotConfiguredException("未配置"));
+		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		when(mapper.insertMessage(any(), any(), any(), anyString(), anyString(), any(), anyString(), anyMap(), any()))
 				.thenThrow(new IllegalStateException("database unavailable"));
 		assertThatThrownBy(() -> service.streamChat(principal, conversationId, "查看待审批", null, this::receive)).isInstanceOf(IllegalStateException.class);
@@ -146,7 +146,7 @@ class AssistantStreamingTests {
 
 	@Test
 	void asksForAttachmentInsteadOfReturningGenericHelpForDocumentEmail() {
-		when(settings.requireRuntimeConfiguration(any())).thenThrow(new AiModelNotConfiguredException("未配置"));
+		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 
 		service.streamChat(principal, conversationId, "给和成科技发送方案", null, this::receive);
 
@@ -158,7 +158,7 @@ class AssistantStreamingTests {
 
 	@Test
 	void createsApprovalForDocumentEmailWhenAttachmentIsProvided() {
-		when(settings.requireRuntimeConfiguration(any())).thenThrow(new AiModelNotConfiguredException("未配置"));
+		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		var now = Instant.parse("2026-09-14T09:00:00Z");
 		var fileId = UUID.randomUUID();
 		var customerId = UUID.randomUUID();

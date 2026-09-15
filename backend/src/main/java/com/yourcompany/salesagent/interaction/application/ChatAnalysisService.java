@@ -94,9 +94,16 @@ public class ChatAnalysisService {
 
 	@Transactional
 	public ChatAnalysisResponse analyze(UUID customerId, UUID interactionId) {
+		return analyze(customerId, interactionId, null);
+	}
+
+	@Transactional
+	public ChatAnalysisResponse analyze(UUID customerId, UUID interactionId, UUID memberId) {
 		var customer = requireCustomer(customerId);
 		var interaction = requireChatInteraction(customerId, interactionId);
-		var modelConfiguration = modelService.requireRuntimeConfiguration(organizationId);
+		var modelConfiguration = memberId == null
+				? modelService.requireRuntimeConfiguration(organizationId)
+				: modelService.requireRuntimeConfiguration(organizationId, memberId);
 		var customerContext = customerContext(customer);
 		var chatContent = limitChatContent(interaction.getBodyText());
 
@@ -118,6 +125,7 @@ public class ChatAnalysisService {
 		try {
 			modelCallRecorder.record(new ModelCallRecordRequest(
 					organizationId,
+					memberId,
 					null,
 					null,
 					customerId,
