@@ -136,7 +136,7 @@ class SalesFollowUpAgentServiceTests {
 		when(mapper.selectNotificationEmail(ORGANIZATION_ID, customerId, ownerMemberId)).thenReturn("hecheng@example.test");
 		when(fileStorageService.requireActive(ORGANIZATION_ID, fileId)).thenReturn(attachment);
 		when(fileStorageService.preview(List.of(attachment))).thenReturn(attachmentPreview);
-		when(chatAnalysisService.analyze(customerId, interactionId)).thenReturn(new ChatAnalysisResponse(
+		when(chatAnalysisService.analyze(customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
 				UUID.randomUUID(), interactionId, 1, ChatAnalysisStatus.APPLIED,
 				"客户希望本周看报价，需要安排跟进。", 82, "HIGH", "POSITIVE",
 				List.of("报价"), List.of(), List.of(), List.of(), List.of("SEND_EMAIL"),
@@ -187,7 +187,7 @@ class SalesFollowUpAgentServiceTests {
 		when(mapper.selectDefaultConfigId(ORGANIZATION_ID)).thenReturn(configId);
 		when(mapper.selectCandidates(eq(ORGANIZATION_ID), any(), any(), anyInt())).thenReturn(List.of(candidate));
 		when(mapper.selectNotificationEmail(ORGANIZATION_ID, customerId, ownerMemberId)).thenReturn("hecheng@example.test");
-		when(chatAnalysisService.analyze(customerId, interactionId)).thenReturn(new ChatAnalysisResponse(
+		when(chatAnalysisService.analyze(customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
 				UUID.randomUUID(),
 				interactionId,
 				1,

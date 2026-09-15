@@ -19,6 +19,7 @@ import com.yourcompany.salesagent.ai.api.AiModelUpdateRequest;
 import com.yourcompany.salesagent.ai.domain.AiModelConfiguration;
 import com.yourcompany.salesagent.ai.infrastructure.AiModelConfigurationMapper;
 import com.yourcompany.salesagent.ai.infrastructure.ModelCallMapper;
+import com.yourcompany.salesagent.ai.infrastructure.MemberTokenUsageRow;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
 import com.yourcompany.salesagent.shared.security.SecretCipher;
@@ -103,5 +104,24 @@ class AiModelServiceTests {
 
 		verify(cipher).encrypt(organizationId, "sk-manual");
 		verify(mapper).insert(any(AiModelConfiguration.class));
+	}
+
+	@Test
+	void rejectsMcpUsageWhenMemberHasNoAssignedTokens() {
+		var memberId = UUID.randomUUID();
+		var modelCallMapper = mock(ModelCallMapper.class);
+		when(modelCallMapper.selectMemberTokenUsage(organizationId, memberId))
+				.thenReturn(new MemberTokenUsageRow(null, 0));
+		var service = new AiModelService(
+				mock(QwenModelClient.class),
+				mock(AiModelConfigurationMapper.class),
+				modelCallMapper,
+				mock(SecretCipher.class),
+				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+				clock);
+
+		assertThatThrownBy(() -> service.requireAvailableTokenQuota(organizationId, memberId))
+				.isInstanceOf(TokenQuotaExceededException.class)
+				.hasMessageContaining("尚未");
 	}
 }

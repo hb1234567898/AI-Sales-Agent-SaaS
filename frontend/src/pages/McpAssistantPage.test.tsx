@@ -10,10 +10,13 @@ import {
 } from '../api/mcp-chat-api'
 import { uploadFile } from '../api/files-api'
 import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
+import { getAiModelStatus } from '../api/ai-settings-api'
+import { getMembers, updateMemberTokenQuota } from '../api/admin-api'
 import { McpAssistantPage } from './McpAssistantPage'
 
 vi.mock('../auth/use-auth', () => ({
   useIsGuest: () => false,
+  useAuth: () => ({ role: 'OWNER', memberId: 'member-1' }),
 }))
 
 vi.mock('../api/mcp-chat-api', () => ({
@@ -32,6 +35,15 @@ vi.mock('../api/approvals-api', () => ({
   rejectApproval: vi.fn(),
 }))
 
+vi.mock('../api/ai-settings-api', () => ({
+  getAiModelStatus: vi.fn(),
+}))
+
+vi.mock('../api/admin-api', () => ({
+  getMembers: vi.fn(),
+  updateMemberTokenQuota: vi.fn(),
+}))
+
 function renderMcpAssistantPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -45,6 +57,25 @@ function renderMcpAssistantPage() {
 
 describe('McpAssistantPage', () => {
   beforeEach(() => {
+    vi.mocked(getAiModelStatus).mockResolvedValue({
+      provider: 'QWEN', model: 'qwen3.8-max', baseUrl: 'https://example.test',
+      apiKeyConfigured: true, ready: true, status: 'READY',
+      usage: {
+        inputTokens: 100, outputTokens: 50, cachedInputTokens: 0, totalTokens: 150,
+        successfulCalls: 3, lastCalledAt: '2026-09-15T08:00:00Z',
+        remainingTokens: null, remainingStatus: 'CHAT_API_DOES_NOT_RETURN_ACCOUNT_REMAINING',
+        memberAllocatedTokens: 10_000, memberUsedTokens: 150, memberRemainingTokens: 9_850,
+      },
+    })
+    vi.mocked(getMembers).mockResolvedValue({
+      content: [{
+        id: 'member-1', userId: 'user-1', email: 'sales@example.test', displayName: '销售成员',
+        role: 'SALES', status: 'ACTIVE', joinedAt: '2026-09-01T08:00:00Z', lastLoginAt: null,
+        createdAt: '2026-09-01T08:00:00Z', allocatedTokens: null, usedTokens: 1200, remainingTokens: null,
+      }],
+      page: 0, size: 100, totalElements: 1, totalPages: 1, first: true, last: true,
+    })
+    vi.mocked(updateMemberTokenQuota).mockReset()
     vi.mocked(getMcpConversations).mockResolvedValue({
       content: [],
       page: 0,
@@ -145,6 +176,44 @@ describe('McpAssistantPage', () => {
     expect(screen.getByText('正在返回的第一段')).toBeInTheDocument()
     await user.type(composer, '查看跟进任务')
     expect(screen.getByRole('button', { name: /发送指令/ })).toBeEnabled()
+  })
+
+  it('未分配 Token 额度时禁用 MCP 输入和发送', async () => {
+    vi.mocked(getAiModelStatus).mockResolvedValue({
+      provider: 'QWEN', model: 'qwen3.8-max', baseUrl: 'https://example.test',
+      apiKeyConfigured: true, ready: true, status: 'READY',
+      usage: {
+        inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, totalTokens: 0,
+        successfulCalls: 0, lastCalledAt: null, remainingTokens: null,
+        remainingStatus: 'CHAT_API_DOES_NOT_RETURN_ACCOUNT_REMAINING',
+        memberAllocatedTokens: null, memberUsedTokens: 0, memberRemainingTokens: null,
+      },
+    })
+    renderMcpAssistantPage()
+
+    const composer = await screen.findByPlaceholderText('尚未分配 Token 额度，请联系管理员')
+    expect(composer).toBeDisabled()
+    expect(screen.getByRole('button', { name: '发送指令' })).toBeDisabled()
+    expect(screen.getByText('未分配额度')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'MCP 助手导航' })).not.toBeInTheDocument()
+  })
+
+  it('管理员可以在用量统计中分配成员 Token', async () => {
+    vi.mocked(updateMemberTokenQuota).mockResolvedValue({
+      id: 'member-1', userId: 'user-1', email: 'sales@example.test', displayName: '销售成员',
+      role: 'SALES', status: 'ACTIVE', joinedAt: '2026-09-01T08:00:00Z', lastLoginAt: null,
+      createdAt: '2026-09-01T08:00:00Z', allocatedTokens: 50_000, usedTokens: 1200, remainingTokens: 48_800,
+    })
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Token 分配' }))
+    const input = await screen.findByLabelText('销售成员 Token 额度')
+    await user.type(input, '50000')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(updateMemberTokenQuota).toHaveBeenCalledWith('member-1', 50_000))
+    expect(await screen.findByText('已更新')).toBeInTheDocument()
   })
 
   it('选择附件时保留在本地，发送后才上传并携带附件 ID', async () => {

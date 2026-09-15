@@ -12,7 +12,8 @@ import {
 import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
 import { uploadFile, type UploadedFile } from '../api/files-api'
 import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
-import { useIsGuest } from '../auth/use-auth'
+import { getMembers, updateMemberTokenQuota, type AdminMember } from '../api/admin-api'
+import { useAuth, useIsGuest } from '../auth/use-auth'
 
 interface ChatMessage {
   id: string
@@ -35,8 +36,6 @@ interface ComposerAttachment {
   sizeBytes: number
   uploaded?: UploadedFile
 }
-
-const assistantTabs = ['AI对话', '助手列表', '技能管理', '额度管理', '设置']
 
 const toolGuides = [
   {
@@ -70,6 +69,7 @@ const welcomeMessage: ChatMessage = {
 }
 
 export function McpAssistantPage() {
+  const session = useAuth()
   const isGuest = useIsGuest()
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
@@ -79,6 +79,7 @@ export function McpAssistantPage() {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState('')
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
+  const [tokenAllocationOpen, setTokenAllocationOpen] = useState(false)
   const pendingId = useRef('')
   const pendingConversationId = useRef<string | undefined>(undefined)
   const busy = useRef(false)
@@ -105,6 +106,11 @@ export function McpAssistantPage() {
   })
 
   const conversations = conversationsQuery.data?.content ?? []
+  const quotaUnavailable = !isGuest && !modelQuery.isLoading && (
+    modelQuery.data?.usage?.memberAllocatedTokens == null
+      || (modelQuery.data.usage.memberRemainingTokens ?? 0) <= 0
+  )
+  const mcpDisabled = isGuest || quotaUnavailable
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
 
   const displayedMessages = useMemo(() => useLocalMessages ? messages : (messagesQuery.data?.content ?? [])
@@ -204,7 +210,7 @@ export function McpAssistantPage() {
 
   async function submit(message = input) {
     const content = message.trim()
-    if (!content || busy.current || isGuest || uploadingAttachments) return
+    if (!content || busy.current || mcpDisabled || uploadingAttachments) return
     busy.current = true
     setAttachmentError('')
     setUploadingAttachments(true)
@@ -273,15 +279,6 @@ export function McpAssistantPage() {
 
   return (
     <section className="mcp-page">
-      <nav className="mcp-top-tabs" aria-label="MCP 助手导航">
-        {assistantTabs.map((tab) => (
-          <button key={tab} type="button" className={tab === 'AI对话' ? 'is-active' : ''} aria-current={tab === 'AI对话' ? 'page' : undefined}>
-            {tab}
-          </button>
-        ))}
-        <span className="mcp-edition-badge">企业版</span>
-      </nav>
-
       <div className="mcp-layout">
         <aside className="mcp-history-panel">
           <header>
@@ -314,7 +311,12 @@ export function McpAssistantPage() {
               ))}
             </div>
           )}
-          <ModelInfoPanel status={modelQuery.data} loading={modelQuery.isLoading} />
+          <ModelInfoPanel
+            status={modelQuery.data}
+            loading={modelQuery.isLoading}
+            canAllocate={session.role === 'OWNER' || session.role === 'ADMIN'}
+            onAllocate={() => setTokenAllocationOpen(true)}
+          />
         </aside>
 
         <section className="mcp-chat-panel">
@@ -370,7 +372,7 @@ export function McpAssistantPage() {
                 <button
                   key={guide.tool}
                   type="button"
-                  disabled={chatMutation.isPending}
+                  disabled={mcpDisabled || chatMutation.isPending}
                   aria-label={`套用 ${guide.tool} 工具模板`}
                   title={`${guide.tool}：${guide.result}`}
                   onClick={() => applyToolTemplate(guide.say)}
@@ -398,14 +400,14 @@ export function McpAssistantPage() {
             <textarea
               ref={composerRef}
               value={input}
-              disabled={isGuest || uploadingAttachments}
+              disabled={mcpDisabled || uploadingAttachments}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
                 event.preventDefault()
                 submit()
               }}
-              placeholder={isGuest ? '游客模式不能执行自动化操作' : '例如：给云岚科技导入聊天。输入消息，按 Shift + Enter 换行，按 Enter 发送'}
+              placeholder={isGuest ? '游客模式不能执行自动化操作' : quotaUnavailable ? '尚未分配 Token 额度，请联系管理员' : '例如：给云岚科技导入聊天。输入消息，按 Shift + Enter 换行，按 Enter 发送'}
               rows={2}
             />
             <div className="mcp-composer-footer">
@@ -415,6 +417,7 @@ export function McpAssistantPage() {
                   className="mcp-file-input"
                   type="file"
                   multiple
+                  disabled={mcpDisabled}
                   aria-label="选择 MCP 聊天附件"
                   onChange={handleAttachmentChange}
                 />
@@ -422,7 +425,7 @@ export function McpAssistantPage() {
                   type="button"
                   aria-label="选择附件"
                   title="选择报价、方案、合同等附件，发送消息时才会上传"
-                  disabled={isGuest || chatMutation.isPending || uploadingAttachments || attachments.length >= 5}
+                  disabled={mcpDisabled || chatMutation.isPending || uploadingAttachments || attachments.length >= 5}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Paperclip size={18} />
@@ -431,45 +434,93 @@ export function McpAssistantPage() {
                 <span><MagicWand size={15} />智能模式</span>
                 {uploadingAttachments ? <span><CircleNotch size={15} className="mcp-spin" />正在上传附件</span> : null}
               </div>
-              <button className="mcp-send-button" type="submit" aria-label="发送指令" disabled={isGuest || chatMutation.isPending || uploadingAttachments || !input.trim()}>
+              <button className="mcp-send-button" type="submit" aria-label="发送指令" disabled={mcpDisabled || chatMutation.isPending || uploadingAttachments || !input.trim()}>
                 <PaperPlaneTilt size={21} weight="fill" />
               </button>
             </div>
           </form>
         </section>
       </div>
+      {tokenAllocationOpen ? <TokenAllocationDialog onClose={() => setTokenAllocationOpen(false)} /> : null}
     </section>
   )
 }
 
-function ModelInfoPanel({ status, loading }: { status?: AiModelStatus; loading: boolean }) {
+function ModelInfoPanel({ status, loading, canAllocate, onAllocate }: { status?: AiModelStatus; loading: boolean; canAllocate: boolean; onAllocate: () => void }) {
   const usage = status?.usage
   const totalTokens = usage?.totalTokens ?? 0
-  const remainingTokens = usage?.remainingTokens ?? null
-  const quotaTotal = remainingTokens == null ? null : totalTokens + remainingTokens
+  const memberUsedTokens = usage?.memberUsedTokens ?? 0
+  const memberAllocatedTokens = usage?.memberAllocatedTokens ?? null
   return (
-    <section className="mcp-model-panel" aria-label="资源包额度">
+    <section className="mcp-model-panel" aria-label="用量统计">
       <header>
-        <strong>资源包额度</strong>
-        <span>{remainingTokens == null ? '额度未知' : `剩${formatCompactNumber(remainingTokens)} Token`}</span>
+        <strong>用量统计</strong>
+        <span>{memberAllocatedTokens == null ? '未分配额度' : `剩 ${formatCompactNumber(usage?.memberRemainingTokens ?? 0)}`}</span>
       </header>
       {loading ? (
         <div className="mcp-model-loading"><span /><span /><span /></div>
       ) : (
         <>
-          <TokenProgress label="累计已用" value={totalTokens} total={quotaTotal ?? totalTokens} tone="blue" />
+          {memberAllocatedTokens == null || memberAllocatedTokens <= 0 ? (
+            <div className="mcp-usage-total is-blocked"><span>当前不可用</span><strong>0</strong><small>可用 Token</small></div>
+          ) : (
+            <TokenProgress label="个人用量" value={memberUsedTokens} total={memberAllocatedTokens} tone="blue" />
+          )}
+          <div className="mcp-usage-breakdown">
+            <span><small>团队累计</small><strong>{formatCompactNumber(totalTokens)}</strong></span>
+            <span><small>模型调用</small><strong>{formatCompactNumber(usage?.successfulCalls ?? 0)}</strong></span>
+          </div>
           <div className="mcp-model-meta">
             <span>{status?.model ?? '-'}</span>
             <span>{modelStatusLabel(status?.status)}</span>
           </div>
-          {quotaTotal == null ? (
-            <p className="mcp-quota-note">剩余额度：千问聊天接口未返回账户余额</p>
-          ) : null}
-          <button type="button" className="mcp-quota-button">额度管理</button>
+          {canAllocate ? <button type="button" className="mcp-quota-button" onClick={onAllocate}>Token 分配</button> : null}
           {usage?.lastCalledAt ? <p className="mcp-model-time">最近调用：{formatTime(usage.lastCalledAt)}</p> : null}
         </>
       )}
     </section>
+  )
+}
+
+function TokenAllocationDialog({ onClose }: { onClose: () => void }) {
+  const query = useQuery({
+    queryKey: ['admin-members', 'token-allocation'],
+    queryFn: () => getMembers({ keyword: '', role: '', status: 'ACTIVE', page: 0, size: 100 }),
+  })
+  return (
+    <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section className="admin-modal mcp-token-modal" role="dialog" aria-modal="true" aria-labelledby="token-allocation-title">
+        <header><span className="drawer-title-icon"><Sparkle size={20} /></span><div><h2 id="token-allocation-title">Token 分配</h2><p>成员只有获得正数额度后才能使用 MCP 助手，留空或 0 表示停用。</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
+        <div className="mcp-token-member-list">
+          {query.data?.content.map((member) => <TokenAllocationRow key={member.id} member={member} />)}
+          {query.isPending ? <p className="audit-state">正在读取成员用量…</p> : null}
+          {query.isError ? <p className="audit-state is-error">{query.error.message}</p> : null}
+        </div>
+        <footer><button className="button button-secondary" type="button" onClick={onClose}>完成</button></footer>
+      </section>
+    </div>
+  )
+}
+
+function TokenAllocationRow({ member }: { member: AdminMember }) {
+  const queryClient = useQueryClient()
+  const [value, setValue] = useState(member.allocatedTokens == null ? '' : String(member.allocatedTokens))
+  const mutation = useMutation({
+    mutationFn: () => updateMemberTokenQuota(member.id, value.trim() === '' ? null : Number(value)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-members'] })
+      await queryClient.invalidateQueries({ queryKey: ['ai-model-status'] })
+    },
+  })
+  const invalid = value.trim() !== '' && (!/^\d+$/.test(value.trim()) || Number(value) > 1_000_000_000_000)
+  return (
+    <div className="mcp-token-member-row">
+      <span className="member-identity"><i>{member.displayName.slice(0, 1)}</i><span><strong>{member.displayName}</strong><small>已用 {formatCompactNumber(member.usedTokens)} Token</small></span></span>
+      <label><span>分配额度</span><input aria-label={`${member.displayName} Token 额度`} inputMode="numeric" placeholder="未分配" value={value} onChange={(event) => setValue(event.target.value)} /></label>
+      <button className="button button-primary" type="button" disabled={invalid || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? '保存中' : '保存'}</button>
+      {mutation.isError ? <p role="alert">{mutation.error.message}</p> : null}
+      {mutation.isSuccess ? <p className="is-success">已更新</p> : null}
+    </div>
   )
 }
 

@@ -123,6 +123,7 @@ public class AssistantChatService {
 
 	/** 在请求线程校验会话并提交用户消息，不让长时间模型请求占住数据库事务。 */
 	public UUID beginStream(AuthPrincipal principal, AssistantChatRequest request) {
+		aiModelService.requireAvailableTokenQuota(principal.organizationId(), principal.memberId());
 		return transactions.execute(status -> {
 			var conversation = resolveConversation(principal, request.conversationId(), request.channel(), request.message().strip());
 			var attachments = resolveAttachmentContext(principal, request.attachmentIds());
@@ -158,7 +159,7 @@ public class AssistantChatService {
 			events.accept("summary", Map.of("text", summary));
 			events.accept("result", result);
 			try {
-				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId());
+				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
 				var verifiedResult = objectMapper.writeValueAsString(result);
 				var startedAt = clock.instant();
 				var streamUsage = new AtomicReference<ModelUsage>();
@@ -229,6 +230,7 @@ public class AssistantChatService {
 
 	@Transactional
 	public AssistantChatResponse chat(AuthPrincipal principal, AssistantChatRequest request) {
+		aiModelService.requireAvailableTokenQuota(principal.organizationId(), principal.memberId());
 		var rawMessage = request.message();
 		var message = rawMessage == null ? "" : rawMessage.strip();
 		if (!StringUtils.hasText(message)) {
@@ -819,6 +821,7 @@ public class AssistantChatService {
 		try {
 			modelCallRecorder.record(new ModelCallRecordRequest(
 					principal.organizationId(),
+					principal.memberId(),
 					null,
 					null,
 					null,
