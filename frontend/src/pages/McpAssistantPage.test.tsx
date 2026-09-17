@@ -11,7 +11,7 @@ import {
 import { uploadFile } from '../api/files-api'
 import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
 import { getAiModelStatus } from '../api/ai-settings-api'
-import { getMembers, updateMemberTokenQuota } from '../api/admin-api'
+import { getMembers, getTeamTokenBudget, updateMemberTokenQuota, updateTeamTokenBudget } from '../api/admin-api'
 import { McpAssistantPage } from './McpAssistantPage'
 
 vi.mock('../auth/use-auth', () => ({
@@ -41,7 +41,9 @@ vi.mock('../api/ai-settings-api', () => ({
 
 vi.mock('../api/admin-api', () => ({
   getMembers: vi.fn(),
+  getTeamTokenBudget: vi.fn(),
   updateMemberTokenQuota: vi.fn(),
+  updateTeamTokenBudget: vi.fn(),
 }))
 
 function renderMcpAssistantPage() {
@@ -76,6 +78,8 @@ describe('McpAssistantPage', () => {
       page: 0, size: 100, totalElements: 1, totalPages: 1, first: true, last: true,
     })
     vi.mocked(updateMemberTokenQuota).mockReset()
+    vi.mocked(getTeamTokenBudget).mockResolvedValue({ totalTokens: 100_000, allocatedTokens: 0, unallocatedTokens: 100_000 })
+    vi.mocked(updateTeamTokenBudget).mockReset()
     vi.mocked(getMcpConversations).mockResolvedValue({
       content: [],
       page: 0,
@@ -214,6 +218,27 @@ describe('McpAssistantPage', () => {
 
     await waitFor(() => expect(updateMemberTokenQuota).toHaveBeenCalledWith('member-1', 50_000))
     expect(await screen.findByText('已更新')).toBeInTheDocument()
+  })
+
+  it('先按团队总额配置，再限制成员分配额度', async () => {
+    vi.mocked(getTeamTokenBudget).mockResolvedValue({ totalTokens: null, allocatedTokens: 0, unallocatedTokens: null })
+    vi.mocked(updateTeamTokenBudget).mockResolvedValue({ totalTokens: 10_000, allocatedTokens: 0, unallocatedTokens: 10_000 })
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Token 分配' }))
+    const memberInput = await screen.findByLabelText('销售成员 Token 额度')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    await user.type(screen.getByLabelText('团队 Token 总额'), '10000')
+    await user.click(screen.getByRole('button', { name: '保存总额' }))
+    await waitFor(() => expect(updateTeamTokenBudget).toHaveBeenCalledWith(10_000))
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存' })).toBeEnabled())
+
+    await user.type(memberInput, '10001')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    await user.clear(memberInput)
+    await user.type(memberInput, '10000')
+    expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
   })
 
   it('选择附件时保留在本地，发送后才上传并携带附件 ID', async () => {

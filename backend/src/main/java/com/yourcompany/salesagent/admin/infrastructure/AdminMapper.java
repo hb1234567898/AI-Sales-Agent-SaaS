@@ -74,4 +74,16 @@ public interface AdminMapper {
 	int deleteMemberTokenQuota(
 			@Param("organizationId") UUID organizationId,
 			@Param("memberId") UUID memberId);
+
+	int lockOrganization(@Param("organizationId") UUID organizationId);
+
+	Long selectTeamTokenBudget(@Param("organizationId") UUID organizationId);
+
+	long sumMemberTokenQuotas(@Param("organizationId") UUID organizationId);
+
+	int upsertTeamTokenBudget(
+			@Param("organizationId") UUID organizationId,
+			@Param("totalTokens") long totalTokens,
+			@Param("updatedBy") UUID updatedBy,
+			@Param("now") Instant now);
 }

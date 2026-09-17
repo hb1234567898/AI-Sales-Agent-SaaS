@@ -18,6 +18,8 @@ import com.yourcompany.salesagent.admin.api.AdminMemberUpdateRequest;
 import com.yourcompany.salesagent.admin.api.AdminTeamResponse;
 import com.yourcompany.salesagent.admin.api.AdminTeamUpdateRequest;
 import com.yourcompany.salesagent.admin.api.MemberTokenQuotaRequest;
+import com.yourcompany.salesagent.admin.api.TeamTokenBudgetRequest;
+import com.yourcompany.salesagent.admin.api.TeamTokenBudgetResponse;
 import com.yourcompany.salesagent.admin.domain.MemberRole;
 import com.yourcompany.salesagent.admin.domain.MemberStatus;
 import com.yourcompany.salesagent.admin.infrastructure.AdminMapper;
@@ -108,10 +110,21 @@ public class AdminService {
 			AuthPrincipal actor,
 			UUID memberId,
 			MemberTokenQuotaRequest request) {
-		requireMember(actor.organizationId(), memberId);
+		lockOrganization(actor.organizationId());
+		var member = requireMember(actor.organizationId(), memberId);
 		var allocatedTokens = request.allocatedTokens();
 		if (allocatedTokens != null && allocatedTokens > 1_000_000_000_000L) {
 			throw new AdminValidationException("单个成员 Token 额度不能超过 1 万亿");
+		}
+		var budget = adminMapper.selectTeamTokenBudget(actor.organizationId());
+		if (allocatedTokens != null && budget == null) {
+			throw new AdminValidationException("请先设置团队 Token 总额");
+		}
+		var assigned = adminMapper.sumMemberTokenQuotas(actor.organizationId());
+		var nextAssigned = assigned - (member.allocatedTokens() == null ? 0 : member.allocatedTokens())
+				+ (allocatedTokens == null ? 0 : allocatedTokens);
+		if (budget != null && nextAssigned > budget) {
+			throw new AdminValidationException("分配后将超过团队 Token 总额，请先增加总额或减少其他成员额度");
 		}
 		if (allocatedTokens == null) {
 			adminMapper.deleteMemberTokenQuota(actor.organizationId(), memberId);
@@ -121,6 +134,38 @@ public class AdminService {
 					actor.organizationId(), memberId, allocatedTokens, actor.memberId(), clock.instant());
 		}
 		return AdminMemberResponse.from(requireMember(actor.organizationId(), memberId));
+	}
+
+	@Transactional(readOnly = true)
+	public TeamTokenBudgetResponse getTeamTokenBudget(AuthPrincipal actor) {
+		return teamTokenBudget(actor.organizationId());
+	}
+
+	@Transactional
+	public TeamTokenBudgetResponse updateTeamTokenBudget(AuthPrincipal actor, TeamTokenBudgetRequest request) {
+		lockOrganization(actor.organizationId());
+		var assigned = adminMapper.sumMemberTokenQuotas(actor.organizationId());
+		if (request.totalTokens() > 1_000_000_000_000L) {
+			throw new AdminValidationException("团队 Token 总额不能超过 1 万亿");
+		}
+		if (request.totalTokens() < assigned) {
+			throw new AdminValidationException("团队总额不能低于已分配额度，请先调整成员额度");
+		}
+		adminMapper.upsertTeamTokenBudget(
+				actor.organizationId(), request.totalTokens(), actor.memberId(), clock.instant());
+		return new TeamTokenBudgetResponse(request.totalTokens(), assigned, request.totalTokens() - assigned);
+	}
+
+	private TeamTokenBudgetResponse teamTokenBudget(UUID organizationId) {
+		var total = adminMapper.selectTeamTokenBudget(organizationId);
+		var assigned = adminMapper.sumMemberTokenQuotas(organizationId);
+		return new TeamTokenBudgetResponse(total, assigned, total == null ? null : Math.max(0, total - assigned));
+	}
+
+	private void lockOrganization(UUID organizationId) {
+		if (adminMapper.lockOrganization(organizationId) == 0) {
+			throw new AdminResourceNotFoundException("当前团队不存在");
+		}
 	}
 
 	@Transactional(readOnly = true)
