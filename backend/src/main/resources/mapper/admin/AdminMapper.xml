@@ -181,4 +181,26 @@
         WHERE organization_id = #{organizationId} AND member_id = #{memberId}
     </delete>
 
+    <select id="lockOrganization" resultType="int">
+        SELECT 1 FROM organization WHERE id = #{organizationId} FOR UPDATE
+    </select>
+
+    <select id="selectTeamTokenBudget" resultType="long">
+        SELECT total_tokens FROM organization_token_budget WHERE organization_id = #{organizationId}
+    </select>
+
+    <select id="sumMemberTokenQuotas" resultType="long">
+        SELECT COALESCE(SUM(allocated_tokens), 0)::bigint
+        FROM member_token_quota WHERE organization_id = #{organizationId}
+    </select>
+
+    <insert id="upsertTeamTokenBudget">
+        INSERT INTO organization_token_budget (organization_id, total_tokens, updated_by, updated_at)
+        VALUES (#{organizationId}, #{totalTokens}, #{updatedBy}, #{now})
+        ON CONFLICT (organization_id) DO UPDATE
+        SET total_tokens = EXCLUDED.total_tokens,
+            updated_by = EXCLUDED.updated_by,
+            updated_at = EXCLUDED.updated_at
+    </insert>
+
 </mapper>

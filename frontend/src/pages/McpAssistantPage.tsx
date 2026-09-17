@@ -12,7 +12,7 @@ import {
 import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
 import { uploadFile, type UploadedFile } from '../api/files-api'
 import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
-import { getMembers, updateMemberTokenQuota, type AdminMember } from '../api/admin-api'
+import { getMembers, getTeamTokenBudget, updateMemberTokenQuota, updateTeamTokenBudget, type AdminMember, type TeamTokenBudget } from '../api/admin-api'
 import { useAuth, useIsGuest } from '../auth/use-auth'
 
 interface ChatMessage {
@@ -483,41 +483,78 @@ function ModelInfoPanel({ status, loading, canAllocate, onAllocate }: { status?:
 }
 
 function TokenAllocationDialog({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [totalInput, setTotalInput] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const budgetQuery = useQuery({ queryKey: ['team-token-budget'], queryFn: getTeamTokenBudget })
   const query = useQuery({
-    queryKey: ['admin-members', 'token-allocation'],
-    queryFn: () => getMembers({ keyword: '', role: '', status: 'ACTIVE', page: 0, size: 100 }),
+    queryKey: ['admin-members', 'token-allocation', page],
+    queryFn: () => getMembers({ keyword: '', role: '', status: 'ACTIVE', page, size: 20 }),
+  })
+  const totalValue = totalInput ?? (budgetQuery.data?.totalTokens == null ? '' : String(budgetQuery.data.totalTokens))
+  const totalInvalid = !/^\d+$/.test(totalValue) || Number(totalValue) > 1_000_000_000_000
+    || !Number.isSafeInteger(Number(totalValue)) || Number(totalValue) < (budgetQuery.data?.allocatedTokens ?? 0)
+  const budgetMutation = useMutation({
+    mutationFn: () => updateTeamTokenBudget(Number(totalValue)),
+    onSuccess: async (budget) => {
+      queryClient.setQueryData(['team-token-budget'], budget)
+      setTotalInput(null)
+      await queryClient.invalidateQueries({ queryKey: ['ai-model-status'] })
+    },
   })
   return (
     <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section className="admin-modal mcp-token-modal" role="dialog" aria-modal="true" aria-labelledby="token-allocation-title">
-        <header><span className="drawer-title-icon"><Sparkle size={20} /></span><div><h2 id="token-allocation-title">Token 分配</h2><p>成员只有获得正数额度后才能使用 MCP 助手，留空或 0 表示停用。</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
+        <header><span className="drawer-title-icon"><Sparkle size={20} /></span><div><h2 id="token-allocation-title">Token 分配</h2><p>按团队内部总额分配；这不是千问账户余额。</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
+        <div className="mcp-token-budget">
+          <form onSubmit={(event) => { event.preventDefault(); if (!totalInvalid) budgetMutation.mutate() }}>
+            <label htmlFor="team-token-total">团队 Token 总额</label>
+            <input id="team-token-total" inputMode="numeric" value={totalValue} onChange={(event) => setTotalInput(event.target.value)} placeholder="先设置总额" />
+            <button className="button button-primary" type="submit" disabled={totalInvalid || budgetMutation.isPending || budgetQuery.isPending}>保存总额</button>
+          </form>
+          {budgetQuery.data ? <div className="mcp-token-budget-stats" aria-label="团队 Token 预算">
+            <span>总额 <strong>{budgetQuery.data.totalTokens == null ? '未设置' : formatCompactNumber(budgetQuery.data.totalTokens)}</strong></span>
+            <span>已分配 <strong>{formatCompactNumber(budgetQuery.data.allocatedTokens)}</strong></span>
+            <span>待分配 <strong>{budgetQuery.data.unallocatedTokens == null ? '—' : formatCompactNumber(budgetQuery.data.unallocatedTokens)}</strong></span>
+          </div> : null}
+          {budgetQuery.isError ? <p role="alert">{budgetQuery.error.message}</p> : null}
+          {budgetMutation.isError ? <p role="alert">{budgetMutation.error.message}</p> : null}
+        </div>
         <div className="mcp-token-member-list">
-          {query.data?.content.map((member) => <TokenAllocationRow key={member.id} member={member} />)}
+          {query.data?.content.map((member) => <TokenAllocationRow key={member.id} member={member} budget={budgetQuery.data} />)}
           {query.isPending ? <p className="audit-state">正在读取成员用量…</p> : null}
           {query.isError ? <p className="audit-state is-error">{query.error.message}</p> : null}
         </div>
-        <footer><button className="button button-secondary" type="button" onClick={onClose}>完成</button></footer>
+        <footer>
+          <span className="mcp-token-pagination">{query.data ? `${query.data.totalElements} 位成员 · 第 ${page + 1} 页` : ''}</span>
+          <button className="button button-secondary" type="button" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>上一页</button>
+          <button className="button button-secondary" type="button" disabled={!query.data || query.data.last} onClick={() => setPage((value) => value + 1)}>下一页</button>
+          <button className="button button-secondary" type="button" onClick={onClose}>完成</button>
+        </footer>
       </section>
     </div>
   )
 }
 
-function TokenAllocationRow({ member }: { member: AdminMember }) {
+function TokenAllocationRow({ member, budget }: { member: AdminMember; budget?: TeamTokenBudget }) {
   const queryClient = useQueryClient()
   const [value, setValue] = useState(member.allocatedTokens == null ? '' : String(member.allocatedTokens))
   const mutation = useMutation({
     mutationFn: () => updateMemberTokenQuota(member.id, value.trim() === '' ? null : Number(value)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin-members'] })
+      await queryClient.invalidateQueries({ queryKey: ['team-token-budget'] })
       await queryClient.invalidateQueries({ queryKey: ['ai-model-status'] })
     },
   })
-  const invalid = value.trim() !== '' && (!/^\d+$/.test(value.trim()) || Number(value) > 1_000_000_000_000)
+  const maxForMember = (budget?.unallocatedTokens ?? 0) + (member.allocatedTokens ?? 0)
+  const invalid = value.trim() !== '' && (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(Number(value))
+    || Number(value) > 1_000_000_000_000 || Number(value) > maxForMember)
   return (
     <div className="mcp-token-member-row">
       <span className="member-identity"><i>{member.displayName.slice(0, 1)}</i><span><strong>{member.displayName}</strong><small>已用 {formatCompactNumber(member.usedTokens)} Token</small></span></span>
-      <label><span>分配额度</span><input aria-label={`${member.displayName} Token 额度`} inputMode="numeric" placeholder="未分配" value={value} onChange={(event) => setValue(event.target.value)} /></label>
-      <button className="button button-primary" type="button" disabled={invalid || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? '保存中' : '保存'}</button>
+      <label><span>分配额度 · 最多 {formatCompactNumber(maxForMember)}</span><input aria-label={`${member.displayName} Token 额度`} inputMode="numeric" placeholder="未分配" value={value} onChange={(event) => setValue(event.target.value)} /></label>
+      <button className="button button-primary" type="button" disabled={!budget || budget.totalTokens == null || invalid || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? '保存中' : '保存'}</button>
       {mutation.isError ? <p role="alert">{mutation.error.message}</p> : null}
       {mutation.isSuccess ? <p className="is-success">已更新</p> : null}
     </div>

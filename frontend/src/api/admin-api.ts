@@ -95,10 +95,27 @@ export function updateMember(memberId: string, input: UpdateMemberInput) {
   })
 }
 
+export interface TeamTokenBudget {
+  totalTokens: number | null
+  allocatedTokens: number
+  unallocatedTokens: number | null
+}
+
 export function updateMemberTokenQuota(memberId: string, allocatedTokens: number | null) {
   return requestJson<AdminMember>(`/api/v1/admin/members/${memberId}/token-quota`, {
     method: 'PUT',
     data: { allocatedTokens },
+  })
+}
+
+export function getTeamTokenBudget() {
+  return getJson<TeamTokenBudget>('/api/v1/admin/token-budget')
+}
+
+export function updateTeamTokenBudget(totalTokens: number) {
+  return requestJson<TeamTokenBudget>('/api/v1/admin/token-budget', {
+    method: 'PUT',
+    data: { totalTokens },
   })
 }
 
