@@ -12,6 +12,7 @@ import { uploadFile } from '../api/files-api'
 import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
 import { getAiModelStatus } from '../api/ai-settings-api'
 import { getMembers, getTeamTokenBudget, updateMemberTokenQuota, updateTeamTokenBudget } from '../api/admin-api'
+import { ApiError } from '../api/axios-client'
 import { McpAssistantPage } from './McpAssistantPage'
 
 vi.mock('../auth/use-auth', () => ({
@@ -202,6 +203,26 @@ describe('McpAssistantPage', () => {
     expect(screen.queryByRole('navigation', { name: 'MCP 助手导航' })).not.toBeInTheDocument()
   })
 
+  it('剩余额度从 100% 随用量递减到 0%', async () => {
+    const status = await getAiModelStatus()
+    const usage = status.usage!
+    vi.mocked(getAiModelStatus).mockResolvedValue({
+      ...status,
+      usage: { ...usage, memberAllocatedTokens: 200_000, memberUsedTokens: 0, memberRemainingTokens: 200_000 },
+    })
+    renderMcpAssistantPage()
+    expect(await screen.findByLabelText('剩余额度 100%')).toBeInTheDocument()
+    expect(screen.getByText('已用 0 / 20万')).toBeInTheDocument()
+
+    cleanup()
+    vi.mocked(getAiModelStatus).mockResolvedValue({
+      ...status,
+      usage: { ...usage, memberAllocatedTokens: 200_000, memberUsedTokens: 200_000, memberRemainingTokens: 0 },
+    })
+    renderMcpAssistantPage()
+    expect(await screen.findByLabelText('剩余额度 0%')).toBeInTheDocument()
+  })
+
   it('管理员可以在用量统计中分配成员 Token', async () => {
     vi.mocked(updateMemberTokenQuota).mockResolvedValue({
       id: 'member-1', userId: 'user-1', email: 'sales@example.test', displayName: '销售成员',
@@ -239,6 +260,19 @@ describe('McpAssistantPage', () => {
     await user.clear(memberInput)
     await user.type(memberInput, '10000')
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled()
+  })
+
+  it('后端尚未部署总额接口时提示版本不匹配并禁止保存', async () => {
+    vi.mocked(getTeamTokenBudget).mockRejectedValue(new ApiError('请求失败，状态码 404', 404))
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Token 分配' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('当前后端版本尚未提供 Token 总额接口')
+    await user.type(screen.getByLabelText('团队 Token 总额'), '950228')
+    expect(screen.getByRole('button', { name: '保存总额' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(updateTeamTokenBudget).not.toHaveBeenCalled()
   })
 
   it('选择附件时保留在本地，发送后才上传并携带附件 ID', async () => {

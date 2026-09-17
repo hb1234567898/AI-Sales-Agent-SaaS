@@ -13,6 +13,7 @@ import { getAiModelStatus, type AiModelStatus } from '../api/ai-settings-api'
 import { uploadFile, type UploadedFile } from '../api/files-api'
 import { approveApproval, getApproval, rejectApproval, type Approval } from '../api/approvals-api'
 import { getMembers, getTeamTokenBudget, updateMemberTokenQuota, updateTeamTokenBudget, type AdminMember, type TeamTokenBudget } from '../api/admin-api'
+import { ApiError } from '../api/axios-client'
 import { useAuth, useIsGuest } from '../auth/use-auth'
 
 interface ChatMessage {
@@ -464,7 +465,7 @@ function ModelInfoPanel({ status, loading, canAllocate, onAllocate }: { status?:
           {memberAllocatedTokens == null || memberAllocatedTokens <= 0 ? (
             <div className="mcp-usage-total is-blocked"><span>当前不可用</span><strong>0</strong><small>可用 Token</small></div>
           ) : (
-            <TokenProgress label="个人用量" value={memberUsedTokens} total={memberAllocatedTokens} tone="blue" />
+            <TokenProgress label="剩余额度" value={memberUsedTokens} total={memberAllocatedTokens} tone="blue" />
           )}
           <div className="mcp-usage-breakdown">
             <span><small>团队累计</small><strong>{formatCompactNumber(totalTokens)}</strong></span>
@@ -494,6 +495,7 @@ function TokenAllocationDialog({ onClose }: { onClose: () => void }) {
   const totalValue = totalInput ?? (budgetQuery.data?.totalTokens == null ? '' : String(budgetQuery.data.totalTokens))
   const totalInvalid = !/^\d+$/.test(totalValue) || Number(totalValue) > 1_000_000_000_000
     || !Number.isSafeInteger(Number(totalValue)) || Number(totalValue) < (budgetQuery.data?.allocatedTokens ?? 0)
+  const budgetUnavailable = budgetQuery.isError && budgetQuery.error instanceof ApiError && budgetQuery.error.status === 404
   const budgetMutation = useMutation({
     mutationFn: () => updateTeamTokenBudget(Number(totalValue)),
     onSuccess: async (budget) => {
@@ -507,17 +509,17 @@ function TokenAllocationDialog({ onClose }: { onClose: () => void }) {
       <section className="admin-modal mcp-token-modal" role="dialog" aria-modal="true" aria-labelledby="token-allocation-title">
         <header><span className="drawer-title-icon"><Sparkle size={20} /></span><div><h2 id="token-allocation-title">Token 分配</h2><p>按团队内部总额分配；这不是千问账户余额。</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
         <div className="mcp-token-budget">
-          <form onSubmit={(event) => { event.preventDefault(); if (!totalInvalid) budgetMutation.mutate() }}>
+          <form onSubmit={(event) => { event.preventDefault(); if (!totalInvalid && budgetQuery.isSuccess) budgetMutation.mutate() }}>
             <label htmlFor="team-token-total">团队 Token 总额</label>
             <input id="team-token-total" inputMode="numeric" value={totalValue} onChange={(event) => setTotalInput(event.target.value)} placeholder="先设置总额" />
-            <button className="button button-primary" type="submit" disabled={totalInvalid || budgetMutation.isPending || budgetQuery.isPending}>保存总额</button>
+            <button className="button button-primary" type="submit" disabled={totalInvalid || budgetMutation.isPending || !budgetQuery.isSuccess}>保存总额</button>
           </form>
           {budgetQuery.data ? <div className="mcp-token-budget-stats" aria-label="团队 Token 预算">
             <span>总额 <strong>{budgetQuery.data.totalTokens == null ? '未设置' : formatCompactNumber(budgetQuery.data.totalTokens)}</strong></span>
             <span>已分配 <strong>{formatCompactNumber(budgetQuery.data.allocatedTokens)}</strong></span>
             <span>待分配 <strong>{budgetQuery.data.unallocatedTokens == null ? '—' : formatCompactNumber(budgetQuery.data.unallocatedTokens)}</strong></span>
           </div> : null}
-          {budgetQuery.isError ? <p role="alert">{budgetQuery.error.message}</p> : null}
+          {budgetQuery.isError ? <p role="alert">{budgetUnavailable ? '当前后端版本尚未提供 Token 总额接口，请先部署包含此功能的后端和数据库迁移。' : budgetQuery.error.message}</p> : null}
           {budgetMutation.isError ? <p role="alert">{budgetMutation.error.message}</p> : null}
         </div>
         <div className="mcp-token-member-list">
@@ -562,13 +564,13 @@ function TokenAllocationRow({ member, budget }: { member: AdminMember; budget?: 
 }
 
 function TokenProgress({ label, value, total, tone = 'blue' }: { label: string; value: number; total: number; tone?: 'blue' | 'green' | 'amber' }) {
-  const percent = percentage(value, total)
+  const percent = percentage(Math.max(0, total - value), total)
   return (
     <div className={`mcp-token-progress is-${tone}`}>
       <div><span>{label}</span><strong>{percent}%</strong></div>
       <progress value={percent} max={100} aria-label={`${label} ${percent}%`} />
       <span style={{ '--progress': `${percent}%` } as CSSProperties} aria-hidden />
-      <small>{formatCompactNumber(value)} / {formatCompactNumber(total)}</small>
+      <small>已用 {formatCompactNumber(value)} / {formatCompactNumber(total)}</small>
     </div>
   )
 }
