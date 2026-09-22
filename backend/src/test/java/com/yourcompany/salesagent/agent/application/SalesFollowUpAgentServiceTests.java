@@ -23,7 +23,12 @@ import com.yourcompany.salesagent.agent.api.AgentRunCreateRequest;
 import com.yourcompany.salesagent.agent.infrastructure.AgentRunRow;
 import com.yourcompany.salesagent.agent.infrastructure.AgentWorkflowMapper;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.customer.api.CustomerResponse;
+import com.yourcompany.salesagent.customer.domain.CustomerSource;
+import com.yourcompany.salesagent.customer.domain.CustomerStage;
+import com.yourcompany.salesagent.customer.domain.CustomerStatus;
 import com.yourcompany.salesagent.file.application.FileStorageService;
+import com.yourcompany.salesagent.file.domain.UploadedFile;
 import com.yourcompany.salesagent.interaction.api.ChatAnalysisResponse;
 import com.yourcompany.salesagent.interaction.application.ChatAnalysisService;
 import com.yourcompany.salesagent.interaction.domain.ChatAnalysisStatus;
@@ -106,6 +111,68 @@ class SalesFollowUpAgentServiceTests {
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	@Test
+	void mcpEmailActionUsesUploadedAttachmentsInPayloadAndPreview() {
+		var principal = principal();
+		var configId = UUID.randomUUID();
+		var customerId = UUID.randomUUID();
+		var interactionId = UUID.randomUUID();
+		var ownerMemberId = UUID.randomUUID();
+		var conversationId = UUID.randomUUID();
+		var fileId = UUID.randomUUID();
+		var candidate = new AgentCandidateRow();
+		candidate.setCustomerId(customerId);
+		candidate.setCustomerName("宁波海天机械");
+		candidate.setOwnerMemberId(ownerMemberId);
+		candidate.setInteractionId(interactionId);
+		var attachment = UploadedFile.create(fileId, ORGANIZATION_ID, principal.memberId(), null,
+				"quote.pdf", "application/pdf", "pdf".getBytes(), "hash", NOW);
+		var attachmentPreview = List.<Map<String, Object>>of(Map.of(
+				"id", fileId.toString(),
+				"name", "quote.pdf",
+				"contentType", "application/pdf",
+				"sizeBytes", 3L));
+		when(mapper.selectDefaultConfigId(ORGANIZATION_ID)).thenReturn(configId);
+		when(mapper.selectCandidates(eq(ORGANIZATION_ID), any(), any(), anyInt())).thenReturn(List.of(candidate));
+		when(mapper.selectNotificationEmail(ORGANIZATION_ID, customerId, ownerMemberId)).thenReturn("hecheng@example.test");
+		when(fileStorageService.requireActive(ORGANIZATION_ID, fileId)).thenReturn(attachment);
+		when(fileStorageService.preview(List.of(attachment))).thenReturn(attachmentPreview);
+		when(chatAnalysisService.analyze(customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
+				UUID.randomUUID(), interactionId, 1, ChatAnalysisStatus.APPLIED,
+				"客户希望本周看报价，需要安排跟进。", 82, "HIGH", "POSITIVE",
+				List.of("报价"), List.of(), List.of(), List.of(), List.of("SEND_EMAIL"),
+				"发送报价文件给客户", null, null, null, List.of("客户说本周想看报价"),
+				"QWEN", "qwen-plus", "sales-follow-up-v1", NOW, NOW));
+		when(mapper.selectRun(eq(ORGANIZATION_ID), any())).thenAnswer(invocation -> {
+			var row = new AgentRunRow();
+			row.setId(invocation.getArgument(1));
+			row.setName("客户跟进建议 Agent");
+			row.setTriggerType("MCP_ASSISTANT");
+			row.setStatus("WAITING_APPROVAL");
+			row.setScope(Map.of());
+			row.setOutputSummary(Map.of("message", "已生成待审批跟进建议"));
+			row.setPendingApprovalCount(1);
+			row.setQueuedAt(NOW);
+			row.setStartedAt(NOW);
+			row.setCreatedAt(NOW);
+			return row;
+		});
+		var payload = ArgumentCaptor.forClass(Map.class);
+		var preview = ArgumentCaptor.forClass(Map.class);
+
+		service.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customerId)), conversationId, List.of(fileId));
+
+		verify(mapper).insertActionRequest(
+				any(), eq(ORGANIZATION_ID), any(), any(), eq(customerId), eq(principal.memberId()),
+				eq("SEND_EMAIL"), eq("MEDIUM"), eq("AWAITING_APPROVAL"), eq("email.send"), eq("v1"),
+				eq(true), eq("REQUIRE_APPROVAL"), any(), payload.capture(), any(), preview.capture(), any(), any());
+		assertThat(payload.getValue())
+				.containsEntry("attachmentRequired", true)
+				.containsEntry("attachments", attachmentPreview);
+		assertThat(preview.getValue()).containsEntry("attachments", attachmentPreview);
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@Test
 	void emailActionIncludesRecipientInPayloadAndApprovalPreview() {
 		var principal = principal();
 		var configId = UUID.randomUUID();
@@ -120,7 +187,7 @@ class SalesFollowUpAgentServiceTests {
 		when(mapper.selectDefaultConfigId(ORGANIZATION_ID)).thenReturn(configId);
 		when(mapper.selectCandidates(eq(ORGANIZATION_ID), any(), any(), anyInt())).thenReturn(List.of(candidate));
 		when(mapper.selectNotificationEmail(ORGANIZATION_ID, customerId, ownerMemberId)).thenReturn("hecheng@example.test");
-		when(chatAnalysisService.analyze(customerId, interactionId)).thenReturn(new ChatAnalysisResponse(
+		when(chatAnalysisService.analyze(customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
 				UUID.randomUUID(),
 				interactionId,
 				1,
@@ -198,6 +265,44 @@ class SalesFollowUpAgentServiceTests {
 				.containsEntry("attachmentRequired", true)
 				.containsEntry("attachments", List.of());
 		assertThat(preview.getValue().get("body")).asString().contains("客户希望本周看报价");
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@Test
+	void explicitDocumentEmailCreatesHighRiskApprovalWithUploadedAttachment() {
+		var principal = principal();
+		var configId = UUID.randomUUID();
+		var customerId = UUID.randomUUID();
+		var fileId = UUID.randomUUID();
+		var file = UploadedFile.create(fileId, ORGANIZATION_ID, principal.memberId(), null,
+				"和成科技方案.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				"docx".getBytes(), "hash", NOW);
+		var attachmentPreview = List.<Map<String, Object>>of(Map.of("id", fileId.toString(), "name", "和成科技方案.docx"));
+		var customer = new CustomerResponse(customerId, "和成科技", null, "软件服务", "9999+",
+				CustomerStage.LEAD, CustomerStatus.ACTIVE, CustomerSource.CHAT, principal.memberId(), "蔡景辉",
+				88, null, null, NOW, null,
+				new CustomerResponse.PrimaryContactResponse("李春和", "2564942830@qq.com", "13800000011"), NOW, NOW, 1);
+		when(mapper.selectDefaultConfigId(ORGANIZATION_ID)).thenReturn(configId);
+		when(fileStorageService.requireActive(ORGANIZATION_ID, fileId)).thenReturn(file);
+		when(fileStorageService.preview(List.of(file))).thenReturn(attachmentPreview);
+		var payload = ArgumentCaptor.forClass(Map.class);
+		var preview = ArgumentCaptor.forClass(Map.class);
+
+		var result = service.proposeDocumentEmailFromMcpAssistant(
+				principal, customer, UUID.randomUUID(), "方案", List.of(fileId));
+
+		assertThat(result.to()).isEqualTo("2564942830@qq.com");
+		verify(mapper).insertActionRequest(
+				any(), eq(ORGANIZATION_ID), eq(result.runId()), any(), eq(customerId), eq(principal.memberId()),
+				eq("SEND_EMAIL"), eq("HIGH"), eq("AWAITING_APPROVAL"), eq("email.send"), eq("v1"),
+				eq(true), eq("REQUIRE_APPROVAL"), any(), payload.capture(), any(), preview.capture(), any(), any());
+		assertThat(payload.getValue())
+				.containsEntry("to", "2564942830@qq.com")
+				.containsEntry("attachmentRequired", true)
+				.containsEntry("attachments", attachmentPreview);
+		assertThat(preview.getValue()).containsEntry("attachments", attachmentPreview);
+		verify(mapper).completeRun(eq(result.runId()), eq(ORGANIZATION_ID), eq("WAITING_APPROVAL"),
+				eq(1), eq(1), eq(1), eq(0), eq(0), eq(1), any(), eq(null), eq(NOW));
 	}
 
 	private static AuthPrincipal principal() {

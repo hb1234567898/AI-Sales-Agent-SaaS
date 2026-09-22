@@ -66,6 +66,26 @@ public class AdminController {
 		return adminService.updateMember(principal(authentication), memberId, request);
 	}
 
+	@PutMapping("/members/{memberId}/token-quota")
+	public AdminMemberResponse updateMemberTokenQuota(
+			Authentication authentication,
+			@PathVariable UUID memberId,
+			@Valid @RequestBody MemberTokenQuotaRequest request) {
+		return adminService.updateMemberTokenQuota(principal(authentication), memberId, request);
+	}
+
+	@GetMapping("/token-budget")
+	public TeamTokenBudgetResponse getTeamTokenBudget(Authentication authentication) {
+		return adminService.getTeamTokenBudget(principal(authentication));
+	}
+
+	@PutMapping("/token-budget")
+	public TeamTokenBudgetResponse updateTeamTokenBudget(
+			Authentication authentication,
+			@Valid @RequestBody TeamTokenBudgetRequest request) {
+		return adminService.updateTeamTokenBudget(principal(authentication), request);
+	}
+
 	@GetMapping("/team")
 	public AdminTeamResponse getTeam(Authentication authentication) {
 		return adminService.getTeam(principal(authentication));

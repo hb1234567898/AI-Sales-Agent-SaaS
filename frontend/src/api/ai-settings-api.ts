@@ -21,6 +21,9 @@ export interface AiModelUsage {
   lastCalledAt: string | null
   remainingTokens: number | null
   remainingStatus: string
+  memberAllocatedTokens: number | null
+  memberUsedTokens: number
+  memberRemainingTokens: number | null
 }
 
 export interface AiModelTestResult {

@@ -14,6 +14,7 @@ import com.yourcompany.salesagent.customer.application.CustomerValidationExcepti
 import com.yourcompany.salesagent.ai.application.AiModelConnectionException;
 import com.yourcompany.salesagent.ai.application.AiModelConfigurationException;
 import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
+import com.yourcompany.salesagent.ai.application.TokenQuotaExceededException;
 import com.yourcompany.salesagent.interaction.application.InteractionValidationException;
 import com.yourcompany.salesagent.auth.application.InvalidCredentialsException;
 import com.yourcompany.salesagent.auth.application.InvalidRefreshTokenException;
@@ -30,6 +31,7 @@ import com.yourcompany.salesagent.followup.application.FollowUpWorkflowException
 import com.yourcompany.salesagent.file.application.FileStorageException;
 import com.yourcompany.salesagent.tool.email.EmailConfigurationException;
 import com.yourcompany.salesagent.tool.email.EmailConnectionException;
+import com.yourcompany.salesagent.lead.application.LeadWorkflowException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -49,7 +51,8 @@ public class ApiExceptionHandler {
 			ApprovalWorkflowException.class,
 			AssistantWorkflowException.class,
 			FileStorageException.class,
-			FollowUpWorkflowException.class
+			FollowUpWorkflowException.class,
+			LeadWorkflowException.class
 	})
 	ProblemDetail handleWorkflow(RuntimeException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
@@ -75,6 +78,11 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(AiModelConnectionException.class)
 	ProblemDetail handleAiModelConnection(AiModelConnectionException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, exception.getMessage());
+	}
+
+	@ExceptionHandler(TokenQuotaExceededException.class)
+	ProblemDetail handleTokenQuotaExceeded(TokenQuotaExceededException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
 	}
 
 	@ExceptionHandler(EmailConnectionException.class)
@@ -129,7 +137,7 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	ProblemDetail handleMethodArgumentNotValid(MethodArgumentNotValidException exception) {
-		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "提交的客户信息不完整或格式不正确");
+		var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "提交的信息不完整或格式不正确");
 		var errors = new LinkedHashMap<String, String>();
 		exception.getBindingResult().getFieldErrors().forEach(error -> errors.putIfAbsent(error.getField(), error.getDefaultMessage()));
 		problem.setProperty("errors", errors);

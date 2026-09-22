@@ -34,6 +34,7 @@ public class ModelCallRecorder {
 		mapper.insertModelCall(
 				id,
 				request.organizationId(),
+				request.memberId(),
 				request.runId(),
 				request.stepId(),
 				request.customerId(),
