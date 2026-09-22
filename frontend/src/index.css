@@ -867,8 +867,21 @@ input:focus-visible {
   border-color: #ffd4cc;
 }
 
-.lead-convert-modal > header {
+.admin-modal.lead-convert-modal > header {
   grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+.admin-modal.lead-convert-modal {
+  width: min(520px, 100%);
+}
+
+.admin-modal.lead-convert-modal header > div {
+  min-width: 0;
+}
+
+.admin-modal.lead-convert-modal header p {
+  max-width: 42ch;
+  line-height: 1.6;
 }
 
 .leads-table {
