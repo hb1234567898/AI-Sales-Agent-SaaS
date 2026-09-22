@@ -861,6 +861,16 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.crm-inline-notice.is-error {
+  color: #b42318;
+  background: #fff5f3;
+  border-color: #ffd4cc;
+}
+
+.lead-convert-modal > header {
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
 .leads-table {
   min-width: 1060px;
 }

@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.lead.infrastructure.LeadMapper">
+    <resultMap id="LeadMap" type="com.yourcompany.salesagent.lead.infrastructure.LeadRow" autoMapping="true">
+        <id property="id" column="id" />
+    </resultMap>
+
+    <sql id="LeadSelect">
+        SELECT c.id,
+               c.name AS company,
+               c.industry,
+               contact.full_name AS contact_name,
+               contact.email AS contact_email,
+               contact.phone AS contact_phone,
+               contact.job_title AS contact_title,
+               c.source,
+               COALESCE(c.attributes -&gt;&gt; 'leadStatus',
+                   CASE WHEN c.stage = 'QUALIFIED' THEN 'QUALIFIED' WHEN c.stage = 'LOST' THEN 'DISQUALIFIED' ELSE 'NEW' END) AS status,
+               c.owner_member_id,
+               owner.display_name AS owner_name,
+               NULLIF(c.attributes -&gt;&gt; 'score', '')::integer AS score,
+               c.attributes -&gt;&gt; 'nextAction' AS next_action,
+               c.next_follow_up_at,
+               c.last_interaction_at AS last_activity_at,
+               c.created_at,
+               c.updated_at
+        FROM customer c
+        LEFT JOIN customer_contact contact
+          ON contact.organization_id = c.organization_id
+         AND contact.customer_id = c.id
+         AND contact.is_primary = true
+         AND contact.deleted_at IS NULL
+        LEFT JOIN organization_member member
+          ON member.organization_id = c.organization_id
+         AND member.id = c.owner_member_id
+        LEFT JOIN app_user owner ON owner.id = member.user_id
+    </sql>
+
+    <select id="selectLeads" resultMap="LeadMap">
+        <include refid="LeadSelect" />
+        WHERE c.organization_id = #{organizationId}
+          AND c.deleted_at IS NULL
+          AND (c.stage = 'LEAD' OR c.attributes -&gt;&gt; 'leadOrigin' = 'true')
+        <if test="status != null">
+          AND COALESCE(c.attributes -&gt;&gt; 'leadStatus', 'NEW') = #{status}
+        </if>
+        <if test="query != null and query != ''">
+          AND (c.name ILIKE CONCAT('%', #{query}, '%')
+            OR contact.full_name ILIKE CONCAT('%', #{query}, '%')
+            OR contact.email ILIKE CONCAT('%', #{query}, '%')
+            OR contact.phone ILIKE CONCAT('%', #{query}, '%'))
+        </if>
+        ORDER BY c.updated_at DESC, c.id
+    </select>
+
+    <select id="selectLead" resultMap="LeadMap">
+        <include refid="LeadSelect" />
+        WHERE c.organization_id = #{organizationId}
+          AND c.id = #{leadId}
+          AND c.deleted_at IS NULL
+          AND (c.stage = 'LEAD' OR c.attributes -&gt;&gt; 'leadOrigin' = 'true')
+        LIMIT 1
+    </select>
+
+    <select id="selectMetrics" resultType="com.yourcompany.salesagent.lead.infrastructure.LeadMetricsRow">
+        SELECT COUNT(*) FILTER (WHERE COALESCE(attributes -&gt;&gt; 'leadStatus', 'NEW') IN ('NEW', 'CONTACTED', 'NURTURING')) AS pending,
+               COUNT(*) FILTER (WHERE attributes -&gt;&gt; 'leadStatus' = 'QUALIFIED') AS qualified,
+               COUNT(*) FILTER (WHERE owner_member_id IS NULL AND COALESCE(attributes -&gt;&gt; 'leadStatus', 'NEW') NOT IN ('QUALIFIED', 'DISQUALIFIED')) AS unassigned,
+               COALESCE(AVG(NULLIF(attributes -&gt;&gt; 'score', '')::numeric), 0)::double precision AS average_score
+        FROM customer
+        WHERE organization_id = #{organizationId}
+          AND deleted_at IS NULL
+          AND (stage = 'LEAD' OR attributes -&gt;&gt; 'leadOrigin' = 'true')
+    </select>
+
+    <select id="ownerExists" resultType="int">
+        SELECT COUNT(*) FROM organization_member
+        WHERE organization_id = #{organizationId} AND id = #{memberId} AND status = 'ACTIVE'
+    </select>
+
+    <select id="selectOwners" resultType="com.yourcompany.salesagent.customer.api.OwnerOptionResponse">
+        SELECT member.id, app_user.display_name AS name
+        FROM organization_member member
+        JOIN app_user ON app_user.id = member.user_id
+        WHERE member.organization_id = #{organizationId} AND member.status = 'ACTIVE'
+        ORDER BY app_user.display_name, member.id
+    </select>
+
+    <select id="countDuplicates" resultType="int">
+        SELECT COUNT(DISTINCT c.id)
+        FROM customer c
+        LEFT JOIN customer_contact contact
+          ON contact.organization_id = c.organization_id AND contact.customer_id = c.id AND contact.deleted_at IS NULL
+        WHERE c.organization_id = #{organizationId}
+          AND c.deleted_at IS NULL
+        <if test="excludeId != null">
+          AND c.id &lt;&gt; #{excludeId}
+        </if>
+          AND (lower(c.name) = lower(#{company})
+        <if test="email != null">
+            OR lower(contact.email) = lower(#{email})
+        </if>
+        <if test="phone != null">
+            OR contact.phone = #{phone}
+        </if>
+          )
+    </select>
+
+    <insert id="insertLead">
+        INSERT INTO customer (id, organization_id, owner_member_id, name, industry, stage, status, source,
+            next_follow_up_at, attributes, created_at, updated_at)
+        VALUES (#{id}, #{organizationId}, #{ownerMemberId}, #{company}, #{industry}, 'LEAD', 'ACTIVE', #{source},
+            #{nextFollowUpAt}, jsonb_strip_nulls(jsonb_build_object('leadOrigin', true, 'leadStatus', #{status},
+            'score', #{score}, 'nextAction', #{nextAction})), #{now}, #{now})
+    </insert>
+
+    <insert id="insertContact">
+        INSERT INTO customer_contact (id, organization_id, customer_id, full_name, email, phone, job_title,
+            is_primary, source, created_at, updated_at)
+        VALUES (#{id}, #{organizationId}, #{leadId}, #{name}, #{email}, #{phone}, #{title}, true, #{source}, #{now}, #{now})
+    </insert>
+
+    <update id="updateLead">
+        UPDATE customer
+        SET name = #{company}, industry = #{industry}, source = #{source}, owner_member_id = #{ownerMemberId},
+            next_follow_up_at = #{nextFollowUpAt},
+            attributes = jsonb_strip_nulls(attributes || jsonb_build_object('leadOrigin', true,
+                'leadStatus', #{status}, 'score', #{score}, 'nextAction', #{nextAction})),
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND id = #{leadId} AND deleted_at IS NULL
+          AND COALESCE(attributes -&gt;&gt; 'leadStatus', 'NEW') NOT IN ('QUALIFIED', 'DISQUALIFIED')
+    </update>
+
+    <update id="updateContact">
+        UPDATE customer_contact
+        SET full_name = #{name}, email = #{email}, phone = #{phone}, job_title = #{title},
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND customer_id = #{leadId}
+          AND is_primary = true AND deleted_at IS NULL
+    </update>
+
+    <update id="assignLead">
+        UPDATE customer
+        SET owner_member_id = #{ownerMemberId},
+            attributes = jsonb_set(attributes, '{leadStatus}',
+                to_jsonb((CASE WHEN COALESCE(attributes -&gt;&gt; 'leadStatus', 'NEW') = 'NEW' THEN 'NURTURING' ELSE attributes -&gt;&gt; 'leadStatus' END)::text)),
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND id = #{leadId} AND deleted_at IS NULL
+          AND COALESCE(attributes -&gt;&gt; 'leadStatus', 'NEW') NOT IN ('QUALIFIED', 'DISQUALIFIED')
+    </update>
+
+    <update id="convertLead">
+        UPDATE customer
+        SET stage = 'QUALIFIED',
+            attributes = jsonb_set(attributes || jsonb_build_object('leadOrigin', true), '{leadStatus}', '"QUALIFIED"'::jsonb),
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND id = #{leadId} AND deleted_at IS NULL
+          AND COALESCE(attributes -&gt;&gt; 'leadStatus', 'NEW') NOT IN ('QUALIFIED', 'DISQUALIFIED')
+    </update>
+
+    <insert id="insertOpportunity">
+        INSERT INTO opportunity (id, organization_id, customer_id, owner_member_id, name, stage, status,
+            amount, currency, probability, expected_close_date, source, attributes, created_at, updated_at)
+        VALUES (#{id}, #{organizationId}, #{customerId}, #{ownerMemberId}, #{name}, 'QUALIFIED', 'OPEN',
+            #{amount}, 'CNY', 20, #{expectedCloseDate}, 'MANUAL', '{"forecastCategory":"PIPELINE"}'::jsonb, #{now}, #{now})
+    </insert>
+</mapper>
