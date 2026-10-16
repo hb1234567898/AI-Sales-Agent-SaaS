@@ -29,6 +29,8 @@ sudo install -m 0600 -o root -g root deploy/server/backend.env.example /etc/ai-s
 
 编辑 `/etc/ai-sales-agent/backend.env`，填入真实数据库密码、模型配置加密密钥和 JWT 签名密钥。不要把该文件提交到 Git。模型 API Key 在系统设置页录入，不写入服务器环境文件。
 
+SMTP 是可选通道，默认不参与应用整体健康判定。只有在生产 SMTP 已稳定配置且希望 Actuator 同时监控邮件连通性时，才设置 `MAIL_HEALTH_ENABLED=true`。
+
 检查并启动服务配置：
 
 ```bash
@@ -98,6 +100,10 @@ ssh-keyscan -p 22 117.72.109.112
 ```
 
 部署脚本通过 `/www/wwwroot/ai.likeasuka.icu/current` 软链接原子切换版本，重启 systemd 后最多检查健康状态 60 秒。检查失败会恢复上一个应用版本，并保留最近 5 个发布目录。
+
+FastAPI 虚拟环境位于每个发布目录的 `ai-service/.venv`。重复上传并部署同一个 commit 时，部署脚本会先暂存现有虚拟环境，更新其他文件后再恢复；上传包中的 `.venv` 或 `venv` 目录会被忽略，避免开发机虚拟环境覆盖服务器环境。新 commit 仍创建独立虚拟环境，确保保留版本隔离和回滚能力。
+
+手动上传文件时同样不要上传或删除服务器上的 `ai-service/.venv`，只更新 wheelhouse、后端 JAR、前端文件和部署配置。
 
 Flyway 数据库迁移不会自动回滚。因此数据库变更必须向后兼容，生产部署前也必须备份数据库；应用回滚不能替代数据库回滚方案。
 

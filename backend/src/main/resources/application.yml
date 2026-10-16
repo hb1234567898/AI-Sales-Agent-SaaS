@@ -46,6 +46,10 @@ management:
     web:
       exposure:
         include: health,info
+  health:
+    # SMTP 是用户可选通道，未配置时不应拖低整个业务服务的健康状态。
+    mail:
+      enabled: ${MAIL_HEALTH_ENABLED:false}
   endpoint:
     health:
       show-details: never

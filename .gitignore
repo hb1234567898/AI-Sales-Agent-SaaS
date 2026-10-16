@@ -23,3 +23,7 @@ Thumbs.db
 **/coverage/
 **/playwright-report/
 **/test-results/
+
+# Python virtual environments are server-managed deployment state.
+**/.venv/
+**/venv/
