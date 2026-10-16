@@ -6,7 +6,8 @@
 
 ```text
 .
-├── backend/       Spring Boot 4.1 + MyBatis-Plus + 可选 Spring AI 2.0
+├── backend/       Spring Boot 4.1 + MyBatis-Plus 业务服务
+├── ai-service/    FastAPI + LangChain/LangGraph AI 服务
 ├── frontend/      React + Vite + TypeScript 手工设计系统
 ├── db/migration/  Flyway PostgreSQL 迁移
 ├── docs/          技术与前端设计
@@ -74,18 +75,23 @@ pnpm test
 pnpm build
 ```
 
-## Spring AI / 通义千问
+## FastAPI + LangChain AI 服务
 
-后端已通过 Spring AI 的 OpenAI 兼容适配器接入阿里云百炼。默认关闭模型客户端，因此没有 API Key 时客户管理等功能仍可启动。PowerShell 中配置千问：
+Spring Boot 是业务主服务，`ai-service` 是必需的模型编排服务。前端仍只访问 Spring Boot；认证、租户、CRM、审批、工具执行及 Token 用量入库均留在 Java，Python 负责全部模型调用、LangGraph 计划、流式回答、聊天分析和 RAG。
 
 ```powershell
-$env:AI_CHAT_PROVIDER = "openai"
-$env:QWEN_API_KEY = "sk-your-bailian-key"
-$env:QWEN_MODEL = "qwen-plus"
-.\mvnw.cmd spring-boot:run
+cd ai-service
+python -m venv .venv
+.\.venv\Scripts\pip install -e ".[test]"
+$env:AI_SERVICE_TOKEN = "local-dev-token"
+.\.venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8090
 ```
 
-这里的 `openai` 表示使用 OpenAI 兼容协议，不是调用 OpenAI 模型。默认百炼地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，可通过 `QWEN_BASE_URL` 覆盖。启动后在“设置 → AI 模型”查看状态并点击“测试连接”。
+Spring Boot 通过 `AI_SERVICE_BASE_URL=http://127.0.0.1:8090` 和相同的 `AI_SERVICE_TOKEN` 访问 AI 服务。所有模型调用都由 FastAPI + LangChain 执行，Java 不再直连模型，也不保留 Spring AI 回退路径。
+
+模型 API Key、模型名和 OpenAI 兼容地址由登录用户在“设置 → AI 模型”中配置，Spring Boot 解密后仅在当前内部请求中传给 Python，不写入 Python 配置或日志。
+
+发布流水线使用 Python 3.12 构建 Linux 离线 wheelhouse，部署服务器需安装 `python3.12`；如解释器命令不同，可通过部署环境变量 `PYTHON_BIN` 指定。
 
 客户详情的“互动记录”支持粘贴微信、WhatsApp 等聊天原文。导入后点击单条记录上的“AI 分析”，系统会生成需求、痛点、异议、风险、意向评分、分析依据和建议动作。分析结果默认处于待确认状态；只有销售点击“确认并更新客户”后，才会把意向评分和下一步动作回写客户档案。重新分析会新增版本，不覆盖历史结果。
 

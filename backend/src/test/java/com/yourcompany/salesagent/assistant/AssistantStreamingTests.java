@@ -17,7 +17,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yourcompany.salesagent.ai.application.*;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.application.ApprovalService;
 import com.yourcompany.salesagent.assistant.api.AssistantChatResponse;
@@ -41,7 +41,7 @@ class AssistantStreamingTests {
 	final AssistantConversationMapper mapper = mock(AssistantConversationMapper.class);
 	final ApprovalService approvals = mock(ApprovalService.class);
 	final AiModelService settings = mock(AiModelService.class);
-	final QwenModelClient model = mock(QwenModelClient.class);
+	final AiOrchestrationClient model = mock(AiOrchestrationClient.class);
 	final ModelCallRecorder modelCallRecorder = mock(ModelCallRecorder.class);
 	final FileStorageService fileStorageService = mock(FileStorageService.class);
 	final CustomerService customers = mock(CustomerService.class);
@@ -60,6 +60,17 @@ class AssistantStreamingTests {
 		doAnswer(invocation -> { events.add("commit"); return null; }).when(tx).commit(any());
 		when(approvals.findApprovals("PENDING", 0, 10)).thenReturn(Page.of(1, 10));
 		when(settings.requireRuntimeConfiguration(any(), any())).thenReturn(new AiModelRuntimeConfiguration("QWEN", "test", "https://example.test", "test-key"));
+		when(model.planAssistantAction(any(), anyString(), anyMap(), anyList())).thenAnswer(invocation -> {
+			var message = invocation.getArgument(1, String.class);
+			if (message.contains("待审批")) {
+				return plan("BUSINESS_ACTION", "approval.list", Map.of());
+			}
+			if (message.contains("发送方案")) {
+				return plan("BUSINESS_ACTION", "email.send.prepare", Map.of(
+						"customerName", "和成科技", "documentType", "方案"));
+			}
+			return plan("ANSWER", null, Map.of());
+		});
 		service = new AssistantChatService(mapper, customers, mock(InteractionService.class),
 				agentService, approvals, mock(FollowUpService.class),
 				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, fileStorageService, tx);
@@ -73,8 +84,8 @@ class AssistantStreamingTests {
 	@Test
 	void emitsModelDeltasBeforeCompletionAndDoneAfterCommit() {
 		when(model.streamAssistantReplyWithUsage(any(), anyString(), anyString())).thenReturn(Flux.just(
-						new QwenModelClient.QwenStreamChunk("没有", null, null, "test"),
-						new QwenModelClient.QwenStreamChunk("待审批建议", new ModelUsage(20, 8, 28, 0L, null), "chatcmpl-test", "test"))
+						new AiOrchestrationClient.StreamChunk("没有", null, null, "test"),
+						new AiOrchestrationClient.StreamChunk("待审批建议", new ModelUsage(20, 8, 28, 0L, null), "chatcmpl-test", "test"))
 				.doOnComplete(() -> assertThat(events).contains("delta").doesNotContain("done")));
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).isEqualTo("没有待审批建议");
@@ -82,13 +93,13 @@ class AssistantStreamingTests {
 		assertThat(saved.toolTraces()).allMatch(trace -> trace.status().equals("SUCCEEDED"));
 		assertThat(saved.data()).containsKey("modelUsage");
 		verify(approvals, times(1)).findApprovals("PENDING", 0, 10);
-		verify(modelCallRecorder).record(any());
+		verify(modelCallRecorder, atLeastOnce()).record(any());
 	}
 
 	@Test
 	void keepsPartialAnswerAndBusinessResultOnModelFailureWithoutRepeatingTools() {
 		when(model.streamAssistantReplyWithUsage(any(), anyString(), anyString())).thenReturn(
-				Flux.concat(Flux.just(new QwenModelClient.QwenStreamChunk("已查询", null, null, "test")),
+				Flux.concat(Flux.just(new AiOrchestrationClient.StreamChunk("已查询", null, null, "test")),
 						Flux.error(new IllegalStateException("secret provider detail"))));
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).startsWith("已查询").contains("现在没有待审批建议").doesNotContain("secret provider detail");
@@ -98,11 +109,11 @@ class AssistantStreamingTests {
 	}
 
 	@Test
-	void stillReturnsBusinessResultsWithoutConfiguredModel() {
+	void blocksBusinessIntentRoutingWithoutConfiguredModel() {
 		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
-		assertThat(saved.content()).isEqualTo("现在没有待审批建议。");
-		verifyNoInteractions(model);
+		assertThat(saved.content()).contains("配置并启用 AI 模型");
+		verify(approvals, never()).findApprovals(anyString(), anyInt(), anyInt());
 	}
 
 	@Test
@@ -146,8 +157,6 @@ class AssistantStreamingTests {
 
 	@Test
 	void asksForAttachmentInsteadOfReturningGenericHelpForDocumentEmail() {
-		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
-
 		service.streamChat(principal, conversationId, "给和成科技发送方案", null, this::receive);
 
 		assertThat(saved.content()).contains("需要带上文件").contains("点击发送后上传");
@@ -158,7 +167,6 @@ class AssistantStreamingTests {
 
 	@Test
 	void createsApprovalForDocumentEmailWhenAttachmentIsProvided() {
-		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		var now = Instant.parse("2026-09-14T09:00:00Z");
 		var fileId = UUID.randomUUID();
 		var customerId = UUID.randomUUID();
@@ -186,5 +194,11 @@ class AssistantStreamingTests {
 		assertThat(saved.content()).contains("当前尚未发送").contains("审批通过后");
 		assertThat(saved.data()).containsEntry("approvalId", approvalId).containsEntry("to", "2564942830@qq.com");
 		verify(agentService).proposeDocumentEmailFromMcpAssistant(principal, customer, conversationId, "方案", List.of(fileId));
+	}
+
+	private static AiOrchestrationClient.AssistantPlan plan(String intent, String toolName, Map<String, Object> arguments) {
+		return new AiOrchestrationClient.AssistantPlan(
+				intent, "", toolName, arguments, 0.95, false, List.of(),
+				new ModelUsage(10, 5, 15, 0L, null), "plan-request", "test");
 	}
 }
