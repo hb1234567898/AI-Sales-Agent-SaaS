@@ -132,7 +132,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/ai-service/wheelhouse"
           python -m pip wheel --wheel-dir "$RUNNER_TEMP/ai-service/wheelhouse" .
-          cp README.md "$RUNNER_TEMP/ai-service/"
+          cp README.md runtime-requirements.txt "$RUNNER_TEMP/ai-service/"
 
       - name: Upload AI service artifact
         uses: actions/upload-artifact@v6

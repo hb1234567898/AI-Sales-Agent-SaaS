@@ -55,14 +55,8 @@ release_dir="$releases_dir/$release_id"
 current_link="$APP_ROOT/current"
 next_link="$APP_ROOT/current.next"
 previous_release=""
-preserved_venv=""
-
-restore_preserved_venv() {
-  if [[ -n "$preserved_venv" && -d "$preserved_venv" && ! -e "$release_dir/ai-service/.venv" ]]; then
-    install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$release_dir/ai-service"
-    mv -- "$preserved_venv" "$release_dir/ai-service/.venv"
-  fi
-}
+shared_dir="$APP_ROOT/shared"
+shared_venv="$shared_dir/ai-service-venv"
 
 cleanup_old_release() {
   local old_release="$1"
@@ -87,25 +81,10 @@ if [[ -L "$current_link" ]]; then
   fi
 fi
 
-install -d -m 0755 -o root -g root "$APP_ROOT" "$releases_dir"
+install -d -m 0755 -o root -g root "$APP_ROOT" "$releases_dir" "$shared_dir"
 install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$APP_ROOT/logs"
 
-preserved_venv_candidate="$releases_dir/.${release_id}.ai-service-venv"
-if [[ -d "$preserved_venv_candidate" ]]; then
-  if [[ -e "$release_dir/ai-service/.venv" ]]; then
-    echo "both active and temporarily preserved virtual environments exist for $release_id" >&2
-    exit 2
-  fi
-  preserved_venv="$preserved_venv_candidate"
-  trap restore_preserved_venv ERR
-fi
-
 if [[ -e "$release_dir" ]]; then
-  if [[ -d "$release_dir/ai-service/.venv" && ! -L "$release_dir/ai-service/.venv" ]]; then
-    preserved_venv="$preserved_venv_candidate"
-    mv -- "$release_dir/ai-service/.venv" "$preserved_venv"
-    trap restore_preserved_venv ERR
-  fi
   rm -rf -- "$release_dir"
 fi
 
@@ -119,18 +98,25 @@ tar --no-same-owner --no-same-permissions \
 test -s "$release_dir/backend/sales-agent.jar"
 test -s "$release_dir/frontend/index.html"
 test -d "$release_dir/ai-service/wheelhouse"
+test -s "$release_dir/ai-service/runtime-requirements.txt"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   echo "required Python interpreter not found: $PYTHON_BIN" >&2
   exit 2
 fi
-if [[ -n "$preserved_venv" ]]; then
-  restore_preserved_venv
-  trap - ERR
-else
-  "$PYTHON_BIN" -m venv "$release_dir/ai-service/.venv"
+if [[ ! -x "$shared_venv/bin/python" ]]; then
+  "$PYTHON_BIN" -m venv "$shared_venv"
 fi
-"$release_dir/ai-service/.venv/bin/pip" install --no-index \
-  --find-links "$release_dir/ai-service/wheelhouse" ai-sales-agent-ai
+"$shared_venv/bin/python" -m pip install --no-index \
+  --find-links "$release_dir/ai-service/wheelhouse" \
+  --requirement "$release_dir/ai-service/runtime-requirements.txt"
+mapfile -t application_wheels < <(find "$release_dir/ai-service/wheelhouse" -maxdepth 1 -type f -name 'ai_sales_agent_ai-*.whl' -print)
+if [[ "${#application_wheels[@]}" -ne 1 ]]; then
+  echo "release must contain exactly one ai-sales-agent-ai application wheel" >&2
+  exit 2
+fi
+install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$release_dir/ai-service/runtime"
+"$shared_venv/bin/python" -m pip install --no-index --no-deps \
+  --target "$release_dir/ai-service/runtime" "${application_wheels[0]}"
 chown -R root:root "$release_dir"
 chmod -R a-w "$release_dir"
 chmod -R a+rX "$release_dir"
