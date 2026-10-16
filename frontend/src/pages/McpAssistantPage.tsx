@@ -618,7 +618,7 @@ function AssistantOutput({ message }: { message: ChatMessage }) {
         <header><Sparkle size={14} />结果输出</header>
         <p>{message.content}{message.streaming && message.content ? <span className="mcp-stream-cursor" aria-hidden>▍</span> : null}</p>
       </section>
-      {message.error ? <p role="alert" className="mcp-stream-error"><WarningCircle size={15} />{message.error}</p> : null}
+      {shouldShowStreamError(message) ? <p role="alert" className="mcp-stream-error"><WarningCircle size={15} />{message.error}</p> : null}
 
       {message.reasoningSummary ? (
         <section className="mcp-reasoning">
@@ -674,6 +674,11 @@ function readableTraceStatus(status: string) {
   if (normalized === 'SKIPPED') return '跳过'
   if (normalized === 'RUNNING') return '执行中'
   return status
+}
+
+function shouldShowStreamError(message: ChatMessage) {
+  if (!message.error?.trim()) return false
+  return !message.content.includes(message.error.trim())
 }
 
 function dataApprovalIds(data?: Record<string, unknown>) {
