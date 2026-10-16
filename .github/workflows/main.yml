@@ -132,6 +132,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/ai-service/wheelhouse"
           python -m pip wheel --wheel-dir "$RUNNER_TEMP/ai-service/wheelhouse" .
+          cp -R app "$RUNNER_TEMP/ai-service/"
           cp README.md runtime-requirements.txt "$RUNNER_TEMP/ai-service/"
 
       - name: Upload AI service artifact
@@ -181,7 +182,6 @@ jobs:
           mkdir -p release/deploy
           cp deploy/server/deploy-sales-agent.sh release/deploy/
           cp deploy/server/ai-sales-agent.service release/deploy/
-          cp deploy/server/ai-sales-agent-ai.service release/deploy/
           cp deploy/server/nginx.conf release/deploy/
           cp deploy/server/backend.env.example release/deploy/
           printf 'commit=%s\nref=%s\nrun=%s\n' "$RELEASE_SHA" "$RELEASE_REF" "$RELEASE_RUN" > release/BUILD_INFO
