@@ -101,9 +101,13 @@ ssh-keyscan -p 22 117.72.109.112
 
 部署脚本通过 `/www/wwwroot/ai.likeasuka.icu/current` 软链接原子切换版本，重启 systemd 后最多检查健康状态 60 秒。检查失败会恢复上一个应用版本，并保留最近 5 个发布目录。
 
-FastAPI 虚拟环境位于每个发布目录的 `ai-service/.venv`。重复上传并部署同一个 commit 时，部署脚本会先暂存现有虚拟环境，更新其他文件后再恢复；上传包中的 `.venv` 或 `venv` 目录会被忽略，避免开发机虚拟环境覆盖服务器环境。新 commit 仍创建独立虚拟环境，确保保留版本隔离和回滚能力。
+FastAPI 虚拟环境固定在 `/www/wwwroot/ai.likeasuka.icu/shared/ai-service-venv`，不再放进 commit 对应的发布目录。部署脚本只会按制品中的 `runtime-requirements.txt` 更新其依赖，不会在上传或版本切换时删除这个环境。Python 应用代码会单独安装到各发布目录的 `ai-service/runtime`，因此切换版本仍会加载对应版本的代码。
 
-手动上传文件时同样不要上传或删除服务器上的 `ai-service/.venv`，只更新 wheelhouse、后端 JAR、前端文件和部署配置。
+宝塔 Python 项目如需选择解释器，应固定选择 `/www/wwwroot/ai.likeasuka.icu/shared/ai-service-venv/bin/python`，项目目录使用 `/www/wwwroot/ai.likeasuka.icu/current/ai-service/runtime`。不要再绑定 `current/ai-service/.venv` 或具体 commit 目录下的解释器。
+
+生产部署默认由 `ai-sales-agent-ai.service` 管理 FastAPI 进程。宝塔里可以查看上述解释器和目录，但不要同时启动同一个 Python 项目，否则 systemd 与宝塔会争用 `127.0.0.1:8090` 并出现 `Address already in use`。
+
+上传包中的 `.venv` 或 `venv` 目录仍会被忽略，避免开发机虚拟环境覆盖服务器共享环境。
 
 Flyway 数据库迁移不会自动回滚。因此数据库变更必须向后兼容，生产部署前也必须备份数据库；应用回滚不能替代数据库回滚方案。
 
