@@ -16,11 +16,15 @@ public record AdminMemberResponse(
 		MemberStatus status,
 		Instant joinedAt,
 		Instant lastLoginAt,
-		Instant createdAt) {
+		Instant createdAt,
+		Long allocatedTokens,
+		long usedTokens,
+		Long remainingTokens) {
 
 	public static AdminMemberResponse from(AdminMemberRow row) {
 		return new AdminMemberResponse(
 				row.id(), row.userId(), row.email(), row.displayName(), row.role(), row.status(),
-				row.joinedAt(), row.lastLoginAt(), row.createdAt());
+				row.joinedAt(), row.lastLoginAt(), row.createdAt(), row.allocatedTokens(), row.usedTokens(),
+				row.allocatedTokens() == null ? null : Math.max(0, row.allocatedTokens() - row.usedTokens()));
 	}
 }

@@ -26,15 +26,32 @@ public interface ModelCallMapper {
 			@Param("organizationId") UUID organizationId,
 			@Param("provider") String provider);
 
+	@Select("""
+			SELECT quota.allocated_tokens,
+			       COALESCE(SUM(CASE WHEN model_usage.status = 'SUCCEEDED'
+			                         THEN COALESCE(model_usage.input_tokens, 0) + COALESCE(model_usage.output_tokens, 0)
+			                         ELSE 0 END), 0)::bigint AS used_tokens
+			FROM organization_member member
+			LEFT JOIN member_token_quota quota
+			       ON quota.organization_id = member.organization_id AND quota.member_id = member.id
+			LEFT JOIN model_call model_usage
+			       ON model_usage.organization_id = member.organization_id AND model_usage.member_id = member.id
+			WHERE member.organization_id = #{organizationId} AND member.id = #{memberId}
+			GROUP BY quota.allocated_tokens
+			""")
+	MemberTokenUsageRow selectMemberTokenUsage(
+			@Param("organizationId") UUID organizationId,
+			@Param("memberId") UUID memberId);
+
 	@Insert("""
 			INSERT INTO model_call (
-			    id, organization_id, run_id, step_id, customer_id, purpose, provider, model,
+			    id, organization_id, member_id, run_id, step_id, customer_id, purpose, provider, model,
 			    provider_request_id, prompt_version, schema_version, status, attempt_no,
 			    input_tokens, output_tokens, cached_input_tokens, latency_ms,
 			    input_hash, output_hash, input_snapshot, output_snapshot,
 			    error_code, error_message, started_at, completed_at
 			) VALUES (
-			    #{id}, #{organizationId}, #{runId}, #{stepId}, #{customerId}, #{purpose}, #{provider}, #{model},
+			    #{id}, #{organizationId}, #{memberId}, #{runId}, #{stepId}, #{customerId}, #{purpose}, #{provider}, #{model},
 			    #{providerRequestId}, #{promptVersion}, #{schemaVersion}, #{status}, #{attemptNo},
 			    #{inputTokens}, #{outputTokens}, #{cachedInputTokens}, #{latencyMs},
 			    #{inputHash}, #{outputHash}, #{inputSnapshot,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler},
@@ -45,6 +62,7 @@ public interface ModelCallMapper {
 	void insertModelCall(
 			@Param("id") UUID id,
 			@Param("organizationId") UUID organizationId,
+			@Param("memberId") UUID memberId,
 			@Param("runId") UUID runId,
 			@Param("stepId") UUID stepId,
 			@Param("customerId") UUID customerId,

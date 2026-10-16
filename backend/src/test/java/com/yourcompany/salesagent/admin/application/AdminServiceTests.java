@@ -19,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import com.yourcompany.salesagent.admin.api.AdminMemberCreateRequest;
 import com.yourcompany.salesagent.admin.api.AdminMemberUpdateRequest;
 import com.yourcompany.salesagent.admin.api.AdminTeamUpdateRequest;
+import com.yourcompany.salesagent.admin.api.TeamTokenBudgetRequest;
 import com.yourcompany.salesagent.admin.domain.MemberRole;
 import com.yourcompany.salesagent.admin.domain.MemberStatus;
 import com.yourcompany.salesagent.admin.infrastructure.AdminMapper;
@@ -90,6 +91,54 @@ class AdminServiceTests {
 				.hasMessageContaining("IANA 时区");
 	}
 
+	@Test
+	void ownerCanAssignTokenQuotaToMember() {
+		var mapper = mock(AdminMapper.class);
+		var current = member(SALES_MEMBER_ID, SALES_USER_ID, MemberRole.SALES, MemberStatus.ACTIVE);
+		var allocated = new AdminMemberRow(
+				current.id(), current.userId(), current.email(), current.displayName(), current.role(), current.status(),
+				current.joinedAt(), current.lastLoginAt(), current.createdAt(), 100_000L, 12_000L);
+		when(mapper.selectMember(ORGANIZATION_ID, SALES_MEMBER_ID)).thenReturn(current, allocated);
+		when(mapper.lockOrganization(ORGANIZATION_ID)).thenReturn(1);
+		when(mapper.selectTeamTokenBudget(ORGANIZATION_ID)).thenReturn(100_000L);
+		var service = service(mapper);
+
+		var result = service.updateMemberTokenQuota(
+				principal("OWNER", OWNER_MEMBER_ID),
+				SALES_MEMBER_ID,
+				new com.yourcompany.salesagent.admin.api.MemberTokenQuotaRequest(100_000L));
+
+		assertThat(result.remainingTokens()).isEqualTo(88_000L);
+		verify(mapper).upsertMemberTokenQuota(
+				ORGANIZATION_ID, SALES_MEMBER_ID, 100_000L, OWNER_MEMBER_ID, NOW);
+	}
+
+	@Test
+	void rejectsMemberAllocationAboveTeamBudget() {
+		var mapper = mock(AdminMapper.class);
+		when(mapper.lockOrganization(ORGANIZATION_ID)).thenReturn(1);
+		when(mapper.selectMember(ORGANIZATION_ID, SALES_MEMBER_ID))
+				.thenReturn(member(SALES_MEMBER_ID, SALES_USER_ID, MemberRole.SALES, MemberStatus.ACTIVE));
+		when(mapper.selectTeamTokenBudget(ORGANIZATION_ID)).thenReturn(50_000L);
+		when(mapper.sumMemberTokenQuotas(ORGANIZATION_ID)).thenReturn(40_000L);
+
+		assertThatThrownBy(() -> service(mapper).updateMemberTokenQuota(
+				principal("OWNER", OWNER_MEMBER_ID), SALES_MEMBER_ID,
+				new com.yourcompany.salesagent.admin.api.MemberTokenQuotaRequest(20_000L)))
+				.isInstanceOf(AdminValidationException.class);
+	}
+
+	@Test
+	void rejectsTeamBudgetBelowExistingAllocations() {
+		var mapper = mock(AdminMapper.class);
+		when(mapper.lockOrganization(ORGANIZATION_ID)).thenReturn(1);
+		when(mapper.sumMemberTokenQuotas(ORGANIZATION_ID)).thenReturn(60_000L);
+
+		assertThatThrownBy(() -> service(mapper).updateTeamTokenBudget(
+				principal("OWNER", OWNER_MEMBER_ID), new TeamTokenBudgetRequest(50_000L)))
+				.isInstanceOf(AdminValidationException.class);
+	}
+
 	private static AdminService service(AdminMapper mapper) {
 		return new AdminService(mapper, new BCryptPasswordEncoder(4), Clock.fixed(NOW, ZoneOffset.UTC));
 	}
@@ -103,6 +152,6 @@ class AdminServiceTests {
 	private static AdminMemberRow member(UUID memberId, UUID userId, MemberRole role, MemberStatus status) {
 		return new AdminMemberRow(
 				memberId, userId, role.name().toLowerCase() + "@example.com", "销售成员", role, status,
-				NOW.minusSeconds(3600), null, NOW.minusSeconds(3600));
+				NOW.minusSeconds(3600), null, NOW.minusSeconds(3600), null, 0L);
 	}
 }

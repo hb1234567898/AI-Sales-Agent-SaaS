@@ -32,7 +32,9 @@ public class AiModelController {
 
 	@GetMapping
 	public AiModelStatusResponse status(Authentication authentication) {
-		return modelService.status(organizationId(authentication));
+		return authentication != null && authentication.getPrincipal() instanceof AuthPrincipal principal
+				? modelService.status(principal.organizationId(), principal.memberId())
+				: modelService.status(demoOrganizationId);
 	}
 
 	@PutMapping

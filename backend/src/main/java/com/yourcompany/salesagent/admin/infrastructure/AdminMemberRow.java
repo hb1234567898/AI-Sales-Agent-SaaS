@@ -15,5 +15,7 @@ public record AdminMemberRow(
 		MemberStatus status,
 		Instant joinedAt,
 		Instant lastLoginAt,
-		Instant createdAt) {
+		Instant createdAt,
+		Long allocatedTokens,
+		long usedTokens) {
 }

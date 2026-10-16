@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public record ModelCallRecordRequest(
 		UUID organizationId,
+		UUID memberId,
 		UUID runId,
 		UUID stepId,
 		UUID customerId,

@@ -15,8 +15,12 @@ export async function getCustomerFiles(customerId: string) {
 }
 
 export async function uploadCustomerFile(customerId: string, file: File) {
+  return uploadFile(file, customerId)
+}
+
+export async function uploadFile(file: File, customerId?: string) {
   const form = new FormData()
-  form.append('customerId', customerId)
+  if (customerId) form.append('customerId', customerId)
   form.append('file', file)
   const response = await apiClient.post<UploadedFile>('/api/v1/files', form)
   return response.data

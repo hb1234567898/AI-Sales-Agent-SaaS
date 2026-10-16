@@ -14,29 +14,29 @@ import com.yourcompany.salesagent.ai.api.AiModelUpdateRequest;
 import com.yourcompany.salesagent.ai.api.AiModelUsageResponse;
 import com.yourcompany.salesagent.ai.domain.AiModelConfiguration;
 import com.yourcompany.salesagent.ai.infrastructure.AiModelConfigurationMapper;
+import com.yourcompany.salesagent.ai.infrastructure.AiModelDefaultsProperties;
 import com.yourcompany.salesagent.ai.infrastructure.ModelCallMapper;
 import com.yourcompany.salesagent.ai.infrastructure.ModelUsageSummaryRow;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.shared.security.SecretCipher;
 import com.yourcompany.salesagent.shared.security.SecretEncryptionException;
 
 @Service
 public class AiModelService {
 
-	private final QwenModelClient modelClient;
+	private final AiOrchestrationClient modelClient;
 	private final AiModelConfigurationMapper configurationMapper;
 	private final ModelCallMapper modelCallMapper;
 	private final SecretCipher secretCipher;
-	private final QwenModelProperties properties;
+	private final AiModelDefaultsProperties properties;
 	private final Clock clock;
 
 	public AiModelService(
-			QwenModelClient modelClient,
+			AiOrchestrationClient modelClient,
 			AiModelConfigurationMapper configurationMapper,
 			ModelCallMapper modelCallMapper,
 			SecretCipher secretCipher,
-			QwenModelProperties properties,
+			AiModelDefaultsProperties properties,
 			Clock clock) {
 		this.modelClient = modelClient;
 		this.configurationMapper = configurationMapper;
@@ -48,6 +48,11 @@ public class AiModelService {
 
 	@Transactional(readOnly = true)
 	public AiModelStatusResponse status(UUID organizationId) {
+		return status(organizationId, null);
+	}
+
+	@Transactional(readOnly = true)
+	public AiModelStatusResponse status(UUID organizationId, UUID memberId) {
 		var configuration = configurationMapper.selectById(organizationId);
 		if (configuration == null) {
 			return new AiModelStatusResponse(
@@ -57,7 +62,7 @@ public class AiModelService {
 					false,
 					false,
 					"MISSING_API_KEY",
-					usageSummary(organizationId, "QWEN"));
+					usageSummary(organizationId, memberId, "QWEN"));
 		}
 		var ready = canDecrypt(configuration);
 		return new AiModelStatusResponse(
@@ -67,7 +72,7 @@ public class AiModelService {
 				true,
 				ready,
 				ready ? "READY" : "ENCRYPTION_KEY_UNAVAILABLE",
-				usageSummary(organizationId, configuration.getProvider()));
+				usageSummary(organizationId, memberId, configuration.getProvider()));
 	}
 
 	@Transactional
@@ -128,6 +133,23 @@ public class AiModelService {
 				secretCipher.decrypt(organizationId, configuration.getEncryptedApiKey()));
 	}
 
+	@Transactional(readOnly = true)
+	public AiModelRuntimeConfiguration requireRuntimeConfiguration(UUID organizationId, UUID memberId) {
+		requireAvailableTokenQuota(organizationId, memberId);
+		return requireRuntimeConfiguration(organizationId);
+	}
+
+	@Transactional(readOnly = true)
+	public void requireAvailableTokenQuota(UUID organizationId, UUID memberId) {
+		var usage = modelCallMapper.selectMemberTokenUsage(organizationId, memberId);
+		if (usage == null || usage.allocatedTokens() == null || usage.allocatedTokens() <= 0) {
+			throw new TokenQuotaExceededException("管理员尚未为你分配 Token 额度，暂时不能使用 MCP 助手");
+		}
+		if (usage.usedTokens() >= usage.allocatedTokens()) {
+			throw new TokenQuotaExceededException("你的 Token 额度已用完，请联系团队管理员调整分配额度");
+		}
+	}
+
 	private boolean canDecrypt(AiModelConfiguration configuration) {
 		try {
 			return StringUtils.hasText(secretCipher.decrypt(
@@ -151,8 +173,9 @@ public class AiModelService {
 		}
 	}
 
-	private AiModelUsageResponse usageSummary(UUID organizationId, String provider) {
+	private AiModelUsageResponse usageSummary(UUID organizationId, UUID memberId, String provider) {
 		ModelUsageSummaryRow summary = modelCallMapper.selectUsageSummary(organizationId, provider);
+		var memberUsage = memberId == null ? null : modelCallMapper.selectMemberTokenUsage(organizationId, memberId);
 		var inputTokens = summary == null ? 0 : summary.getInputTokens();
 		var outputTokens = summary == null ? 0 : summary.getOutputTokens();
 		var cachedInputTokens = summary == null ? 0 : summary.getCachedInputTokens();
@@ -164,6 +187,11 @@ public class AiModelService {
 				summary == null ? 0 : summary.getSuccessfulCalls(),
 				summary == null ? null : summary.getLastCalledAt(),
 				null,
-				"CHAT_API_DOES_NOT_RETURN_ACCOUNT_REMAINING");
+				"CHAT_API_DOES_NOT_RETURN_ACCOUNT_REMAINING",
+				memberUsage == null ? null : memberUsage.allocatedTokens(),
+				memberUsage == null ? 0 : memberUsage.usedTokens(),
+				memberUsage == null || memberUsage.allocatedTokens() == null
+						? null
+						: Math.max(0, memberUsage.allocatedTokens() - memberUsage.usedTokens()));
 	}
 }

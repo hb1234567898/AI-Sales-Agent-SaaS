@@ -10,5 +10,8 @@ public record AiModelUsageResponse(
 		long successfulCalls,
 		Instant lastCalledAt,
 		Long remainingTokens,
-		String remainingStatus) {
+		String remainingStatus,
+		Long memberAllocatedTokens,
+		long memberUsedTokens,
+		Long memberRemainingTokens) {
 }

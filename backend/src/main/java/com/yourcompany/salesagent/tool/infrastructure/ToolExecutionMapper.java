@@ -36,7 +36,7 @@ public interface ToolExecutionMapper {
 	 * 审批通过后把动作从 AWAITING_APPROVAL 推进到 APPROVED。只有处于等待审批状态的动作能被批准，
 	 * 与 ToolExecutionService 的抢占锁共同保证并发下只执行一次。
 	 */
-	void markActionApproved(
+	int markActionApproved(
 			@Param("organizationId") UUID organizationId,
 			@Param("actionRequestId") UUID actionRequestId,
 			@Param("now") Instant now);

@@ -19,8 +19,9 @@ import com.yourcompany.salesagent.ai.api.AiModelUpdateRequest;
 import com.yourcompany.salesagent.ai.domain.AiModelConfiguration;
 import com.yourcompany.salesagent.ai.infrastructure.AiModelConfigurationMapper;
 import com.yourcompany.salesagent.ai.infrastructure.ModelCallMapper;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
+import com.yourcompany.salesagent.ai.infrastructure.MemberTokenUsageRow;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiModelDefaultsProperties;
 import com.yourcompany.salesagent.shared.security.SecretCipher;
 
 class AiModelServiceTests {
@@ -30,7 +31,7 @@ class AiModelServiceTests {
 
 	@Test
 	void reportsMissingApiKeyWithoutCallingProvider() {
-		var client = mock(QwenModelClient.class);
+		var client = mock(AiOrchestrationClient.class);
 		var mapper = mock(AiModelConfigurationMapper.class);
 		var modelCallMapper = mock(ModelCallMapper.class);
 		var cipher = mock(SecretCipher.class);
@@ -39,7 +40,7 @@ class AiModelServiceTests {
 				mapper,
 				modelCallMapper,
 				cipher,
-				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+				new AiModelDefaultsProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 				clock);
 
 		var status = service.status(organizationId);
@@ -52,7 +53,7 @@ class AiModelServiceTests {
 
 	@Test
 	void returnsSuccessfulConnectionResult() {
-		var client = mock(QwenModelClient.class);
+		var client = mock(AiOrchestrationClient.class);
 		var mapper = mock(AiModelConfigurationMapper.class);
 		var modelCallMapper = mock(ModelCallMapper.class);
 		var cipher = mock(SecretCipher.class);
@@ -70,7 +71,7 @@ class AiModelServiceTests {
 				mapper,
 				modelCallMapper,
 				cipher,
-				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+				new AiModelDefaultsProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 				clock);
 
 		var response = service.testConnection(organizationId);
@@ -82,7 +83,7 @@ class AiModelServiceTests {
 
 	@Test
 	void encryptsApiKeyBeforeSavingConfiguration() {
-		var client = mock(QwenModelClient.class);
+		var client = mock(AiOrchestrationClient.class);
 		var mapper = mock(AiModelConfigurationMapper.class);
 		var modelCallMapper = mock(ModelCallMapper.class);
 		var cipher = mock(SecretCipher.class);
@@ -92,7 +93,7 @@ class AiModelServiceTests {
 				mapper,
 				modelCallMapper,
 				cipher,
-				new QwenModelProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+				new AiModelDefaultsProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
 				clock);
 
 		service.update(organizationId, new AiModelUpdateRequest(
@@ -103,5 +104,24 @@ class AiModelServiceTests {
 
 		verify(cipher).encrypt(organizationId, "sk-manual");
 		verify(mapper).insert(any(AiModelConfiguration.class));
+	}
+
+	@Test
+	void rejectsMcpUsageWhenMemberHasNoAssignedTokens() {
+		var memberId = UUID.randomUUID();
+		var modelCallMapper = mock(ModelCallMapper.class);
+		when(modelCallMapper.selectMemberTokenUsage(organizationId, memberId))
+				.thenReturn(new MemberTokenUsageRow(null, 0));
+		var service = new AiModelService(
+				mock(AiOrchestrationClient.class),
+				mock(AiModelConfigurationMapper.class),
+				modelCallMapper,
+				mock(SecretCipher.class),
+				new AiModelDefaultsProperties("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+				clock);
+
+		assertThatThrownBy(() -> service.requireAvailableTokenQuota(organizationId, memberId))
+				.isInstanceOf(TokenQuotaExceededException.class)
+				.hasMessageContaining("尚未");
 	}
 }

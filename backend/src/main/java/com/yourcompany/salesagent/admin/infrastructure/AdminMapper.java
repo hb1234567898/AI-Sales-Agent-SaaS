@@ -63,4 +63,27 @@ public interface AdminMapper {
 			@Param("timezone") String timezone,
 			@Param("locale") String locale,
 			@Param("now") Instant now);
+
+	int upsertMemberTokenQuota(
+			@Param("organizationId") UUID organizationId,
+			@Param("memberId") UUID memberId,
+			@Param("allocatedTokens") long allocatedTokens,
+			@Param("updatedBy") UUID updatedBy,
+			@Param("now") Instant now);
+
+	int deleteMemberTokenQuota(
+			@Param("organizationId") UUID organizationId,
+			@Param("memberId") UUID memberId);
+
+	int lockOrganization(@Param("organizationId") UUID organizationId);
+
+	Long selectTeamTokenBudget(@Param("organizationId") UUID organizationId);
+
+	long sumMemberTokenQuotas(@Param("organizationId") UUID organizationId);
+
+	int upsertTeamTokenBudget(
+			@Param("organizationId") UUID organizationId,
+			@Param("totalTokens") long totalTokens,
+			@Param("updatedBy") UUID updatedBy,
+			@Param("now") Instant now);
 }

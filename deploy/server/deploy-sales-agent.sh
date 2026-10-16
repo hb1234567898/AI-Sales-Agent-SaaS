@@ -5,6 +5,8 @@ APP_ROOT="${APP_ROOT:-/www/wwwroot/ai.likeasuka.icu}"
 APP_USER="${APP_USER:-root}"
 APP_GROUP="${APP_GROUP:-root}"
 SERVICE_NAME="${SERVICE_NAME:-ai-sales-agent.service}"
+AI_SERVICE_NAME="${AI_SERVICE_NAME:-ai-sales-agent-ai.service}"
+PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 MAX_RELEASES="${MAX_RELEASES:-5}"
 
 archive="${1:-}"
@@ -88,12 +90,27 @@ install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$release_dir"
 tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$release_dir"
 test -s "$release_dir/backend/sales-agent.jar"
 test -s "$release_dir/frontend/index.html"
+test -d "$release_dir/ai-service/wheelhouse"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "required Python interpreter not found: $PYTHON_BIN" >&2
+  exit 2
+fi
+"$PYTHON_BIN" -m venv "$release_dir/ai-service/.venv"
+"$release_dir/ai-service/.venv/bin/pip" install --no-index \
+  --find-links "$release_dir/ai-service/wheelhouse" ai-sales-agent-ai
 chown -R root:root "$release_dir"
 chmod -R a-w "$release_dir"
 chmod -R a+rX "$release_dir"
 
+install -m 0644 "$release_dir/deploy/ai-sales-agent-ai.service" "/etc/systemd/system/$AI_SERVICE_NAME"
+systemctl daemon-reload
+systemctl enable "$AI_SERVICE_NAME"
+
 ln -sfn "$release_dir" "$next_link"
 mv -Tf "$next_link" "$current_link"
+if ! systemctl restart "$AI_SERVICE_NAME"; then
+  echo "warning: release is active, but $AI_SERVICE_NAME could not be restarted" >&2
+fi
 if ! systemctl restart "$SERVICE_NAME"; then
   echo "warning: release is active, but $SERVICE_NAME could not be restarted" >&2
 fi

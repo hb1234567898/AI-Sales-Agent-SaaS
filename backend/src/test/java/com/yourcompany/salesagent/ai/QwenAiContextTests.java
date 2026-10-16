@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 
 @SpringBootTest(properties = {
 		"spring.flyway.enabled=false",
@@ -17,7 +17,7 @@ import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
 class QwenAiContextTests {
 
 	@Autowired
-	private QwenModelClient modelClient;
+	private AiOrchestrationClient modelClient;
 
 	@Test
 	void createsDynamicQwenClientWithoutStartupApiKey() {

@@ -10,8 +10,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.function.BiConsumer;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -31,7 +32,8 @@ import com.yourcompany.salesagent.ai.application.AiModelNotConfiguredException;
 import com.yourcompany.salesagent.ai.application.ModelCallRecordRequest;
 import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
 import com.yourcompany.salesagent.ai.application.ModelUsage;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient.AssistantPlan;
 import com.yourcompany.salesagent.agent.api.AgentRunResponse;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.api.ApprovalDecisionRequest;
@@ -52,6 +54,8 @@ import com.yourcompany.salesagent.customer.application.CustomerNotFoundException
 import com.yourcompany.salesagent.customer.domain.CustomerSource;
 import com.yourcompany.salesagent.customer.domain.CustomerStage;
 import com.yourcompany.salesagent.customer.domain.CustomerStatus;
+import com.yourcompany.salesagent.file.application.FileStorageException;
+import com.yourcompany.salesagent.file.application.FileStorageService;
 import com.yourcompany.salesagent.followup.application.FollowUpService;
 import com.yourcompany.salesagent.interaction.api.ChatImportRequest;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
@@ -64,13 +68,16 @@ import tools.jackson.databind.ObjectMapper;
 public class AssistantChatService {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(AssistantChatService.class);
-	private static final Pattern UUID_PATTERN = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
-	private static final Pattern CREATE_CUSTOMER_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80})");
-	private static final Pattern CREATE_AND_IMPORT_PATTERN = Pattern.compile("(新增|创建|新建)客户[：:\\s]*(?<customer>[^，,：:\\n]{2,80}).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
-	private static final Pattern IMPORT_PATTERN = Pattern.compile("给\\s*(?<customer>[^，,：:\\n]{2,40})\\s*(导入|添加|记录).*?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
-	private static final Pattern IMPORT_ALT_PATTERN = Pattern.compile("导入\\s*(?<customer>[^，,：:\\n]{2,40})(?:的)?聊天(?:记录)?[：:](?<content>[\\s\\S]+)");
 	private static final TypeReference<List<AssistantToolTrace>> TOOL_TRACE_LIST_TYPE = new TypeReference<>() {
 	};
+	private static final List<Map<String, Object>> ASSISTANT_TOOLS = List.of(
+			assistantTool("customer.create", "新增客户和主要联系人。参数键：name、industry、employeeRange、website、contactName、contactEmail、contactPhone", "LOW", List.of("name")),
+			assistantTool("interaction.chat_import", "给客户导入聊天记录并运行跟进 Agent。参数键：customerName、chatContent、createCustomer", "LOW", List.of("customerName", "chatContent")),
+			assistantTool("email.send.prepare", "校验附件并创建待审批的客户邮件。参数键：customerName、documentType", "HIGH", List.of("customerName", "documentType")),
+			assistantTool("approval.list", "查看当前组织的待审批建议", "LOW", List.of()),
+			assistantTool("approval.approve", "批准指定审批并执行已批准动作。参数键：approvalId", "HIGH", List.of("approvalId")),
+			assistantTool("agent.sales_follow_up.run", "运行客户跟进分析 Agent。参数键：customerName，可省略", "LOW", List.of()),
+			assistantTool("follow_up.list", "查看跟进任务", "LOW", List.of()));
 
 	private final AssistantConversationMapper conversationMapper;
 	private final CustomerService customerService;
@@ -81,8 +88,9 @@ public class AssistantChatService {
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
 	private final AiModelService aiModelService;
-	private final QwenModelClient modelClient;
+	private final AiOrchestrationClient modelClient;
 	private final ModelCallRecorder modelCallRecorder;
+	private final FileStorageService fileStorageService;
 	private final TransactionTemplate transactions;
 
 	public AssistantChatService(
@@ -95,8 +103,9 @@ public class AssistantChatService {
 			ObjectMapper objectMapper,
 			Clock clock,
 			AiModelService aiModelService,
-			QwenModelClient modelClient,
+			AiOrchestrationClient modelClient,
 			ModelCallRecorder modelCallRecorder,
+			FileStorageService fileStorageService,
 			PlatformTransactionManager transactionManager) {
 		this.conversationMapper = conversationMapper;
 		this.customerService = customerService;
@@ -109,21 +118,24 @@ public class AssistantChatService {
 		this.aiModelService = aiModelService;
 		this.modelClient = modelClient;
 		this.modelCallRecorder = modelCallRecorder;
+		this.fileStorageService = fileStorageService;
 		this.transactions = new TransactionTemplate(transactionManager);
 	}
 
 	/** 在请求线程校验会话并提交用户消息，不让长时间模型请求占住数据库事务。 */
 	public UUID beginStream(AuthPrincipal principal, AssistantChatRequest request) {
+		aiModelService.requireAvailableTokenQuota(principal.organizationId(), principal.memberId());
 		return transactions.execute(status -> {
 			var conversation = resolveConversation(principal, request.conversationId(), request.channel(), request.message().strip());
+			var attachments = resolveAttachmentContext(principal, request.attachmentIds());
 			conversationMapper.insertMessage(UUID.randomUUID(), principal.organizationId(), conversation.id(),
-					"USER", request.message().strip(), null, "[]", Map.of(), clock.instant());
+					"USER", request.message().strip(), null, "[]", attachments.data(), clock.instant());
 			return conversation.id();
 		});
 	}
 
 	/** 工具完成即发事件；模型增量即发事件；done 仅在最终消息提交后发送。 */
-	public void streamChat(AuthPrincipal principal, UUID conversationId, String message, BiConsumer<String, Object> events) {
+	public void streamChat(AuthPrincipal principal, UUID conversationId, String message, List<UUID> attachmentIds, BiConsumer<String, Object> events) {
 		var content = new StringBuilder();
 		var traces = new ArrayList<AssistantToolTrace>() {
 			@Override
@@ -137,14 +149,18 @@ public class AssistantChatService {
 		Map<String, Object> data = new LinkedHashMap<>();
 		String failure = null;
 		try {
+			var attachments = resolveAttachmentContext(principal, attachmentIds);
+			if (!attachments.isEmpty()) {
+				data.putAll(attachments.data());
+			}
 			events.accept("progress", Map.of("text", "正在识别业务指令并执行工具；分析客户时需要等待模型返回。"));
-			var result = route(principal, conversationId, message.strip(), traces);
+			var result = route(principal, conversationId, message.strip(), traces, attachments);
 			summary = result.reasoningSummary();
 			data.putAll(result.data());
 			events.accept("summary", Map.of("text", summary));
 			events.accept("result", result);
 			try {
-				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId());
+				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
 				var verifiedResult = objectMapper.writeValueAsString(result);
 				var startedAt = clock.instant();
 				var streamUsage = new AtomicReference<ModelUsage>();
@@ -215,12 +231,14 @@ public class AssistantChatService {
 
 	@Transactional
 	public AssistantChatResponse chat(AuthPrincipal principal, AssistantChatRequest request) {
+		aiModelService.requireAvailableTokenQuota(principal.organizationId(), principal.memberId());
 		var rawMessage = request.message();
 		var message = rawMessage == null ? "" : rawMessage.strip();
 		if (!StringUtils.hasText(message)) {
 			throw new AssistantWorkflowException("请输入要自动化处理的业务指令");
 		}
 		var conversation = resolveConversation(principal, request.conversationId(), request.channel(), message);
+		var attachments = resolveAttachmentContext(principal, request.attachmentIds());
 		var userMessageTime = clock.instant();
 		conversationMapper.insertMessage(
 				UUID.randomUUID(),
@@ -230,10 +248,10 @@ public class AssistantChatService {
 				message,
 				null,
 				"[]",
-				Map.of(),
+				attachments.data(),
 				userMessageTime);
 
-		var response = route(principal, conversation.id(), message);
+		var response = route(principal, conversation.id(), message, attachments);
 		var assistantMessageId = UUID.randomUUID();
 		conversationMapper.insertMessage(
 				assistantMessageId,
@@ -281,54 +299,122 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, String message) {
-		return route(principal, null, message, new ArrayList<>());
+		return route(principal, null, message, new ArrayList<>(), AttachmentContext.empty());
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message) {
-		return route(principal, conversationId, message, new ArrayList<>());
+		return route(principal, conversationId, message, new ArrayList<>(), AttachmentContext.empty());
 	}
 
-	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
-		var normalized = message.toLowerCase();
-
-		if (looksLikeChatImport(message)) {
-			return importChatAndRunAgent(principal, conversationId, message, traces);
-		}
-		if (looksLikeCustomerCreate(message)) {
-			return createCustomer(message, traces);
-		}
-		if (containsAny(message, "审批通过", "批准")) {
-			return approveById(principal, message, traces);
-		}
-		if (containsAny(message, "待审批", "审批列表", "查看审批", "有哪些审批")) {
-			return listPendingApprovals(traces);
-		}
-		if (containsAny(normalized, "agent", "分析客户", "运行分析", "跑一下")) {
-			return runAgent(principal, conversationId, message, traces);
-		}
-		if (containsAny(message, "跟进任务", "待跟进", "查看跟进")) {
-			return listFollowUps(traces);
-		}
-		return help(traces);
+	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, AttachmentContext attachments) {
+		return route(principal, conversationId, message, new ArrayList<>(), attachments);
 	}
 
-	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
-		var command = parseImportCommand(message);
+	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
+		com.yourcompany.salesagent.ai.application.AiModelRuntimeConfiguration configuration;
+		try {
+			configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
+		}
+		catch (AiModelNotConfiguredException exception) {
+			throw new AssistantWorkflowException("请先在设置中配置并启用 AI 模型，再使用 AI 助手。");
+		}
+		var context = new LinkedHashMap<String, Object>();
+		context.put("attachmentCount", attachments.ids().size());
+		context.put("attachments", attachments.preview());
+		var startedAt = clock.instant();
+		var plan = modelClient.planAssistantAction(configuration, message, context, ASSISTANT_TOOLS);
+		var completedAt = clock.instant();
+		recordPlannerModelCall(principal, configuration.model(), plan, startedAt, completedAt, message);
+		traces.add(new AssistantToolTrace("assistant.langgraph.plan", "SUCCEEDED",
+				"已识别意图：" + plan.intent() + (StringUtils.hasText(plan.toolName()) ? "，候选工具：" + plan.toolName() : "")));
+
+		if (!plan.validationErrors().isEmpty()) {
+			return reply(
+					StringUtils.hasText(plan.response()) ? plan.response() : "还缺少执行所需的信息，请补充后重试。",
+					"LangGraph 已生成候选计划，但 Java 执行前校验未通过：" + String.join("；", plan.validationErrors()),
+					traces,
+					planData(plan));
+		}
+
+		var arguments = plan.arguments();
+		AssistantChatResponse result = switch (plan.toolName() == null ? "" : plan.toolName()) {
+			case "customer.create" -> createCustomer(customerDraft(arguments), traces);
+			case "interaction.chat_import" -> importChatAndRunAgent(
+					principal, conversationId, importCommand(arguments), traces, attachments);
+			case "email.send.prepare" -> proposeDocumentEmail(
+					principal, conversationId, documentSendCommand(arguments), traces, attachments);
+			case "approval.list" -> listPendingApprovals(traces);
+			case "approval.approve" -> approvePlanned(principal, message, stringArgument(arguments, "approvalId"), traces);
+			case "agent.sales_follow_up.run" -> runAgent(
+					principal, conversationId, stringArgument(arguments, "customerName"), traces, attachments);
+			case "follow_up.list" -> listFollowUps(traces);
+			case "" -> reply(
+					StringUtils.hasText(plan.response()) ? plan.response() : "请补充你希望完成的销售工作。",
+					"LangGraph 将本次请求识别为 " + plan.intent() + "，未提出业务工具调用。",
+					traces,
+					planData(plan));
+			default -> throw new AssistantWorkflowException("AI 计划引用了未授权工具，已阻止执行: " + plan.toolName());
+		};
+		var resultData = new LinkedHashMap<>(result.data());
+		resultData.putAll(planData(plan));
+		return new AssistantChatResponse(result.conversationId(), result.messageId(), result.role(), result.content(),
+				result.reasoningSummary(), result.toolTraces(), resultData, result.createdAt());
+	}
+
+	private AssistantChatResponse proposeDocumentEmail(AuthPrincipal principal, UUID conversationId, DocumentSendCommand command,
+			List<AssistantToolTrace> traces, AttachmentContext attachments) {
+		if (command == null || !StringUtils.hasText(command.customerName())) {
+			return reply("我还缺准确的客户名称。可以这样发：给和成科技发送方案。",
+					"识别为文件邮件发送意图，但未解析到客户名称，因此没有创建发送审批。", traces,
+					Map.of("intent", "SEND_DOCUMENT_EMAIL"));
+		}
+		if (attachments.isEmpty()) {
+			traces.add(new AssistantToolTrace("email.send.prepare", "FAILED", "发送" + command.documentType() + "需要先选择附件"));
+			return reply(
+					"发送" + command.documentType() + "需要带上文件。请先点击输入框旁的附件按钮选择方案文件，再发送同一句指令；文件会在你点击发送后上传，不会在选择时提前上传。",
+					"识别到给客户发送文件的意图，但本次消息没有附件。为避免发错或漏发文件，未创建审批，也未发送邮件。",
+					traces,
+					Map.of("intent", "SEND_DOCUMENT_EMAIL", "customerName", command.customerName(), "attachmentRequired", true));
+		}
+
+		var customer = resolveCustomer(command.customerName());
+		traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
+		traces.add(new AssistantToolTrace("email.send.prepare", "RUNNING", "正在生成带附件的邮件发送审批"));
+		var proposal = agentService.proposeDocumentEmailFromMcpAssistant(
+				principal, customer, conversationId, command.documentType(), attachments.ids());
+		traces.add(new AssistantToolTrace("email.send.prepare", "SUCCEEDED", "已生成待审批邮件：" + proposal.approvalId()));
+		return reply(
+				"已为客户「" + customer.name() + "」生成一封带 " + attachments.ids().size() + " 个附件的"
+						+ command.documentType() + "邮件，当前尚未发送。请在审批中心核对收件人、主题、正文和附件，审批通过后系统才会发送。",
+				"识别文件发送指令 → 校验客户与附件 → 生成邮件预览 → 创建高风险待审批动作；未直接发送邮件。",
+				traces,
+				Map.of(
+						"customerId", customer.id(),
+						"customerName", customer.name(),
+						"agentRunId", proposal.runId(),
+						"approvalId", proposal.approvalId(),
+						"to", proposal.to(),
+						"subject", proposal.subject(),
+						"attachments", attachments.preview()));
+	}
+
+	private AssistantChatResponse importChatAndRunAgent(AuthPrincipal principal, UUID conversationId, ImportCommand command, List<AssistantToolTrace> traces, AttachmentContext attachments) {
 		if (command == null || !StringUtils.hasText(command.customerName()) || !StringUtils.hasText(command.content())) {
 			return reply("我还缺客户名或聊天内容。可以这样发：\n\n给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。", "识别为聊天导入意图，但缺少客户名或聊天正文，因此没有调用业务写入工具。", traces, Map.of("intent", "CHAT_IMPORT"));
 		}
-		var customer = resolveOrCreateCustomer(command.customerName(), looksLikeCustomerCreate(message), traces);
+		var customer = resolveOrCreateCustomer(command.customerName(), command.createCustomer(), traces);
 		traces.add(new AssistantToolTrace("interaction.chat_import", "RUNNING", "正在保存聊天记录"));
 		var interaction = interactionService.importChat(
 				customer.id(),
 				new ChatImportRequest(ChatPlatform.OTHER, clock.instant(), "MCP 助手导入聊天", command.content().strip(), null));
 		traces.add(new AssistantToolTrace("interaction.chat_import", "SUCCEEDED", "已导入聊天记录：" + interaction.id()));
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在分析客户并生成待审批建议"));
-		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId);
+		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
+		var approvals = pendingApprovalsForRun(run.id());
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply(
 				"已完成自动化处理：我先找到客户「" + customer.name() + "」，导入聊天记录，然后只针对这个客户跑了一次跟进建议 Agent。"
-						+ nextRunHint(run),
+						+ nextRunHint(run) + attachmentHint(attachments),
 				"识别聊天导入指令 → 匹配或创建客户 → 写入互动记录 → 触发客户跟进建议 Agent → 返回待审批数量。",
 				traces,
 				Map.of(
@@ -336,31 +422,52 @@ public class AssistantChatService {
 						"interactionId", interaction.id(),
 						"agentRunId", run.id(),
 						"agentRunStatus", run.status(),
-						"pendingApprovalCount", run.pendingApprovalCount()));
+						"pendingApprovalCount", run.pendingApprovalCount(),
+						"approvals", approvals,
+						"attachments", attachments.preview()));
 	}
 
-	private AssistantChatResponse runAgent(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse runAgent(AuthPrincipal principal, UUID conversationId, String customerName, List<AssistantToolTrace> traces, AttachmentContext attachments) {
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在读取互动并调用模型分析客户"));
-		var customerName = extractCustomerName(message);
 		AgentRunResponse run;
 		if (StringUtils.hasText(customerName)) {
 			var customer = resolveCustomer(customerName);
 			traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
-			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId);
+			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
 		}
 		else {
+			if (!attachments.isEmpty()) {
+				return reply("我已收到附件，但为了避免把文件带给错误客户，请在指令里写清楚客户名，例如：运行 Agent 分析云岚科技。",
+						"识别到 Agent 运行意图和附件，但未指定客户；附件类动作必须绑定明确客户，未执行 Agent。",
+						traces,
+						attachments.data());
+			}
 			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, null), conversationId);
 		}
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
-		return reply("Agent 已运行完成。" + nextRunHint(run), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
+		var approvals = pendingApprovalsForRun(run.id());
+		return reply("Agent 已运行完成。" + nextRunHint(run) + attachmentHint(attachments), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
 				"agentRunId", run.id(),
 				"agentRunStatus", run.status(),
 				"processedCount", run.processedCount(),
-				"pendingApprovalCount", run.pendingApprovalCount()));
+				"pendingApprovalCount", run.pendingApprovalCount(),
+				"approvals", approvals,
+				"attachments", attachments.preview()));
 	}
 
-	private AssistantChatResponse createCustomer(String message, List<AssistantToolTrace> traces) {
-		var draft = parseCustomerDraft(message);
+	private List<Map<String, Object>> pendingApprovalsForRun(UUID runId) {
+		return approvalService.findApprovals("PENDING", 0, 50).getRecords().stream()
+				.filter(approval -> runId.equals(approval.runId()))
+				.map(approval -> compactMap(
+						"id", approval.id(),
+						"customerName", approval.customerName(),
+						"actionType", approval.actionType(),
+						"riskLevel", approval.riskLevel(),
+						"version", approval.version()))
+				.toList();
+	}
+
+	private AssistantChatResponse createCustomer(CustomerDraft draft, List<AssistantToolTrace> traces) {
 		if (!StringUtils.hasText(draft.name())) {
 			return reply("我还缺客户名称。可以这样发：\n\n新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com", "识别为新增客户意图，但缺少客户名称，因此没有创建客户。", traces, Map.of("intent", "CUSTOMER_CREATE"));
 		}
@@ -382,6 +489,7 @@ public class AssistantChatService {
 						"customerName", approval.customerName(),
 						"actionType", approval.actionType(),
 						"riskLevel", approval.riskLevel(),
+						"version", approval.version(),
 						"reason", approval.reason()))
 				.toList();
 		var content = approvals.isEmpty()
@@ -390,18 +498,21 @@ public class AssistantChatService {
 		return reply(content, "识别查询审批指令 → 读取待审批列表 → 返回最近 10 条建议摘要。", traces, Map.of("approvals", approvals));
 	}
 
-	private AssistantChatResponse approveById(AuthPrincipal principal, String message, List<AssistantToolTrace> traces) {
-		var matcher = UUID_PATTERN.matcher(message);
-		if (!matcher.find()) {
-			return reply("为了避免误审批，请带上完整审批 ID，例如：批准 00000000-0000-0000-0000-000000000000", "识别审批通过意图，但缺少完整审批 ID，因此没有执行审批动作。", traces, Map.of("intent", "APPROVE"));
-		}
-		var approvalId = UUID.fromString(matcher.group());
+	private AssistantChatResponse approveById(AuthPrincipal principal, UUID approvalId, List<AssistantToolTrace> traces) {
 		traces.add(new AssistantToolTrace("approval.approve", "RUNNING", "正在审批并执行对应动作"));
 		var approval = approvalService.approve(principal, approvalId, new ApprovalDecisionRequest(null, "由 MCP 助手聊天入口批准"));
-		traces.add(new AssistantToolTrace("approval.approve", "SUCCEEDED", "已批准审批：" + approval.id()));
-		return reply("已审批通过「" + approval.customerName() + "」的建议，系统会继续执行对应工具并刷新 Agent 运行状态。", "识别审批通过指令 → 校验审批 ID → 调用审批通过接口 → 返回审批后的业务状态。", traces, Map.of(
+		var actionStatus = approval.actionStatus();
+		var failureMessage = approval.failureMessage();
+		var actionMessage = "FAILED".equals(actionStatus)
+				? "已批准，但工具执行失败：" + (failureMessage == null ? "请查看审批记录" : failureMessage)
+				: "SUCCEEDED".equals(actionStatus)
+						? "已批准并执行成功"
+						: "已批准，工具正在执行";
+		traces.add(new AssistantToolTrace("approval.approve", "FAILED".equals(actionStatus) ? "FAILED" : "SUCCEEDED", actionMessage));
+		return reply("已审批通过「" + approval.customerName() + "」的建议。" + actionMessage + "。", "识别审批通过指令 → 校验审批 ID → 调用审批通过接口 → 返回审批后的业务状态。", traces, Map.of(
 				"approvalId", approval.id(),
 				"status", approval.status(),
+				"actionStatus", actionStatus,
 				"customerName", approval.customerName()));
 	}
 
@@ -445,6 +556,9 @@ public class AssistantChatService {
 
 				7. 查看跟进任务
 				示例：查看跟进任务
+
+				8. 给客户发送方案、报价或合同附件
+				示例：选择文件后输入：给和成科技发送方案
 				""", "没有匹配到明确业务指令，因此返回当前支持的工具调用方式和示例。", traces, Map.of("intent", "HELP"));
 	}
 
@@ -473,7 +587,7 @@ public class AssistantChatService {
 			if (!allowCreate) {
 				throw exception;
 			}
-			var customer = createCustomerFromDraft(parseCustomerDraft("新增客户：" + keyword));
+			var customer = createCustomerFromDraft(new CustomerDraft(keyword, null, null, null, null, null, null));
 			traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "未找到现有客户，已新建：" + customer.name()));
 			return customer;
 		}
@@ -498,87 +612,115 @@ public class AssistantChatService {
 				draft.contactPhone()));
 	}
 
-	private static CustomerDraft parseCustomerDraft(String message) {
-		var matcher = CREATE_CUSTOMER_PATTERN.matcher(message);
-		var name = matcher.find() ? cleanCustomerName(matcher.group("customer")) : "";
+	private static CustomerDraft customerDraft(Map<String, Object> arguments) {
 		return new CustomerDraft(
-				name,
-				extractField(message, "网站", "官网"),
-				extractField(message, "行业"),
-				extractField(message, "规模", "人数"),
-				extractField(message, "联系人", "客户联系人"),
-				extractField(message, "邮箱", "邮件"),
-				extractField(message, "电话", "手机号", "手机"));
+				stringArgument(arguments, "name"),
+				stringArgument(arguments, "website"),
+				stringArgument(arguments, "industry"),
+				stringArgument(arguments, "employeeRange"),
+				stringArgument(arguments, "contactName"),
+				stringArgument(arguments, "contactEmail"),
+				stringArgument(arguments, "contactPhone"));
 	}
 
-	private static boolean looksLikeChatImport(String message) {
-		return containsAny(message, "导入", "添加", "记录") && containsAny(message, "聊天", "微信", "whatsapp");
+	private static ImportCommand importCommand(Map<String, Object> arguments) {
+		return new ImportCommand(
+				stringArgument(arguments, "customerName"),
+				stringArgument(arguments, "chatContent"),
+				booleanArgument(arguments, "createCustomer"));
 	}
 
-	private static boolean looksLikeCustomerCreate(String message) {
-		return containsAny(message, "新增客户", "创建客户", "新建客户");
+	private static DocumentSendCommand documentSendCommand(Map<String, Object> arguments) {
+		return new DocumentSendCommand(
+				stringArgument(arguments, "customerName"),
+				stringArgument(arguments, "documentType"));
 	}
 
-	private static ImportCommand parseImportCommand(String message) {
-		var createMatcher = CREATE_AND_IMPORT_PATTERN.matcher(message);
-		if (createMatcher.find()) {
-			return new ImportCommand(cleanCustomerName(createMatcher.group("customer")), createMatcher.group("content").strip());
+	private static Map<String, Object> assistantTool(String name, String description, String riskLevel, List<String> requiredFields) {
+		return Map.of(
+				"name", name,
+				"description", description,
+				"risk_level", riskLevel,
+				"required_fields", requiredFields);
+	}
+
+	private static String stringArgument(Map<String, Object> arguments, String name) {
+		var value = arguments == null ? null : arguments.get(name);
+		return value == null ? null : value.toString().strip();
+	}
+
+	private static boolean booleanArgument(Map<String, Object> arguments, String name) {
+		var value = arguments == null ? null : arguments.get(name);
+		return value instanceof Boolean booleanValue
+				? booleanValue
+				: value != null && Boolean.parseBoolean(value.toString());
+	}
+
+	private AssistantChatResponse approvePlanned(
+			AuthPrincipal principal, String originalMessage, String approvalId, List<AssistantToolTrace> traces) {
+		if ((!originalMessage.contains("审批通过") && !originalMessage.contains("批准")) || !StringUtils.hasText(approvalId)) {
+			return reply(
+					"审批属于高风险动作，请明确输入“批准 <审批ID>”。",
+					"LangGraph 提出了审批动作，但 Java 未检测到明确确认语句或完整审批 ID，因此阻止执行。",
+					traces,
+					Map.of("intent", "APPROVE", "requiresApproval", true));
 		}
-		var matcher = IMPORT_PATTERN.matcher(message);
-		if (matcher.find()) {
-			return new ImportCommand(matcher.group("customer").strip(), matcher.group("content").strip());
+		try {
+			return approveById(principal, UUID.fromString(approvalId), traces);
 		}
-		matcher = IMPORT_ALT_PATTERN.matcher(message);
-		if (!matcher.find()) {
-			return null;
+		catch (IllegalArgumentException exception) {
+			return reply("审批 ID 格式不正确，请提供完整 UUID。",
+					"Java 在执行高风险审批前校验审批 ID 失败，因此阻止执行。", traces,
+					Map.of("intent", "APPROVE", "requiresApproval", true));
 		}
-		return new ImportCommand(matcher.group("customer").strip(), matcher.group("content").strip());
 	}
 
-	private static String extractCustomerName(String message) {
-		var cleaned = message
-				.replace("运行", "")
-				.replace("触发", "")
-				.replace("跑一下", "")
-				.replace("分析", "")
-				.replace("客户", "")
-				.replace("Agent", "")
-				.replace("agent", "")
-				.strip();
-		return StringUtils.hasText(cleaned) && cleaned.length() <= 40 ? cleaned : null;
+	private static Map<String, Object> planData(AssistantPlan plan) {
+		return compactMap(
+				"assistantPlanIntent", plan.intent(),
+				"assistantPlanTool", plan.toolName(),
+				"assistantPlanConfidence", plan.confidence(),
+				"assistantPlanRequiresApproval", plan.requiresApproval(),
+				"assistantPlanValidationErrors", plan.validationErrors(),
+				"assistantPlanUsage", plan.usage() == null ? null : usageSnapshot(plan.usage()));
 	}
 
-	private static boolean containsAny(String text, String... values) {
-		for (var value : values) {
-			if (text.contains(value)) {
-				return true;
-			}
+	private void recordPlannerModelCall(
+			AuthPrincipal principal,
+			String configuredModel,
+			AssistantPlan plan,
+			java.time.Instant startedAt,
+			java.time.Instant completedAt,
+			String userMessage) {
+		try {
+			modelCallRecorder.record(new ModelCallRecordRequest(
+					principal.organizationId(),
+					principal.memberId(),
+					null,
+					null,
+					null,
+					"PLANNING",
+					"QWEN",
+					StringUtils.hasText(plan.model()) ? plan.model() : configuredModel,
+					plan.providerRequestId(),
+					"mcp-assistant-langgraph-plan-v1",
+					null,
+					"SUCCEEDED",
+					1,
+					plan.usage(),
+					Math.max(0, completedAt.toEpochMilli() - startedAt.toEpochMilli()),
+					sha256(userMessage),
+					sha256(plan.toString()),
+					Map.of("channel", "MCP_ASSISTANT", "userMessageChars", userMessage.length()),
+					compactMap("intent", plan.intent(), "tool", plan.toolName(), "confidence", plan.confidence()),
+					null,
+					null,
+					startedAt,
+					completedAt));
 		}
-		return false;
-	}
-
-	private static String extractField(String message, String... labels) {
-		for (var label : labels) {
-			var pattern = Pattern.compile(label + "[：:\\s]*(?<value>[^，,；;\\n]+)");
-			var matcher = pattern.matcher(message);
-			if (matcher.find()) {
-				var value = matcher.group("value").strip();
-				return StringUtils.hasText(value) ? value : null;
-			}
+		catch (RuntimeException exception) {
+			LOGGER.warn("Failed to record LangGraph planner model usage", exception);
 		}
-		return null;
-	}
-
-	private static String cleanCustomerName(String value) {
-		if (value == null) {
-			return "";
-		}
-		var cleaned = value
-				.replace("并导入聊天", "")
-				.replace("然后导入聊天", "")
-				.replace("导入聊天", "")
-				.strip();
-		return cleaned.length() > 255 ? cleaned.substring(0, 255) : cleaned;
 	}
 
 	private static String nextRunHint(AgentRunResponse run) {
@@ -589,6 +731,36 @@ public class AssistantChatService {
 			return " 这次没有找到符合条件的近期聊天记录，可以先导入客户聊天再运行。";
 		}
 		return " 没有产生待审批建议。";
+	}
+
+	private AttachmentContext resolveAttachmentContext(AuthPrincipal principal, List<UUID> attachmentIds) {
+		if (CollectionUtils.isEmpty(attachmentIds)) {
+			return AttachmentContext.empty();
+		}
+		var ids = attachmentIds.stream()
+				.filter(Objects::nonNull)
+				.distinct()
+				.limit(10)
+				.toList();
+		if (ids.isEmpty()) {
+			return AttachmentContext.empty();
+		}
+		try {
+			var files = ids.stream()
+					.map(id -> fileStorageService.requireActive(principal.organizationId(), id))
+					.toList();
+			return new AttachmentContext(ids, fileStorageService.preview(files));
+		}
+		catch (FileStorageException exception) {
+			throw new AssistantWorkflowException(exception.getMessage(), exception);
+		}
+	}
+
+	private static String attachmentHint(AttachmentContext attachments) {
+		if (attachments.isEmpty()) {
+			return "";
+		}
+		return " 本次已带上 " + attachments.ids().size() + " 个附件；如果后续建议是发送邮件，审批和发送时会优先使用这些附件。";
 	}
 
 	private AssistantConversationRow resolveConversation(AuthPrincipal principal, UUID conversationId, String rawChannel, String firstMessage) {
@@ -674,6 +846,7 @@ public class AssistantChatService {
 		try {
 			modelCallRecorder.record(new ModelCallRecordRequest(
 					principal.organizationId(),
+					principal.memberId(),
 					null,
 					null,
 					null,
@@ -747,7 +920,28 @@ public class AssistantChatService {
 		}
 	}
 
-	private record ImportCommand(String customerName, String content) {
+	private record AttachmentContext(List<UUID> ids, List<Map<String, Object>> preview) {
+
+		static AttachmentContext empty() {
+			return new AttachmentContext(List.of(), List.of());
+		}
+
+		boolean isEmpty() {
+			return ids.isEmpty();
+		}
+
+		Map<String, Object> data() {
+			if (isEmpty()) {
+				return Map.of();
+			}
+			return Map.of("attachments", preview);
+		}
+	}
+
+	private record ImportCommand(String customerName, String content, boolean createCustomer) {
+	}
+
+	private record DocumentSendCommand(String customerName, String documentType) {
 	}
 
 	private record CustomerDraft(

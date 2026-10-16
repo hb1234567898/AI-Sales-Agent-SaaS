@@ -15,11 +15,6 @@ spring:
     validate-migration-naming: true
   jackson:
     time-zone: UTC
-  ai:
-    # 模型客户端按数据库中的组织配置动态创建，后端启动时不再读取 API Key。
-    model:
-      chat: none
-      embedding: none
   mail:
     # 真实邮件发送通道。生产环境通过 .env 的 MAIL_* 变量注入；未配置时 SendEmailTool 会优雅失败（标记 FAILED 而非崩溃）。
     host: ${MAIL_HOST:localhost}
@@ -71,9 +66,14 @@ app:
     password-encryption-public-key: ${AUTH_PASSWORD_ENCRYPTION_PUBLIC_KEY:}
     password-encryption-private-key: ${AUTH_PASSWORD_ENCRYPTION_PRIVATE_KEY:}
   ai:
-    qwen:
+    defaults:
       base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       model: ${QWEN_MODEL:qwen-plus}
+    python:
+      base-url: ${AI_SERVICE_BASE_URL:http://127.0.0.1:8090}
+      service-token: ${AI_SERVICE_TOKEN:}
+      connect-timeout: ${AI_SERVICE_CONNECT_TIMEOUT:PT3S}
+      read-timeout: ${AI_SERVICE_READ_TIMEOUT:PT2M}
   security:
     cors:
       # Web 端同源部署一般不需要 CORS；桌面端、本地 Vite 开发和远程调试需要允许对应 Origin。
