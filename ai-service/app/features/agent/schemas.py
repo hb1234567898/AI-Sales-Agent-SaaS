@@ -1,21 +1,40 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.llm.schemas import ModelConfiguration, ModelUsage
 
 
 class ToolDefinition(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str = Field(min_length=1)
     description: str = ""
-    risk_level: Literal["LOW", "MEDIUM", "HIGH"] = "LOW"
-    required_fields: list[str] = Field(default_factory=list)
+    risk_level: Literal["LOW", "MEDIUM", "HIGH"] = Field(
+        default="LOW",
+        validation_alias=AliasChoices("risk_level", "riskLevel"),
+    )
+    required_fields: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("required_fields", "requiredFields"),
+    )
 
 
 class AgentPlanRequest(ModelConfiguration):
-    user_message: str = Field(min_length=1, max_length=4000)
-    business_context: dict[str, Any] = Field(default_factory=dict)
-    available_tools: list[ToolDefinition] = Field(default_factory=list, max_length=100)
+    user_message: str = Field(
+        min_length=1,
+        max_length=4000,
+        validation_alias=AliasChoices("user_message", "userMessage"),
+    )
+    business_context: dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("business_context", "businessContext"),
+    )
+    available_tools: list[ToolDefinition] = Field(
+        default_factory=list,
+        max_length=100,
+        validation_alias=AliasChoices("available_tools", "availableTools"),
+    )
 
 
 class AgentDecision(BaseModel):
