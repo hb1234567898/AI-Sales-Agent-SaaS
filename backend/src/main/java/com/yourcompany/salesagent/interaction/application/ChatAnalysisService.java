@@ -24,7 +24,7 @@ import com.yourcompany.salesagent.ai.application.AiModelConnectionException;
 import com.yourcompany.salesagent.ai.application.ModelCallRecordRequest;
 import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
 import com.yourcompany.salesagent.ai.application.AiModelService;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.customer.application.CustomerNotFoundException;
 import com.yourcompany.salesagent.customer.domain.Customer;
 import com.yourcompany.salesagent.customer.infrastructure.CustomerMapper;
@@ -51,7 +51,7 @@ public class ChatAnalysisService {
 	private final ChatAnalysisMapper analysisMapper;
 	private final InteractionMapper interactionMapper;
 	private final CustomerMapper customerMapper;
-	private final QwenModelClient modelClient;
+	private final AiOrchestrationClient modelClient;
 	private final AiModelService modelService;
 	private final ModelCallRecorder modelCallRecorder;
 	private final ObjectMapper objectMapper;
@@ -62,7 +62,7 @@ public class ChatAnalysisService {
 			ChatAnalysisMapper analysisMapper,
 			InteractionMapper interactionMapper,
 			CustomerMapper customerMapper,
-			QwenModelClient modelClient,
+			AiOrchestrationClient modelClient,
 			AiModelService modelService,
 			ModelCallRecorder modelCallRecorder,
 			ObjectMapper objectMapper,
@@ -110,7 +110,7 @@ public class ChatAnalysisService {
 		String rawOutput;
 		var startedAt = clock.instant();
 		var completedAt = startedAt;
-		QwenModelClient.QwenChatResult modelResult;
+		AiOrchestrationClient.ChatResult modelResult;
 		try {
 			modelResult = modelClient.analyzeChat(
 					modelConfiguration,
