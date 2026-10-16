@@ -163,6 +163,33 @@ describe('McpAssistantPage', () => {
     await waitFor(() => expect(screen.getByText('approval.list')).toBeInTheDocument())
   })
 
+  it('流式错误与结果正文相同时只展示一次', async () => {
+    const failure = 'AI 规划服务暂时不可用，请联系管理员检查 AI 服务地址和内部令牌配置。'
+    const response: AssistantChatResponse = {
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      role: 'assistant',
+      content: failure,
+      reasoningSummary: '',
+      toolTraces: [],
+      data: { streamStatus: 'INTERRUPTED' },
+      createdAt: '2026-09-05T08:00:00Z',
+    }
+    vi.mocked(streamMcpChatMessage).mockImplementation(async (_input, onEvent) => {
+      onEvent({ type: 'delta', data: { text: failure } })
+      onEvent({ type: 'error', data: { message: failure } })
+      return response
+    })
+    const user = userEvent.setup()
+    renderMcpAssistantPage()
+
+    await user.type(screen.getByPlaceholderText(/给云岚科技导入聊天/), '你能做什么')
+    await user.click(screen.getByRole('button', { name: /发送指令/ }))
+
+    await waitFor(() => expect(screen.getAllByText(failure)).toHaveLength(1))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('完成前显示真实文本增量，断线保留内容并重新启用发送', async () => {
     let rejectStream!: (error: Error) => void
     vi.mocked(streamMcpChatMessage).mockImplementation((_input, onEvent) => {

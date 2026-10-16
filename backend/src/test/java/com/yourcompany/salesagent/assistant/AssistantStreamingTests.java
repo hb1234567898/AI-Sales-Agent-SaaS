@@ -18,6 +18,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yourcompany.salesagent.ai.application.*;
 import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
+import com.yourcompany.salesagent.ai.infrastructure.PythonAiClient.PythonAiException;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.application.ApprovalService;
 import com.yourcompany.salesagent.assistant.api.AssistantChatResponse;
@@ -114,6 +115,28 @@ class AssistantStreamingTests {
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).contains("配置并启用 AI 模型");
 		verify(approvals, never()).findApprovals(anyString(), anyInt(), anyInt());
+	}
+
+	@Test
+	void answersCapabilityQuestionWithoutCallingPythonPlanner() {
+		service.streamChat(principal, conversationId, "你能做什么？", null, this::receive);
+
+		assertThat(saved.content()).contains("我现在可以帮你自动化这些事").contains("给客户发送方案、报价或合同附件");
+		assertThat(saved.toolTraces()).anyMatch(trace -> trace.name().equals("assistant.router"));
+		verify(model, never()).planAssistantAction(any(), anyString(), anyMap(), anyList());
+		verify(model, never()).streamAssistantReplyWithUsage(any(), anyString(), anyString());
+	}
+
+	@Test
+	void reportsPythonPlannerFailureAsAiServiceConfigurationProblem() {
+		when(model.planAssistantAction(any(), anyString(), anyMap(), anyList()))
+				.thenThrow(new PythonAiException("Python AI service returned status 401"));
+
+		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
+
+		assertThat(saved.content()).contains("AI 规划服务暂时不可用").contains("AI 服务地址和内部令牌配置");
+		assertThat(events).containsSubsequence("error", "done");
+		verifyNoInteractions(approvals);
 	}
 
 	@Test

@@ -34,6 +34,7 @@ import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
 import com.yourcompany.salesagent.ai.application.ModelUsage;
 import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient.AssistantPlan;
+import com.yourcompany.salesagent.ai.infrastructure.PythonAiClient.PythonAiException;
 import com.yourcompany.salesagent.agent.api.AgentRunResponse;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.api.ApprovalDecisionRequest;
@@ -159,7 +160,12 @@ public class AssistantChatService {
 			data.putAll(result.data());
 			events.accept("summary", Map.of("text", summary));
 			events.accept("result", result);
-			try {
+			if ("HELP".equals(result.data().get("intent"))) {
+				events.accept("progress", Map.of("text", "已返回助手支持的业务能力。"));
+				content.append(result.content());
+				events.accept("delta", Map.of("text", result.content()));
+			}
+			else try {
 				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
 				var verifiedResult = objectMapper.writeValueAsString(result);
 				var startedAt = clock.instant();
@@ -311,6 +317,9 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
+		if (isHelpRequest(message)) {
+			return help(traces);
+		}
 		com.yourcompany.salesagent.ai.application.AiModelRuntimeConfiguration configuration;
 		try {
 			configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
@@ -322,7 +331,15 @@ public class AssistantChatService {
 		context.put("attachmentCount", attachments.ids().size());
 		context.put("attachments", attachments.preview());
 		var startedAt = clock.instant();
-		var plan = modelClient.planAssistantAction(configuration, message, context, ASSISTANT_TOOLS);
+		AssistantPlan plan;
+		try {
+			plan = modelClient.planAssistantAction(configuration, message, context, ASSISTANT_TOOLS);
+		}
+		catch (PythonAiException exception) {
+			LOGGER.warn("FastAPI assistant planning request failed", exception);
+			throw new AssistantWorkflowException(
+					"AI 规划服务暂时不可用，请联系管理员检查 AI 服务地址和内部令牌配置。", exception);
+		}
 		var completedAt = clock.instant();
 		recordPlannerModelCall(principal, configuration.model(), plan, startedAt, completedAt, message);
 		traces.add(new AssistantToolTrace("assistant.langgraph.plan", "SUCCEEDED",
@@ -560,6 +577,16 @@ public class AssistantChatService {
 				8. 给客户发送方案、报价或合同附件
 				示例：选择文件后输入：给和成科技发送方案
 				""", "没有匹配到明确业务指令，因此返回当前支持的工具调用方式和示例。", traces, Map.of("intent", "HELP"));
+	}
+
+	private boolean isHelpRequest(String message) {
+		var normalized = message.toLowerCase()
+				.replaceAll("[\\s?？!！。,.，]+", "");
+		return switch (normalized) {
+			case "你能做什么", "能做什么", "你可以做什么", "可以做什么", "有什么功能", "支持什么",
+					"帮助", "使用说明", "help" -> true;
+			default -> false;
+		};
 	}
 
 	private CustomerResponse resolveCustomer(String keyword) {
