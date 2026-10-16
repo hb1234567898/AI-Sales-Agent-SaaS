@@ -5,8 +5,7 @@ APP_ROOT="${APP_ROOT:-/www/wwwroot/ai.likeasuka.icu}"
 APP_USER="${APP_USER:-root}"
 APP_GROUP="${APP_GROUP:-root}"
 SERVICE_NAME="${SERVICE_NAME:-ai-sales-agent.service}"
-AI_SERVICE_NAME="${AI_SERVICE_NAME:-ai-sales-agent-ai.service}"
-PYTHON_BIN="${PYTHON_BIN:-python3.12}"
+LEGACY_AI_SERVICE_NAME="${AI_SERVICE_NAME:-ai-sales-agent-ai.service}"
 MAX_RELEASES="${MAX_RELEASES:-5}"
 
 archive="${1:-}"
@@ -55,8 +54,6 @@ release_dir="$releases_dir/$release_id"
 current_link="$APP_ROOT/current"
 next_link="$APP_ROOT/current.next"
 previous_release=""
-shared_dir="$APP_ROOT/shared"
-shared_venv="$shared_dir/ai-service-venv"
 
 cleanup_old_release() {
   local old_release="$1"
@@ -81,7 +78,7 @@ if [[ -L "$current_link" ]]; then
   fi
 fi
 
-install -d -m 0755 -o root -g root "$APP_ROOT" "$releases_dir" "$shared_dir"
+install -d -m 0755 -o root -g root "$APP_ROOT" "$releases_dir"
 install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$APP_ROOT/logs"
 
 if [[ -e "$release_dir" ]]; then
@@ -98,38 +95,15 @@ tar --no-same-owner --no-same-permissions \
 test -s "$release_dir/backend/sales-agent.jar"
 test -s "$release_dir/frontend/index.html"
 test -d "$release_dir/ai-service/wheelhouse"
+test -s "$release_dir/ai-service/app/main.py"
 test -s "$release_dir/ai-service/runtime-requirements.txt"
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  echo "required Python interpreter not found: $PYTHON_BIN" >&2
-  exit 2
-fi
-if [[ ! -x "$shared_venv/bin/python" ]]; then
-  "$PYTHON_BIN" -m venv "$shared_venv"
-fi
-"$shared_venv/bin/python" -m pip install --no-index \
-  --find-links "$release_dir/ai-service/wheelhouse" \
-  --requirement "$release_dir/ai-service/runtime-requirements.txt"
-mapfile -t application_wheels < <(find "$release_dir/ai-service/wheelhouse" -maxdepth 1 -type f -name 'ai_sales_agent_ai-*.whl' -print)
-if [[ "${#application_wheels[@]}" -ne 1 ]]; then
-  echo "release must contain exactly one ai-sales-agent-ai application wheel" >&2
-  exit 2
-fi
-install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$release_dir/ai-service/runtime"
-"$shared_venv/bin/python" -m pip install --no-index --no-deps \
-  --target "$release_dir/ai-service/runtime" "${application_wheels[0]}"
 chown -R root:root "$release_dir"
 chmod -R a-w "$release_dir"
 chmod -R a+rX "$release_dir"
 
-install -m 0644 "$release_dir/deploy/ai-sales-agent-ai.service" "/etc/systemd/system/$AI_SERVICE_NAME"
-systemctl daemon-reload
-systemctl enable "$AI_SERVICE_NAME"
-
 ln -sfn "$release_dir" "$next_link"
 mv -Tf "$next_link" "$current_link"
-if ! systemctl restart "$AI_SERVICE_NAME"; then
-  echo "warning: release is active, but $AI_SERVICE_NAME could not be restarted" >&2
-fi
+systemctl disable --now "$LEGACY_AI_SERVICE_NAME" >/dev/null 2>&1 || true
 if ! systemctl restart "$SERVICE_NAME"; then
   echo "warning: release is active, but $SERVICE_NAME could not be restarted" >&2
 fi
@@ -143,4 +117,4 @@ for old_release in "${old_releases[@]}"; do
   fi
 done
 
-echo "deployed release $release_id without backend health verification"
+echo "deployed release $release_id; restart the FastAPI project in the BT panel to load the new Python code"
