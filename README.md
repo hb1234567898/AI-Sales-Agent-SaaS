@@ -2,6 +2,12 @@
 
 面向中小销售团队的 AI 跟进工作台。当前仓库包含可运行的后端、前端、PostgreSQL Compose 和数据库迁移骨架。
 
+## 技术架构
+
+系统采用 Java 业务主服务与 Python AI 编排服务分离的架构：客户端统一访问 Spring Boot，业务、权限、审批与数据持久化由 Java 负责，模型调用、Agent 计划、流式处理和 RAG 由 FastAPI 负责。
+
+![AI Sales Agent SaaS 技术架构图](./docs/assets/ai-sales-agent-technology-architecture.svg)
+
 ## 目录
 
 ```text
