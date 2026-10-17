@@ -33,6 +33,7 @@ public class PythonAiClient {
 		this.properties = properties;
 		this.objectMapper = JsonMapper.builder().build();
 		this.httpClient = HttpClient.newBuilder()
+				.version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(properties.connectTimeout())
 				.build();
 	}

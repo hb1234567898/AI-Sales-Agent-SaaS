@@ -21,10 +21,14 @@ class PythonAiClientTests {
 	@Test
 	void forwardsDynamicConfigurationAndReadsStreamingUsage() throws Exception {
 		var authorization = new AtomicReference<String>();
+		var upgrade = new AtomicReference<String>();
 		var requestBody = new AtomicReference<String>();
+		var planUpgrade = new AtomicReference<String>();
+		var planRequestBody = new AtomicReference<String>();
 		var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 		server.createContext("/v1/chat/stream", exchange -> {
 			authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+			upgrade.set(exchange.getRequestHeaders().getFirst("Upgrade"));
 			requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
 			var body = """
 					{"type":"delta","text":"你好","provider_request_id":"req-1","model":"test-model"}
@@ -36,6 +40,8 @@ class PythonAiClientTests {
 			exchange.close();
 		});
 		server.createContext("/v1/agent/plan", exchange -> {
+			planUpgrade.set(exchange.getRequestHeaders().getFirst("Upgrade"));
+			planRequestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
 			var body = """
 					{"decision":{"intent":"BUSINESS_ACTION","response":"","tool_name":"customer.create","arguments":{"name":"云岚科技"},"confidence":0.96},"requires_approval":false,"validation_errors":[],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"cached_input_tokens":0},"provider_request_id":"plan-1","model":"test-model"}
 					""".getBytes(StandardCharsets.UTF_8);
@@ -63,6 +69,7 @@ class PythonAiClientTests {
 			assertThat(events.get(0).text()).isEqualTo("你好");
 			assertThat(events.get(1).usage().toModelUsage().totalTokens()).isEqualTo(6);
 			assertThat(authorization.get()).isEqualTo("Bearer internal-token");
+			assertThat(upgrade.get()).isNull();
 			assertThat(requestBody.get())
 					.contains("\"api_key\":\"secret-key\"")
 					.contains("\"verified_result\":\"已核实\"");
@@ -72,6 +79,10 @@ class PythonAiClientTests {
 			assertThat(plan.decision().toolName()).isEqualTo("customer.create");
 			assertThat(plan.decision().arguments()).containsEntry("name", "云岚科技");
 			assertThat(plan.usage().toModelUsage().totalTokens()).isEqualTo(15);
+			assertThat(planUpgrade.get()).isNull();
+			assertThat(planRequestBody.get())
+					.contains("\"api_key\":\"secret-key\"")
+					.contains("\"user_message\":\"新增客户云岚科技\"");
 		}
 		finally {
 			server.stop(0);
