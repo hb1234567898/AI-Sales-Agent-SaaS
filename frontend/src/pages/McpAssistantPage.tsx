@@ -15,6 +15,7 @@ import { approveApproval, getApproval, rejectApproval, type Approval } from '../
 import { getMembers, getTeamTokenBudget, updateMemberTokenQuota, updateTeamTokenBudget, type AdminMember, type TeamTokenBudget } from '../api/admin-api'
 import { ApiError } from '../api/axios-client'
 import { useAuth, useIsGuest } from '../auth/use-auth'
+import { Link } from 'react-router'
 
 interface ChatMessage {
   id: string
@@ -75,7 +76,10 @@ export function McpAssistantPage() {
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
-  const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => isGuest ? [
+    { id: 'demo-user', role: 'user', content: '查看云岚科技的下一步跟进建议', createdAt: new Date().toISOString() },
+    { id: 'demo-assistant', role: 'assistant', content: '演示结果：建议与云岚科技确认方案范围，并预约下一次评审。', reasoningSummary: '根据模拟客户资料生成跟进建议。', traces: [{ name: 'agent.sales_follow_up.run', status: 'SUCCEEDED', summary: '演示：已生成跟进建议' }], createdAt: new Date().toISOString() },
+  ] : [welcomeMessage])
   const [useLocalMessages, setUseLocalMessages] = useState(true)
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const [attachmentError, setAttachmentError] = useState('')
@@ -276,7 +280,7 @@ export function McpAssistantPage() {
     setAttachmentError('')
   }
 
-  const readableStatus = chatMutation.isPending ? '正在执行' : activeConversation ? '历史已保存' : '新会话'
+  const readableStatus = isGuest ? '演示会话' : chatMutation.isPending ? '正在执行' : activeConversation ? '历史已保存' : '新会话'
 
   return (
     <section className="mcp-page">
@@ -290,7 +294,7 @@ export function McpAssistantPage() {
             </button>
           </header>
           {isGuest ? (
-            <p className="mcp-history-empty">游客模式不会保存自动化聊天，登录后可使用会话历史。</p>
+            <p className="mcp-history-empty">当前展示模拟会话，登录后可使用自动化聊天和会话历史。</p>
           ) : conversations.length === 0 ? (
             <div className="mcp-empty-history">
               <Robot size={52} />
@@ -606,6 +610,14 @@ function MessageAttachmentList({ attachments }: { attachments: UploadedFile[] })
 function AssistantOutput({ message }: { message: ChatMessage }) {
   const traces = message.traces ?? []
   const approvalIds = dataApprovalIds(message.data)
+  const knowledgeSources = Array.isArray(message.data?.knowledgeSources)
+    ? message.data.knowledgeSources.flatMap((source: unknown) => {
+      if (!source || typeof source !== 'object') return []
+      const item = source as Record<string, unknown>
+      return typeof item.documentId === 'string' && typeof item.title === 'string'
+        ? [{ documentId: item.documentId, title: item.title, pageNumber: typeof item.pageNumber === 'number' ? item.pageNumber : null }]
+        : []
+    }) : []
   return (
     <div className="mcp-assistant-output">
       {message.streaming ? (
@@ -618,6 +630,7 @@ function AssistantOutput({ message }: { message: ChatMessage }) {
         <header><Sparkle size={14} />结果输出</header>
         <p>{message.content}{message.streaming && message.content ? <span className="mcp-stream-cursor" aria-hidden>▍</span> : null}</p>
       </section>
+      {knowledgeSources.length > 0 && <div className="mcp-knowledge-sources" aria-label="知识库引用">{knowledgeSources.map((source, index) => <Link key={`${source.documentId}-${index}`} to={`/app/knowledge?document=${encodeURIComponent(source.documentId)}`}>[资料 {index + 1}] {source.title}{source.pageNumber ? ` · 第 ${source.pageNumber} 页` : ''}</Link>)}</div>}
       {shouldShowStreamError(message) ? <p role="alert" className="mcp-stream-error"><WarningCircle size={15} />{message.error}</p> : null}
 
       {message.reasoningSummary ? (

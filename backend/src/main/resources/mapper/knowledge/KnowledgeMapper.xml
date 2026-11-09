@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.knowledge.infrastructure.KnowledgeMapper">
+    <resultMap id="DocumentMap" type="com.yourcompany.salesagent.knowledge.infrastructure.KnowledgeDocumentRow" autoMapping="true"><id property="id" column="id" /></resultMap>
+    <sql id="Access">d.organization_id = #{org} AND d.status &lt;&gt; 'DELETED' AND (d.visibility = 'TEAM' OR d.uploaded_by_member_id = #{member})</sql>
+    <sql id="DocumentSelect">
+        SELECT d.id, d.uploaded_by_member_id, d.file_id, d.title, d.category, d.visibility, d.status, d.enabled,
+            d.chunk_count, d.character_count, d.error_message, d.revision, d.version,
+            f.original_filename AS filename, f.size_bytes, u.display_name AS uploaded_by_name, d.created_at, d.updated_at
+        FROM knowledge_document d
+        JOIN uploaded_file f ON f.organization_id = d.organization_id AND f.id = d.file_id
+        JOIN organization_member m ON m.organization_id = d.organization_id AND m.id = d.uploaded_by_member_id
+        JOIN app_user u ON u.id = m.user_id
+        WHERE <include refid="Access" />
+    </sql>
+    <select id="selectDocuments" resultMap="DocumentMap">
+        <include refid="DocumentSelect" />
+        <if test="query != null and query != ''">AND (d.title ILIKE CONCAT('%', #{query}, '%') OR f.original_filename ILIKE CONCAT('%', #{query}, '%'))</if>
+        <if test="category != null and category != ''">AND d.category = #{category}</if>
+        ORDER BY d.updated_at DESC, d.id
+    </select>
+    <select id="selectDocument" resultMap="DocumentMap"><include refid="DocumentSelect" /> AND d.id = #{id}</select>
+    <select id="lockDocument" resultMap="DocumentMap"><include refid="DocumentSelect" /> AND d.id = #{id} FOR UPDATE OF d</select>
+    <insert id="insertDocument">
+        INSERT INTO knowledge_document(id, organization_id, uploaded_by_member_id, file_id, title, category, visibility, created_at, updated_at)
+        VALUES (#{id}, #{org}, #{member}, #{file}, #{input.title}, #{input.category}, #{input.visibility}, #{now}, #{now})
+    </insert>
+    <update id="updateMetadata">
+        UPDATE knowledge_document SET title = #{input.title}, category = #{input.category}, visibility = #{input.visibility},
+            version = version + 1, updated_at = #{now}
+        WHERE organization_id = #{org} AND id = #{id} AND version = #{input.version} AND status &lt;&gt; 'DELETED'
+    </update>
+    <update id="updateState">
+        UPDATE knowledge_document SET enabled = #{enabled}, version = version + 1, updated_at = #{now}
+        WHERE organization_id = #{org} AND id = #{id} AND version = #{version} AND status &lt;&gt; 'DELETED'
+    </update>
+    <update id="beginProcessing">
+        UPDATE knowledge_document SET file_id = #{file}, status = 'PROCESSING', revision = revision + 1,
+            chunk_count = 0, character_count = 0, error_message = NULL, version = version + 1, updated_at = #{now}
+        WHERE organization_id = #{org} AND id = #{id} AND version = #{version} AND status &lt;&gt; 'DELETED'
+    </update>
+    <update id="completeProcessing">
+        UPDATE knowledge_document SET status = CASE WHEN CAST(#{error} AS text) IS NULL THEN 'READY' ELSE 'FAILED' END,
+            chunk_count = #{count}, character_count = #{characters}, error_message = #{error}, updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{org} AND id = #{id} AND revision = #{revision} AND status = 'PROCESSING'
+    </update>
+    <update id="deleteDocument">
+        UPDATE knowledge_document SET status = 'DELETED', enabled = false, version = version + 1, updated_at = #{now}
+        WHERE organization_id = #{org} AND id = #{id} AND version = #{version} AND status &lt;&gt; 'DELETED'
+    </update>
+    <delete id="deleteChunks">DELETE FROM knowledge_chunk WHERE organization_id = #{org} AND document_id = #{id}</delete>
+    <insert id="insertChunk">
+        INSERT INTO knowledge_chunk (id, organization_id, document_id, revision, chunk_index, page_number, content, search_terms)
+        VALUES (#{id}, #{org}, #{document}, #{revision}, #{index}, #{pageNumber}, #{content}, #{terms})
+    </insert>
+    <sql id="ChunkSelect">
+        SELECT c.id, c.document_id, c.chunk_index, c.page_number, d.title, c.content, c.revision
+        FROM knowledge_chunk c JOIN knowledge_document d ON d.organization_id = c.organization_id AND d.id = c.document_id
+        WHERE <include refid="Access" /> AND c.revision = d.revision
+    </sql>
+    <select id="selectChunks" resultType="com.yourcompany.salesagent.knowledge.api.KnowledgeChunkResponse">
+        <include refid="ChunkSelect" /> AND d.id = #{id} ORDER BY c.chunk_index
+    </select>
+    <select id="selectCandidates" resultType="com.yourcompany.salesagent.knowledge.api.KnowledgeChunkResponse">
+        <include refid="ChunkSelect" /> AND d.enabled = true AND d.status = 'READY'
+        <if test="document != null">AND d.id = #{document}</if>
+        AND c.search_vector @@ to_tsquery('simple', #{searchQuery})
+        ORDER BY ts_rank_cd(c.search_vector, to_tsquery('simple', #{searchQuery})) DESC, c.id LIMIT 60
+    </select>
+    <select id="sourceAvailable" resultType="int">
+        SELECT COUNT(*) FROM knowledge_chunk c JOIN knowledge_document d ON d.organization_id = c.organization_id AND d.id = c.document_id
+        WHERE <include refid="Access" /> AND d.status = 'READY' AND d.enabled = true
+            AND c.id = #{id} AND c.revision = #{revision} AND c.revision = d.revision
+    </select>
+</mapper>
