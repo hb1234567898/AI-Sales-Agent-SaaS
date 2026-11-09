@@ -28,3 +28,30 @@ class KnowledgeSource(BaseModel):
 
 class KnowledgeQueryResponse(ModelResponse):
     sources: list[KnowledgeSource] = Field(default_factory=list)
+
+
+class DocumentIngestRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    title: str = Field(min_length=1, max_length=255)
+    category: str = Field(default="OTHER", max_length=40)
+    content_base64: str = Field(min_length=1, max_length=13981016)
+
+
+class DocumentChunk(BaseModel):
+    chunk_index: int
+    page_number: int | None = None
+    content: str
+    search_terms: str
+
+
+class DocumentIngestResponse(BaseModel):
+    chunks: list[DocumentChunk]
+    character_count: int
+
+
+class SearchTermsRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+
+
+class SearchTermsResponse(BaseModel):
+    search_query: str

@@ -1,5 +1,6 @@
 import {
   Bell,
+  BookOpen,
   Buildings,
   CaretDown,
   ChatCircleText,
@@ -19,10 +20,11 @@ import {
   Target,
   UsersThree,
   UserList,
+  Question,
   X,
   type IconProps,
 } from '@phosphor-icons/react'
-import { useState, type ComponentType } from 'react'
+import { useCallback, useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getPendingApprovals } from '../../api/approvals-api'
@@ -31,6 +33,7 @@ import { getFollowUps } from '../../api/follow-ups-api'
 import { useAuth } from '../../auth/use-auth'
 import { leaveGuestMode } from '../../auth/guest-session'
 import { DesktopUpdateIndicator } from '../../desktop/DesktopUpdatePrompt'
+import { FeatureGuides, type GuideMode } from '../guides/FeatureGuides'
 
 interface NavItem {
   to: string
@@ -50,6 +53,7 @@ const workNavigation: NavItem[] = [
 
 const insightNavigation: NavItem[] = [
   { to: '/app/mcp', label: 'MCP 助手', icon: ChatCircleText },
+  { to: '/app/knowledge', label: '企业知识库', icon: BookOpen },
   { to: '/app/agent-runs', label: 'Agent 运行', icon: Robot },
   { to: '/app/analytics', label: '效果分析', icon: ChartLineUp },
   { to: '/app/settings', label: '设置', icon: GearSix },
@@ -89,7 +93,6 @@ function NavigationGroup({
     </div>
   )
 }
-
 function Sidebar({
   open,
   onClose,
@@ -166,6 +169,8 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const session = useAuth()
   const guestMode = session.role === 'GUEST'
+  const [guideMode, setGuideMode] = useState<GuideMode>(() => session.role === 'GUEST' && sessionStorage.getItem('sales-agent:guest-guide-seen') !== 'true' ? 'catalog' : null)
+  const closeGuide = useCallback(() => { sessionStorage.setItem('sales-agent:guest-guide-seen', 'true'); setGuideMode(null) }, [])
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const approvalsQuery = useQuery({
@@ -191,7 +196,7 @@ export function AppShell() {
   function exitSession() {
     if (guestMode) {
       leaveGuestMode()
-      queryClient.removeQueries({ queryKey: ['auth-session'] })
+      queryClient.clear()
       navigate('/login', { replace: true })
       return
     }
@@ -254,6 +259,7 @@ export function AppShell() {
           </label>
 
           <div className="topbar-actions">
+            <button className="feature-guide-topbar" type="button" title="查看所有功能的详细使用引导" aria-label="打开功能使用指南" onClick={() => setGuideMode('catalog')}><Question size={18} /><span>功能指南</span></button>
             {guestMode ? (
               <span className="environment-pill is-guest">
                 <Eye size={14} />游客只读
@@ -277,8 +283,8 @@ export function AppShell() {
 
         {guestMode ? (
           <div className="guest-readonly-banner" role="status">
-            <span><Eye size={15} />你正在以游客身份浏览，新增、编辑、审批和 Agent 执行均已禁用。</span>
-            <button type="button" onClick={exitSession}>登录后使用完整功能</button>
+            <span><Eye size={15} />游客模式 · 所有业务数据均为演示内容，修改和实际执行已禁用。</span>
+            <div className="guest-banner-actions"><button type="button" onClick={() => setGuideMode('current')}><Question size={15} />本页引导</button><button type="button" onClick={() => setGuideMode('catalog')}>功能目录</button><button type="button" onClick={exitSession}>登录后使用完整功能</button></div>
           </div>
         ) : null}
 
@@ -286,6 +292,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <FeatureGuides mode={guideMode} onClose={closeGuide} role={session.role} userId={session.userId} />
     </div>
   )
 }

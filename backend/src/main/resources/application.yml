@@ -15,6 +15,10 @@ spring:
     validate-migration-naming: true
   jackson:
     time-zone: UTC
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
   mail:
     # 真实邮件发送通道。生产环境通过 .env 的 MAIL_* 变量注入；未配置时 SendEmailTool 会优雅失败（标记 FAILED 而非崩溃）。
     host: ${MAIL_HOST:localhost}

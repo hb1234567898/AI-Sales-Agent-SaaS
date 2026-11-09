@@ -76,6 +76,24 @@ public class PythonAiClient {
 		return post("/v1/agent/plan", payload, PythonAgentPlan.class);
 	}
 
+	public PythonDocument ingestDocument(String filename, String title, String category, byte[] content) {
+		return post("/v1/knowledge/ingest", Map.of("filename", filename, "title", title, "category", category,
+				"content_base64", java.util.Base64.getEncoder().encodeToString(content)), PythonDocument.class);
+	}
+
+	public String knowledgeSearchQuery(String query) {
+		return post("/v1/knowledge/terms", Map.of("query", query), PythonSearchTerms.class).searchQuery();
+	}
+
+	public PythonKnowledgeAnswer answerKnowledge(AiModelRuntimeConfiguration configuration, String query,
+			List<Map<String, Object>> candidates) {
+		var payload = modelPayload(configuration);
+		payload.put("query", query);
+		payload.put("candidates", candidates);
+		payload.put("top_k", 5);
+		return post("/v1/knowledge/query", payload, PythonKnowledgeAnswer.class);
+	}
+
 	private Stream<String> sendLines(String path, Object payload) {
 		try {
 			var response = httpClient.send(request(path, payload), HttpResponse.BodyHandlers.ofLines());
@@ -102,6 +120,10 @@ public class PythonAiClient {
 		try {
 			var response = httpClient.send(request(path, payload), HttpResponse.BodyHandlers.ofString());
 			if (response.statusCode() < 200 || response.statusCode() >= 300) {
+				if (path.equals("/v1/knowledge/ingest") && response.statusCode() == 400) {
+					var detail = objectMapper.readTree(response.body()).path("detail").asText("");
+					throw new PythonAiException("Document: " + detail.substring(0, Math.min(detail.length(), 1000)));
+				}
 				throw new PythonAiException("Python AI service returned status " + response.statusCode());
 			}
 			return objectMapper.readValue(response.body(), responseType);
@@ -143,6 +165,18 @@ public class PythonAiClient {
 			throw new PythonAiException("Python AI service returned invalid stream data", exception);
 		}
 	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	public record PythonDocument(List<PythonDocumentChunk> chunks, int characterCount) {}
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	public record PythonDocumentChunk(int chunkIndex, Integer pageNumber, String content, String searchTerms) {}
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	public record PythonSearchTerms(String searchQuery) {}
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	public record PythonKnowledgeSource(String id, String title, String excerpt, double score, Map<String, Object> metadata) {}
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	public record PythonKnowledgeAnswer(String content, PythonUsage usage, String providerRequestId, String model,
+			List<PythonKnowledgeSource> sources) {}
 
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 	public record PythonModelResponse(

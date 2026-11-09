@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.opportunity.infrastructure.OpportunityMapper">
+    <resultMap id="OpportunityMap" type="com.yourcompany.salesagent.opportunity.infrastructure.OpportunityRow" autoMapping="true">
+        <id property="id" column="id" />
+    </resultMap>
+    <sql id="SelectOpportunity">
+        SELECT o.id, o.customer_id, c.name AS company, o.name, o.owner_member_id,
+               u.display_name AS owner_name, o.stage, o.status, o.amount, o.probability,
+               o.expected_close_date, COALESCE(o.attributes -&gt;&gt; 'forecastCategory', 'PIPELINE') AS forecast_category,
+               o.attributes -&gt;&gt; 'nextStep' AS next_step, o.close_reason,
+               o.stage_changed_at, o.updated_at, o.version
+        FROM opportunity o
+        JOIN customer c ON c.organization_id = o.organization_id AND c.id = o.customer_id
+        LEFT JOIN organization_member m ON m.organization_id = o.organization_id AND m.id = o.owner_member_id
+        LEFT JOIN app_user u ON u.id = m.user_id
+        WHERE o.organization_id = #{org} AND o.deleted_at IS NULL AND c.deleted_at IS NULL
+    </sql>
+    <select id="selectPage" resultMap="OpportunityMap">
+        <include refid="SelectOpportunity" />
+        <if test="query != null and query != ''">AND (o.name ILIKE CONCAT('%', #{query}, '%') OR c.name ILIKE CONCAT('%', #{query}, '%'))</if>
+        <if test="stage != null">AND o.stage = #{stage}</if>
+        <if test="owner != null">AND o.owner_member_id = #{owner}</if>
+        ORDER BY o.updated_at DESC, o.id
+    </select>
+    <select id="selectOne" resultMap="OpportunityMap">
+        <include refid="SelectOpportunity" /> AND o.id = #{id}
+    </select>
+    <select id="selectMetrics" resultType="com.yourcompany.salesagent.opportunity.api.OpportunityMetricsResponse">
+        SELECT COUNT(*) AS active_count, COALESCE(SUM(o.amount), 0) AS pipeline_amount,
+               COALESCE(SUM(o.amount * COALESCE(o.probability, 0) / 100.0), 0) AS weighted_amount,
+               COUNT(*) FILTER (WHERE o.stage_changed_at &lt; CAST(#{now} AS timestamptz) - INTERVAL '14 days') AS stalled_count
+        FROM opportunity o JOIN customer c ON c.organization_id = o.organization_id AND c.id = o.customer_id
+        WHERE o.organization_id = #{org} AND o.deleted_at IS NULL AND c.deleted_at IS NULL AND o.status = 'OPEN'
+    </select>
+    <select id="customerExists" resultType="int">
+        SELECT COUNT(*) FROM customer WHERE organization_id = #{org} AND id = #{id} AND deleted_at IS NULL AND status = 'ACTIVE'
+    </select>
+    <select id="ownerExists" resultType="int">
+        SELECT COUNT(*) FROM organization_member WHERE organization_id = #{org} AND id = #{id} AND status = 'ACTIVE'
+    </select>
+    <insert id="insert">
+        INSERT INTO opportunity (id, organization_id, customer_id, owner_member_id, name, amount, currency,
+            probability, expected_close_date, attributes, created_at, updated_at, stage_changed_at)
+        VALUES (#{id}, #{org}, #{input.customerId}, #{input.ownerMemberId}, #{input.name}, #{input.amount}, 'CNY',
+            #{input.probability}, #{input.expectedCloseDate},
+            jsonb_build_object('forecastCategory', CAST(#{input.forecastCategory} AS text), 'nextStep', CAST(#{input.nextStep} AS text)),
+            #{now}, #{now}, #{now})
+    </insert>
+    <update id="update">
+        UPDATE opportunity SET name = #{input.name}, owner_member_id = #{input.ownerMemberId}, amount = #{input.amount},
+            probability = #{input.probability}, expected_close_date = #{input.expectedCloseDate},
+            attributes = attributes || jsonb_build_object('forecastCategory', CAST(#{input.forecastCategory} AS text), 'nextStep', CAST(#{input.nextStep} AS text)),
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{org} AND id = #{id} AND version = #{input.version} AND deleted_at IS NULL AND status = 'OPEN'
+    </update>
+    <update id="changeStage">
+        UPDATE opportunity SET stage = #{input.stage},
+            status = CASE WHEN #{input.stage} IN ('WON', 'LOST') THEN #{input.stage} ELSE 'OPEN' END,
+            probability = #{probability}, close_reason = #{input.reason},
+            closed_at = CASE WHEN #{input.stage} IN ('WON', 'LOST') THEN CAST(#{now} AS timestamptz) ELSE NULL END,
+            stage_changed_at = #{now}, updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{org} AND id = #{id} AND version = #{input.version} AND deleted_at IS NULL AND status = 'OPEN'
+    </update>
+    <insert id="insertEvent">
+        INSERT INTO opportunity_event (id, organization_id, opportunity_id, actor_member_id, from_stage, to_stage, summary, created_at)
+        VALUES (gen_random_uuid(), #{org}, #{id}, #{actor}, #{from}, #{to}, #{summary}, #{now})
+    </insert>
+    <select id="selectEvents" resultType="com.yourcompany.salesagent.opportunity.api.OpportunityEventResponse">
+        SELECT e.id, u.display_name AS actor_name, e.from_stage, e.to_stage, e.summary, e.created_at
+        FROM opportunity_event e
+        JOIN organization_member m ON m.organization_id = e.organization_id AND m.id = e.actor_member_id
+        JOIN app_user u ON u.id = m.user_id
+        WHERE e.organization_id = #{org} AND e.opportunity_id = #{id}
+        ORDER BY e.created_at DESC, e.id DESC LIMIT 100
+    </select>
+</mapper>

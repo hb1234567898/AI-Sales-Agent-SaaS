@@ -105,6 +105,7 @@ Spring Boot 通过 `AI_SERVICE_BASE_URL=http://127.0.0.1:8090` 和相同的 `AI_
 
 ## 设计文档
 
+- [企业知识库（RAG）：使用、权限与部署](./docs/enterprise-knowledge.md)
 - [完整技术设计](./docs/technical-design.md)
 - [前端设计](./docs/frontend-design.md)
 - [数据库迁移](./db/migration/V1__initial_schema.sql)

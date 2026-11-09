@@ -15,6 +15,7 @@ export const guestSession: AuthSession = {
 
 export function enterGuestMode() {
   sessionStorage.setItem(guestModeKey, 'true')
+  sessionStorage.removeItem('sales-agent:guest-guide-seen')
 }
 
 export function leaveGuestMode() {

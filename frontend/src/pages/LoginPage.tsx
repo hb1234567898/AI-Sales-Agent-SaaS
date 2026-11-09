@@ -31,6 +31,7 @@ export function LoginPage() {
     mutationFn: login,
     onSuccess: (session) => {
       leaveGuestMode()
+      queryClient.clear()
       queryClient.setQueryData(['auth-session'], session)
       const requestedPath = (location.state as LoginLocationState | null)?.from
       navigate(requestedPath?.startsWith('/app') ? requestedPath : '/app/today', { replace: true })
@@ -46,7 +47,7 @@ export function LoginPage() {
 
   function browseAsGuest() {
     enterGuestMode()
-    queryClient.removeQueries({ queryKey: ['auth-session'] })
+    queryClient.clear()
     navigate('/app/today', { replace: true })
   }
 
