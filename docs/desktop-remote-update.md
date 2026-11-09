@@ -130,12 +130,14 @@ Actions → Desktop release → Run workflow
 填写：
 
 ```text
+publish_release = true
 release_tag = desktop-v0.1.5
 prerelease = false
 ```
 
 注意：
 
+- 手动运行默认 `publish_release = false`，只生成 Actions 安装包制品，不发布自动更新。正式发布时必须勾选此项；功能分支测试包不要勾选。
 - `prerelease` 必须为 `false`，否则会发布成“预发行”。
 - GitHub 的 `releases/latest` 通常不会把预发行版本当作 latest。
 - 如果发布成预发行，桌面端访问 `releases/latest/download/latest.json` 时可能拿不到这个版本。
@@ -433,6 +435,7 @@ https://github.com/.../releases/download/<tag>/<installer.exe>
 发布时：
 
 - [ ] 运行 `Desktop release` workflow。
+- [ ] 手动正式发布时将 `publish_release` 设置为 `true`。
 - [ ] `release_tag` 填写正确，例如 `desktop-v0.1.5`。
 - [ ] `prerelease` 为 `false`。
 - [ ] GitHub Secrets 中存在 `TAURI_SIGNING_PRIVATE_KEY`。

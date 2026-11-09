@@ -136,6 +136,8 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 ### 发布版本
 
+仅生成测试安装包时，在 `Actions → Desktop release → Run workflow` 选择功能分支，并保持 `publish_release = false`（默认值）。完成后下载 `windows-desktop-<commit>` 制品，内含 Windows x64 安装包、SHA256 校验和及构建信息。此模式不创建标签或 Release、不修改 `latest.json`，也不需要 updater 私钥；安装包版本仍使用项目当前版本，需手动安装。
+
 方式一：推送 tag 自动发布。
 
 ```bash
@@ -152,6 +154,7 @@ Actions → Desktop release → Run workflow
 填写：
 
 ```text
+publish_release = true
 release_tag = desktop-v0.1.5
 prerelease = true / false
 ```
