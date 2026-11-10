@@ -101,7 +101,7 @@ export const featureGuides: FeatureGuide[] = [
       { title: '先选会话', target: '.mcp-history-panel', description: '从左侧打开已有会话，或新建会话开始新的工作。正式账号的会话会保存；游客看到的是模拟会话。', result: '本轮指令放在正确的业务上下文中。' },
       { title: '输入清晰的业务指令', target: '.mcp-composer textarea', description: '例如“给云岚科技导入聊天：客户希望下周看方案”，或“查看待审批”。提供客户名称、具体内容和目标动作，信息不全时补充后再继续。', result: '助手能识别要调用的业务工具。' },
       { title: '需要文件时再附上', target: '.mcp-composer-tools', description: '点击回形针选择方案、报价或合同，检查附件名称。选择只保留在本地，点击发送时才上传；每条消息最多 5 个附件，单文件不超过 10MB。', result: '发出指令时同时提供操作所需文件。' },
-      { title: '核对结果与工具轨迹', target: '.mcp-message-list', description: '查看结果输出、执行过程和工具轨迹。失败时先核对业务记录，不要立即重复发送同一指令；知识库回答可通过引用打开资料。', result: '知道实际做了什么，以及哪些步骤还未完成。' },
+      { title: '核对结果与处理记录', target: '.mcp-message-list', description: '查看结果输出、执行过程和处理记录。每一步会说明正在做什么、是否完成；需要排查时再展开技术详情。失败时先核对业务记录，不要立即重复发送同一指令；知识库回答可通过引用打开资料。', result: '知道实际做了什么，以及哪些步骤还未完成。' },
       { title: '审批与额度', target: '.mcp-history-panel', description: '高风险动作会产生待审批项，可在聊天内核对并批准。用量统计显示成员剩余额度与团队累计；没有分配额度时，正式 MCP 指令会受限。', result: '将执行权限和用量与本次操作联系起来。' },
     ],
   },

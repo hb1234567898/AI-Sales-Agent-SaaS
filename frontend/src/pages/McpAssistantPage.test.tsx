@@ -129,14 +129,14 @@ describe('McpAssistantPage', () => {
     const user = userEvent.setup()
     renderMcpAssistantPage()
 
-    await user.click(screen.getByRole('button', { name: '套用 customer.create 工具模板' }))
+    await user.click(screen.getByRole('button', { name: '套用新增客户模板' }))
 
     expect(screen.getByPlaceholderText(/给云岚科技导入聊天/)).toHaveValue(
       '新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007',
     )
   })
 
-  it('返回后分区展示结果输出、思考摘要和工具轨迹', async () => {
+  it('返回后展示易懂的处理记录，工具标识放在技术详情中', async () => {
     const response: AssistantChatResponse = {
       conversationId: 'conversation-1',
       messageId: 'message-1',
@@ -159,8 +159,11 @@ describe('McpAssistantPage', () => {
     expect(await screen.findByText('已查询到 2 条待审批建议。')).toBeInTheDocument()
     expect(screen.getAllByText('结果输出').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('执行过程').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('工具轨迹')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText('approval.list')).toBeInTheDocument())
+    expect(screen.getByRole('region', { name: '处理记录' })).toBeInTheDocument()
+    expect(screen.getByText('查询待审批事项', { selector: 'b' })).toBeVisible()
+    expect(screen.getByText('approval.list')).not.toBeVisible()
+    await user.click(screen.getByText('技术详情'))
+    expect(screen.getByText('approval.list')).toBeVisible()
   })
 
   it('流式错误与结果正文相同时只展示一次', async () => {

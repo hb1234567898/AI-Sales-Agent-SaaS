@@ -6511,7 +6511,6 @@ input:focus-visible {
 }
 
 .mcp-output-card header,
-.mcp-traces > strong,
 .mcp-reasoning strong {
   display: inline-flex;
   align-items: center;
@@ -6522,74 +6521,6 @@ input:focus-visible {
   color: var(--blue-700);
   font-size: 11px;
   font-weight: 800;
-}
-
-.mcp-traces {
-  display: grid;
-  gap: 7px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgb(148 163 184 / 20%);
-}
-
-.mcp-assistant-output .mcp-traces {
-  margin-top: 0;
-  padding: 10px;
-  border: 1px solid #e5edf7;
-  border-radius: 12px;
-  background: #fbfdff;
-}
-
-.mcp-traces > strong {
-  margin-bottom: 2px;
-  color: var(--blue-700);
-  font-size: 11px;
-}
-
-.mcp-traces span {
-  display: grid;
-  grid-template-columns: 16px minmax(120px, .8fr) auto minmax(0, 1.4fr);
-  align-items: center;
-  gap: 6px;
-  color: #64748b;
-  font-size: 11px;
-}
-
-.mcp-traces span.is-success svg {
-  color: #10b981;
-}
-
-.mcp-traces span.is-failed svg {
-  color: #ef4444;
-}
-
-.mcp-traces b {
-  overflow: hidden;
-  color: var(--ink);
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mcp-traces em {
-  justify-self: start;
-  padding: 2px 7px;
-  border-radius: 999px;
-  color: #047857;
-  background: #ecfdf5;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.mcp-traces span.is-failed em {
-  color: #b91c1c;
-  background: #fef2f2;
-}
-
-.mcp-traces small {
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.55;
 }
 
 .mcp-reasoning {
@@ -7776,6 +7707,39 @@ input:focus-visible {
     font-size: 13px;
   }
 }
+@media (max-width: 640px) {
+  .mcp-page .mcp-message-list {
+    padding: 16px 12px;
+  }
+
+  .mcp-page .mcp-message,
+  .mcp-page .mcp-message.is-user {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .mcp-page .mcp-message.is-assistant {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .mcp-page .mcp-avatar {
+    display: none;
+  }
+
+  .mcp-page .mcp-message .mcp-bubble {
+    grid-column: 1;
+    grid-row: auto;
+    padding: 12px;
+  }
+
+  .mcp-page .mcp-output-card {
+    padding: 10px;
+  }
+}
+
 .mcp-stream-cursor {
   color: var(--color-primary, #2563eb);
   animation: mcp-cursor-blink 1s step-end infinite;
