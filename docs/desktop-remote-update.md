@@ -92,6 +92,14 @@ frontend/src-tauri/Cargo.lock
 
 ## 版本号规则
 
+采用语义化版本 `MAJOR.MINOR.PATCH`：
+
+- 不兼容变更：升级主版本，其余位归零。
+- 兼容的新功能：升级次版本，补丁位归零。
+- 仅缺陷修复：升级补丁版本。
+
+例如从 `1.1.0` 新增企业知识库、商机管理和功能引导，应发布 `1.2.0`，不是 `1.1.1`。测试制品不应覆盖已有正式版；正式桌面更新必须重新构建对应版本的安装包、签名和 `latest.json`，不能只修改安装包文件名。
+
 每次发布桌面端新版本前，必须同步修改以下版本号：
 
 ```text
@@ -130,12 +138,14 @@ Actions → Desktop release → Run workflow
 填写：
 
 ```text
+publish_release = true
 release_tag = desktop-v0.1.5
 prerelease = false
 ```
 
 注意：
 
+- 手动运行默认 `publish_release = false`，只生成 Actions 安装包制品，不发布自动更新。正式发布时必须勾选此项；功能分支测试包不要勾选。
 - `prerelease` 必须为 `false`，否则会发布成“预发行”。
 - GitHub 的 `releases/latest` 通常不会把预发行版本当作 latest。
 - 如果发布成预发行，桌面端访问 `releases/latest/download/latest.json` 时可能拿不到这个版本。
@@ -433,6 +443,7 @@ https://github.com/.../releases/download/<tag>/<installer.exe>
 发布时：
 
 - [ ] 运行 `Desktop release` workflow。
+- [ ] 手动正式发布时将 `publish_release` 设置为 `true`。
 - [ ] `release_tag` 填写正确，例如 `desktop-v0.1.5`。
 - [ ] `prerelease` 为 `false`。
 - [ ] GitHub Secrets 中存在 `TAURI_SIGNING_PRIVATE_KEY`。

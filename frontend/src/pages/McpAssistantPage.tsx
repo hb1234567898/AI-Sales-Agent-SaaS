@@ -1,4 +1,4 @@
-import { Check, CheckCircle, CircleNotch, DotsThree, EnvelopeSimple, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, ShieldCheck, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench, X } from '@phosphor-icons/react'
+import { Check, CircleNotch, EnvelopeSimple, MagicWand, PaperPlaneTilt, Paperclip, PlusSquare, Robot, ShieldCheck, Sparkle, SquaresFour, UserCircle, WarningCircle, Wrench, X } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ChangeEvent, type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -16,6 +16,7 @@ import { getMembers, getTeamTokenBudget, updateMemberTokenQuota, updateTeamToken
 import { ApiError } from '../api/axios-client'
 import { useAuth, useIsGuest } from '../auth/use-auth'
 import { Link } from 'react-router'
+import { AssistantActivity } from '../components/assistant/AssistantActivity'
 
 interface ChatMessage {
   id: string
@@ -42,21 +43,25 @@ interface ComposerAttachment {
 const toolGuides = [
   {
     tool: 'customer.create',
+    label: '新增客户',
     say: '新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007',
     result: '创建客户主档和主要联系人',
   },
   {
     tool: 'interaction.chat_import + agent.sales_follow_up.run',
+    label: '导入聊天并分析跟进',
     say: '给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。',
     result: '保存聊天记录，并只针对该客户运行跟进建议 Agent',
   },
   {
     tool: 'approval.list / approval.approve',
+    label: '查询与处理审批',
     say: '查看待审批；批准 <审批ID>',
     result: '查询或批准 Agent 生成的待审批建议',
   },
   {
     tool: 'follow_up.list',
+    label: '查看跟进任务',
     say: '查看跟进任务',
     result: '读取开放中的客户跟进任务',
   },
@@ -372,18 +377,18 @@ export function McpAssistantPage() {
               submit()
             }}
           >
-            <div className="mcp-tool-capsules" aria-label="可调用工具">
+            <div className="mcp-tool-capsules" aria-label="快捷操作">
               {toolGuides.map((guide) => (
                 <button
                   key={guide.tool}
                   type="button"
                   disabled={mcpDisabled || chatMutation.isPending}
-                  aria-label={`套用 ${guide.tool} 工具模板`}
-                  title={`${guide.tool}：${guide.result}`}
+                  aria-label={`套用${guide.label}模板`}
+                  title={guide.result}
                   onClick={() => applyToolTemplate(guide.say)}
                 >
                   <Wrench size={13} />
-                  <span>{guide.tool}</span>
+                  <span>{guide.label}</span>
                 </button>
               ))}
             </div>
@@ -633,18 +638,12 @@ function AssistantOutput({ message }: { message: ChatMessage }) {
       {knowledgeSources.length > 0 && <div className="mcp-knowledge-sources" aria-label="知识库引用">{knowledgeSources.map((source, index) => <Link key={`${source.documentId}-${index}`} to={`/app/knowledge?document=${encodeURIComponent(source.documentId)}`}>[资料 {index + 1}] {source.title}{source.pageNumber ? ` · 第 ${source.pageNumber} 页` : ''}</Link>)}</div>}
       {shouldShowStreamError(message) ? <p role="alert" className="mcp-stream-error"><WarningCircle size={15} />{message.error}</p> : null}
 
-      {message.reasoningSummary ? (
-        <section className="mcp-reasoning">
-          <strong><DotsThree size={15} />执行过程</strong>
-          <span>{message.reasoningSummary}</span>
-        </section>
-      ) : null}
+      <AssistantActivity summary={message.reasoningSummary} traces={traces} data={message.data} />
 
       {approvalIds.map((approvalId) => (
         <InlineApproval key={approvalId} approvalId={approvalId} />
       ))}
 
-      {traces.length > 0 ? <ToolTraceList traces={traces} /> : null}
     </div>
   )
 }
@@ -658,35 +657,6 @@ function ThinkingSkeleton({ title }: { title: string }) {
       <span />
     </div>
   )
-}
-
-function ToolTraceList({ traces }: { traces: AssistantToolTrace[] }) {
-  return (
-    <section className="mcp-traces">
-      <strong>工具轨迹</strong>
-      {traces.map((trace) => {
-        const failed = trace.status.toUpperCase() === 'FAILED'
-        const running = trace.status.toUpperCase() === 'RUNNING'
-        return (
-          <span key={`${trace.name}-${trace.summary}`} className={failed ? 'is-failed' : 'is-success'}>
-            {running ? <CircleNotch size={13} className="mcp-spin" /> : failed ? <WarningCircle size={13} /> : <CheckCircle size={13} />}
-            <b>{trace.name}</b>
-            <em>{readableTraceStatus(trace.status)}</em>
-            <small>{trace.summary}</small>
-          </span>
-        )
-      })}
-    </section>
-  )
-}
-
-function readableTraceStatus(status: string) {
-  const normalized = status.toUpperCase()
-  if (normalized === 'SUCCEEDED') return '成功'
-  if (normalized === 'FAILED') return '失败'
-  if (normalized === 'SKIPPED') return '跳过'
-  if (normalized === 'RUNNING') return '执行中'
-  return status
 }
 
 function shouldShowStreamError(message: ChatMessage) {

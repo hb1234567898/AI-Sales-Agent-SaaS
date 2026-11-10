@@ -6,10 +6,15 @@ on:
       - "desktop-v*"
   workflow_dispatch:
     inputs:
+      publish_release:
+        description: "发布 GitHub Release 和自动更新；不勾选则仅生成安装包制品"
+        required: true
+        type: boolean
+        default: false
       release_tag:
         description: "GitHub Release tag，例如 desktop-v0.1.5"
         required: true
-        default: "desktop-v1.1.0"
+        default: "desktop-v1.2.1"
       prerelease:
         description: "是否发布为预发布版本"
         required: true
@@ -20,7 +25,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-${{ inputs.release_tag || github.ref_name }}
+  group: desktop-${{ github.event_name == 'push' && github.ref_name || (inputs.publish_release && inputs.release_tag || github.ref) }}
   cancel-in-progress: false
 
 jobs:
@@ -52,6 +57,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify updater signing secret
+        if: github.event_name == 'push' || inputs.publish_release
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -61,6 +67,7 @@ jobs:
           }
 
       - name: Publish desktop release
+        if: github.event_name == 'push' || inputs.publish_release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -85,6 +92,7 @@ jobs:
           updaterJsonPreferNsis: true
 
       - name: Patch updater manifest download URL
+        if: github.event_name == 'push' || inputs.publish_release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,3 +123,49 @@ jobs:
 
           $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
           gh release upload $env:RELEASE_TAG $manifestPath --repo $env:GITHUB_REPOSITORY --clobber
+
+      - name: Build Windows installer without publishing
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish_release
+        working-directory: frontend
+        shell: pwsh
+        env:
+          VITE_API_BASE_URL: https://ai.likeasuka.icu
+        run: |
+          $ErrorActionPreference = "Stop"
+          $configPath = Join-Path $env:RUNNER_TEMP "tauri-artifact.conf.json"
+          @{ bundle = @{ createUpdaterArtifacts = $false } } |
+            ConvertTo-Json -Depth 3 |
+            Set-Content -LiteralPath $configPath -Encoding utf8
+          pnpm tauri build --ci --bundles nsis --config $configPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare installer checksum and build info
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish_release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $directory = "frontend/src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem -LiteralPath $directory -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Windows installer was not generated." }
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -LiteralPath (Join-Path $directory "SHA256SUMS") -Encoding utf8
+          $version = (Get-Content frontend/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          @(
+            "commit=$env:GITHUB_SHA",
+            "ref=$env:GITHUB_REF_NAME",
+            "run=$env:GITHUB_RUN_ID",
+            "version=$version",
+            "mode=build-only"
+          ) | Set-Content -LiteralPath (Join-Path $directory "BUILD_INFO.txt") -Encoding utf8
+
+      - name: Upload Windows installer artifact
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish_release
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-desktop-${{ github.sha }}
+          path: |
+            frontend/src-tauri/target/release/bundle/nsis/*-setup.exe
+            frontend/src-tauri/target/release/bundle/nsis/SHA256SUMS
+            frontend/src-tauri/target/release/bundle/nsis/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
