@@ -117,13 +117,9 @@ function Sidebar({
   return (
     <aside className={`app-sidebar${open ? ' is-open' : ''}`} aria-label="应用导航">
       <div className="sidebar-brand">
-        <span className="brand-symbol" aria-hidden>
-          <img src="/brand-logo.png" alt="" />
+        <span className="sidebar-brand-lockup">
+          <img src="/brand-lockup-source.png" alt="AI Sales Agent SaaS" />
         </span>
-        <div>
-          <strong>Sales Agent</strong>
-          <span>销售运营工作台</span>
-        </div>
         <button className="icon-button sidebar-close" type="button" onClick={onClose} aria-label="关闭导航">
           <X size={18} />
         </button>
@@ -264,7 +260,8 @@ export function AppShell() {
               <span className="environment-pill is-guest">
                 <Eye size={14} />游客只读
               </span>
-            ) : <DesktopUpdateIndicator />}
+            ) : null}
+            <DesktopUpdateIndicator />
             <button
               className={`icon-button notification-button${notificationCount > 0 ? ' has-unread' : ''}`}
               type="button"
