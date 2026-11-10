@@ -14,29 +14,29 @@ import com.yourcompany.salesagent.ai.api.AiModelUpdateRequest;
 import com.yourcompany.salesagent.ai.api.AiModelUsageResponse;
 import com.yourcompany.salesagent.ai.domain.AiModelConfiguration;
 import com.yourcompany.salesagent.ai.infrastructure.AiModelConfigurationMapper;
+import com.yourcompany.salesagent.ai.infrastructure.AiModelDefaultsProperties;
 import com.yourcompany.salesagent.ai.infrastructure.ModelCallMapper;
 import com.yourcompany.salesagent.ai.infrastructure.ModelUsageSummaryRow;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelProperties;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.shared.security.SecretCipher;
 import com.yourcompany.salesagent.shared.security.SecretEncryptionException;
 
 @Service
 public class AiModelService {
 
-	private final QwenModelClient modelClient;
+	private final AiOrchestrationClient modelClient;
 	private final AiModelConfigurationMapper configurationMapper;
 	private final ModelCallMapper modelCallMapper;
 	private final SecretCipher secretCipher;
-	private final QwenModelProperties properties;
+	private final AiModelDefaultsProperties properties;
 	private final Clock clock;
 
 	public AiModelService(
-			QwenModelClient modelClient,
+			AiOrchestrationClient modelClient,
 			AiModelConfigurationMapper configurationMapper,
 			ModelCallMapper modelCallMapper,
 			SecretCipher secretCipher,
-			QwenModelProperties properties,
+			AiModelDefaultsProperties properties,
 			Clock clock) {
 		this.modelClient = modelClient;
 		this.configurationMapper = configurationMapper;

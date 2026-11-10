@@ -29,6 +29,8 @@ sudo install -m 0600 -o root -g root deploy/server/backend.env.example /etc/ai-s
 
 编辑 `/etc/ai-sales-agent/backend.env`，填入真实数据库密码、模型配置加密密钥和 JWT 签名密钥。不要把该文件提交到 Git。模型 API Key 在系统设置页录入，不写入服务器环境文件。
 
+SMTP 是可选通道，默认不参与应用整体健康判定。只有在生产 SMTP 已稳定配置且希望 Actuator 同时监控邮件连通性时，才设置 `MAIL_HEALTH_ENABLED=true`。
+
 检查并启动服务配置：
 
 ```bash
@@ -97,7 +99,15 @@ ssh-keyscan -p 22 117.72.109.112
 /www/wwwroot/ai.likeasuka.icu/releases/<commit-sha>
 ```
 
-部署脚本通过 `/www/wwwroot/ai.likeasuka.icu/current` 软链接原子切换版本，重启 systemd 后最多检查健康状态 60 秒。检查失败会恢复上一个应用版本，并保留最近 5 个发布目录。
+部署脚本通过 `/www/wwwroot/ai.likeasuka.icu/current` 软链接原子切换版本，随后重启 Java 后端，并保留最近 5 个发布目录。FastAPI 由宝塔管理，需要在面板中单独重启。
+
+FastAPI 虚拟环境由宝塔面板创建和维护，必须放在宝塔自己的环境目录，不要放进 `/www/wwwroot/ai.likeasuka.icu/current` 或任一 `releases/<commit>` 目录。发布包只包含 `ai-service/app`、离线 wheelhouse 和 `runtime-requirements.txt`，部署脚本不会创建、移动或删除 Python 虚拟环境。
+
+宝塔 Python 项目的项目目录固定填写 `/www/wwwroot/ai.likeasuka.icu/current/ai-service`，启动命令填写 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8090 --workers 2`。依赖清单位于 `/www/wwwroot/ai.likeasuka.icu/current/ai-service/runtime-requirements.txt`；首次创建环境或依赖发生变化时，在宝塔选择该文件安装依赖。
+
+FastAPI 进程只由宝塔管理。部署脚本会停用旧的 `ai-sales-agent-ai.service`，避免两个进程争用 `127.0.0.1:8090`。每次发布完成后，需要在宝塔面板重启 `ai-service` 项目以加载新版本 Python 代码。
+
+上传包中的 `.venv` 或 `venv` 目录仍会被忽略，避免开发机虚拟环境覆盖宝塔环境。
 
 Flyway 数据库迁移不会自动回滚。因此数据库变更必须向后兼容，生产部署前也必须备份数据库；应用回滚不能替代数据库回滚方案。
 

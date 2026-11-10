@@ -16,7 +16,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import com.yourcompany.salesagent.ai.infrastructure.QwenModelClient;
+import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.ai.application.AiModelRuntimeConfiguration;
 import com.yourcompany.salesagent.ai.application.AiModelService;
 import com.yourcompany.salesagent.ai.application.ModelCallRecordRequest;
@@ -45,7 +45,7 @@ class ChatAnalysisServiceTests {
 		var analysisMapper = mock(ChatAnalysisMapper.class);
 		var interactionMapper = mock(InteractionMapper.class);
 		var customerMapper = mock(CustomerMapper.class);
-		var modelClient = mock(QwenModelClient.class);
+		var modelClient = mock(AiOrchestrationClient.class);
 		var modelService = mock(AiModelService.class);
 		var modelCallRecorder = mock(ModelCallRecorder.class);
 		var customer = Customer.create(ORGANIZATION_ID, "云岚科技", NOW);
@@ -67,7 +67,7 @@ class ChatAnalysisServiceTests {
 		when(analysisMapper.selectOne(any())).thenReturn(null);
 		when(modelService.requireRuntimeConfiguration(ORGANIZATION_ID)).thenReturn(
 				new AiModelRuntimeConfiguration("QWEN", "qwen-test", "https://example.invalid", "sk-test"));
-		when(modelClient.analyzeChat(any(), any(), any())).thenReturn(new QwenModelClient.QwenChatResult("""
+		when(modelClient.analyzeChat(any(), any(), any())).thenReturn(new AiOrchestrationClient.ChatResult("""
 				{
 				  "summary":"客户关注部署周期，销售已承诺补充。",
 				  "intentScore":82,

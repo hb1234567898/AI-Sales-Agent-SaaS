@@ -35,7 +35,7 @@ export function FollowUpsPage() {
       />
 
       <div className="module-stat-grid" aria-label="跟进任务指标">
-        <div><span>当前待办</span><strong>{tasks.length}</strong><small>来自真实跟进队列</small></div>
+        <div><span>当前待办</span><strong>{tasks.length}</strong><small>{isGuest ? '来自模拟跟进队列' : '来自真实跟进队列'}</small></div>
         <div><span>今日/逾期待办</span><strong>{todayCount}</strong><small>需要优先处理</small></div>
         <div><span>已逾期</span><strong className={overdueCount > 0 ? 'danger-value' : undefined}>{overdueCount}</strong><small>超过计划跟进时间</small></div>
         <div><span>AI 建议任务</span><strong>{aiCount}</strong><small>审批通过后生成</small></div>

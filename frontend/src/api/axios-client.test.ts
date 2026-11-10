@@ -156,6 +156,20 @@ describe('Axios HTTP client JWT refresh', () => {
 
     expect(adapter).not.toHaveBeenCalled()
   })
+
+  it('游客读取、未知接口和令牌刷新均不会触达真实服务', async () => {
+    sessionStorage.setItem('sales-agent:guest-mode', 'true')
+    saveExpiredTokens(false)
+    const adapter = vi.fn((config: InternalAxiosRequestConfig) => resolve(config, 200, { secret: 'real' }))
+    const refresh = vi.fn((config: InternalAxiosRequestConfig) => resolve(config, 200, refreshedTokens()))
+    apiClient.defaults.adapter = adapter
+    authRefreshClient.defaults.adapter = refresh
+    const result = await requestJson<{ content: { name: string }[] }>('/api/v1/customers?query=云岚&status=ACTIVE')
+    expect(result.content.map((item) => item.name)).toEqual(['云岚科技'])
+    await expect(requestJson('/api/v1/unmapped-private-data')).rejects.toThrow('游客模式暂不提供此演示数据')
+    expect(adapter).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
+  })
 })
 
 function saveExpiredTokens(remember: boolean) {

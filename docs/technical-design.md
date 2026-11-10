@@ -1,7 +1,7 @@
 # AI Sales Follow-up Agent 技术设计
 
 > 状态：MVP 基线设计
-> 技术栈：React + TypeScript、Spring Boot、Spring AI、PostgreSQL、Redis（可选）、SSE
+> 技术栈：React + TypeScript、Spring Boot、FastAPI + LangChain/LangGraph、PostgreSQL、Redis（可选）、SSE
 > 配套数据库迁移：[`V1__initial_schema.sql`](../db/migration/V1__initial_schema.sql)
 > 配套前端设计：[`frontend-design.md`](./frontend-design.md)
 > 配套认证设计：[`jwt-dual-token-auth.md`](./jwt-dual-token-auth.md)
@@ -56,8 +56,9 @@
 | ADR-008 | 租户 ID 下沉到业务表 | 便于过滤、分区、审计，并通过复合外键阻止跨租户引用。 |
 | ADR-009 | JSONB 存快照，标准列存查询字段 | 保留模型/工具原始上下文，同时让状态和核心指标可索引。 |
 | ADR-010 | 先不强依赖 pgvector | MVP 的关键输入是结构化时间线；知识库成熟后再单独迁移。 |
+| ADR-011 | Spring Boot 管业务，FastAPI 管 AI 编排 | Java 是权限、事务、审批、工具执行和审计的唯一入口；Python 承载模型、LangGraph 与 RAG，不能绕过 Java 直接执行有副作用的业务动作。 |
 
-Spring AI 当前支持 `ChatClient` 结构化实体输出、JSON Schema 校验重试、工具调用以及 Micrometer 指标/追踪。对无副作用的只读工具可以使用框架控制的工具循环；对发送邮件等副作用，本设计使用应用控制的执行路径，以加入审批、幂等和审计。参考：[ChatClient](https://docs.spring.io/spring-ai/reference/api/chatclient.html)、[Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)、[Observability](https://docs.spring.io/spring-ai/reference/observability/index.html)。
+所有模型能力统一由 FastAPI 中的 LangChain/LangGraph 实现。Python 生成结构化候选计划，Java 根据工具白名单、参数、租户权限和审批策略再次校验；发送邮件等副作用始终使用应用控制的执行路径。
 
 ## 3. 系统上下文
 
@@ -68,7 +69,8 @@ flowchart LR
     Scheduler["Scheduler"] --> Engine["Agent Orchestrator"]
     API --> Engine
     Engine --> Domain["Customer / Follow-up Domain"]
-    Engine --> AI["Spring AI Gateway"]
+    Engine --> AI["FastAPI / LangGraph"]
+    AI --> Model["模型服务"]
     Engine --> Action["Action & Approval Service"]
     Action --> Tools["Tool Registry / Executor"]
     Tools --> Email["Email Provider"]
@@ -80,6 +82,8 @@ flowchart LR
     Outbox --> Stream["SSE Event Hub"]
     Stream --> Web
 ```
+
+AI 服务通过仅绑定内网的 HTTP 接口接收 Spring Boot 已完成租户隔离的上下文。模型可以返回结构化候选计划，但 Java 必须再次校验工具白名单、参数、额度和审批策略后才能执行。知识库查询同样由 Java 提供当前组织可见的候选片段，Python 只负责检索、重排和生成带来源的回答，不直接读取 CRM 业务表。
 
 ## 4. 后端模块
 
@@ -103,10 +107,10 @@ salesagent
 │   ├── email         DraftEmail、SendEmail
 │   └── crm           CreateTask、UpdateCustomer
 ├── ai
-│   ├── gateway       SpringAiSalesAnalysisGateway
-│   ├── prompt        PromptTemplate、版本
-│   ├── schema        结构化输出 DTO
-│   └── policy        模型选择、超时、重试、脱敏
+│   ├── gateway       AiOrchestrationClient、FastAPI 内部协议
+│   ├── configuration 组织模型配置与密钥解密
+│   ├── usage         Token 用量回写
+│   └── policy        配额、超时、重试、脱敏
 ├── integration       OAuth 连接、同步游标、Webhook
 ├── usage             Token、成本、配额
 ├── audit             业务审计
@@ -121,7 +125,7 @@ API/Scheduler -> Application -> Domain
 Application -> Port interfaces
 Infrastructure -> Port implementations
 Tool adapters -> external providers
-Domain !-> Spring AI / HTTP / MyBatis-Plus
+Domain !-> FastAPI / HTTP / MyBatis-Plus
 ```
 
 不要让 MyBatis 持久化对象直接充当 API DTO 或模型输出 DTO。数据库模型、领域模型和外部协议模型分别演进。常规单表查询使用 MyBatis-Plus Wrapper，复杂联表、JSONB 聚合和报表查询使用显式 Mapper XML，避免把难以审查的 SQL 逻辑散落在 Service 中。
@@ -301,7 +305,7 @@ public record RecommendedAction(
 - 模型输出无效时最多重试 2 次；之后记录失败 Step，不创建动作。
 - 即使供应商支持原生 structured output，也必须做应用层 Bean Validation。
 
-当前 Spring AI `ChatClient.entity(..., spec -> spec.validateSchema())` 支持 schema 校验和重试；是否启用 provider-native structured output 由模型能力决定，不能作为跨供应商的唯一保障。
+LangChain 的结构化输出仍然必须经过 Pydantic 校验，Java 收到计划后还要按自身 DTO、枚举、工具白名单和业务规则再次校验。供应商原生 structured output 不能作为跨模型的唯一保障。
 
 ### 7.3 最终优先级
 
@@ -688,7 +692,7 @@ Trace tag 只放低基数字段：agent type、model、provider、tool、status�
 - `email_reply_rate`
 - `meetings_booked_total`
 
-Spring AI 的 prompt/completion 观察数据默认不导出是正确的生产基线；如临时打开，必须限制环境、权限和保留期。
+FastAPI 和 LangChain 不记录原始 Prompt、模型密钥或完整客户聊天；如为排障临时启用详细追踪，必须限制环境、权限和保留期。
 
 ### 13.3 成本
 

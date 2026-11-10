@@ -5,6 +5,7 @@ APP_ROOT="${APP_ROOT:-/www/wwwroot/ai.likeasuka.icu}"
 APP_USER="${APP_USER:-root}"
 APP_GROUP="${APP_GROUP:-root}"
 SERVICE_NAME="${SERVICE_NAME:-ai-sales-agent.service}"
+LEGACY_AI_SERVICE_NAME="${AI_SERVICE_NAME:-ai-sales-agent-ai.service}"
 MAX_RELEASES="${MAX_RELEASES:-5}"
 
 archive="${1:-}"
@@ -85,15 +86,24 @@ if [[ -e "$release_dir" ]]; then
 fi
 
 install -d -m 0755 -o "$APP_USER" -g "$APP_GROUP" "$release_dir"
-tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$release_dir"
+tar --no-same-owner --no-same-permissions \
+  --exclude='.venv' --exclude='.venv/*' \
+  --exclude='*/.venv' --exclude='*/.venv/*' \
+  --exclude='venv' --exclude='venv/*' \
+  --exclude='*/venv' --exclude='*/venv/*' \
+  -xzf "$archive" -C "$release_dir"
 test -s "$release_dir/backend/sales-agent.jar"
 test -s "$release_dir/frontend/index.html"
+test -d "$release_dir/ai-service/wheelhouse"
+test -s "$release_dir/ai-service/app/main.py"
+test -s "$release_dir/ai-service/runtime-requirements.txt"
 chown -R root:root "$release_dir"
 chmod -R a-w "$release_dir"
 chmod -R a+rX "$release_dir"
 
 ln -sfn "$release_dir" "$next_link"
 mv -Tf "$next_link" "$current_link"
+systemctl disable --now "$LEGACY_AI_SERVICE_NAME" >/dev/null 2>&1 || true
 if ! systemctl restart "$SERVICE_NAME"; then
   echo "warning: release is active, but $SERVICE_NAME could not be restarted" >&2
 fi
@@ -107,4 +117,4 @@ for old_release in "${old_releases[@]}"; do
   fi
 done
 
-echo "deployed release $release_id without backend health verification"
+echo "deployed release $release_id; restart the FastAPI project in the BT panel to load the new Python code"

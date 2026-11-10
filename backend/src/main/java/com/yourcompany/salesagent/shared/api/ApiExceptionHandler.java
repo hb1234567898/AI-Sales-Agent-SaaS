@@ -32,6 +32,8 @@ import com.yourcompany.salesagent.file.application.FileStorageException;
 import com.yourcompany.salesagent.tool.email.EmailConfigurationException;
 import com.yourcompany.salesagent.tool.email.EmailConnectionException;
 import com.yourcompany.salesagent.lead.application.LeadWorkflowException;
+import com.yourcompany.salesagent.opportunity.application.OpportunityWorkflowException;
+import com.yourcompany.salesagent.knowledge.application.KnowledgeException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -52,7 +54,9 @@ public class ApiExceptionHandler {
 			AssistantWorkflowException.class,
 			FileStorageException.class,
 			FollowUpWorkflowException.class,
-			LeadWorkflowException.class
+			LeadWorkflowException.class,
+			OpportunityWorkflowException.class,
+			KnowledgeException.class
 	})
 	ProblemDetail handleWorkflow(RuntimeException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
@@ -146,6 +150,6 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(OptimisticLockingFailureException.class)
 	ProblemDetail handleOptimisticLock(OptimisticLockingFailureException exception) {
-		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "客户资料已被其他成员更新，请刷新后重试");
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "资料已被其他成员更新，请刷新后重试");
 	}
 }

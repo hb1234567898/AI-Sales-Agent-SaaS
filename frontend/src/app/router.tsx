@@ -70,6 +70,10 @@ export const router = createBrowserRouter([
         }),
       },
       {
+        path: 'knowledge',
+        lazy: async () => ({ Component: (await import('../pages/KnowledgePage')).KnowledgePage }),
+      },
+      {
         path: 'analytics',
         lazy: async () => ({
           Component: (await import('../pages/AnalyticsPage')).AnalyticsPage,

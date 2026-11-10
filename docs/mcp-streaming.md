@@ -113,7 +113,7 @@ Transport 当前策略：
 7. 业务工具执行时发送 `tool` 事件。
 8. 工具执行完成后发送 `result` 和 `summary`。
 9. 读取 AI 模型配置。
-10. 调用 `QwenModelClient.streamAssistantReply(...)`。
+10. 通过 `AiOrchestrationClient` 调用 Python AI 服务的 `/v1/chat/stream`。
 11. 模型增量通过 `delta` 事件发送。
 12. 最终助手消息落库。
 13. 发送 `done`。
