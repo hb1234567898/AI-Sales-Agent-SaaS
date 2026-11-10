@@ -161,12 +161,15 @@ prerelease = true / false
 
 ### 版本号规则
 
+采用语义化版本 `MAJOR.MINOR.PATCH`：不兼容变更升级主版本，兼容的新功能升级次版本，仅修复缺陷升级补丁版本。升级主版本或次版本时，后续位归零。例如从 `1.1.0` 新增企业知识库、商机管理等功能，应发布 `1.2.0`；只修复缺陷才发布 `1.1.1`。
+
 发布前需要同步修改这几个版本号：
 
 ```text
 frontend/package.json
 frontend/src-tauri/Cargo.toml
 frontend/src-tauri/tauri.conf.json
+frontend/src-tauri/Cargo.lock
 ```
 
 例如发布 `desktop-v0.1.5` 前，上面三个地方都应改成：
