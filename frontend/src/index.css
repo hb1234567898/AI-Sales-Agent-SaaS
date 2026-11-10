@@ -545,28 +545,23 @@ input:focus-visible {
   border-radius: inherit;
 }
 
-.sidebar-brand .brand-symbol {
-  background: transparent;
-  border-radius: 0;
-  color: inherit;
-}
-
-.sidebar-brand > div {
+.sidebar-brand-lockup {
+  position: relative;
+  display: block;
+  flex: 0 1 170px;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
+  aspect-ratio: 1430 / 350;
+  overflow: hidden;
 }
 
-.sidebar-brand strong {
-  font-size: 14px;
-  letter-spacing: .1px;
-}
-
-.sidebar-brand span:not(.brand-symbol) {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 10px;
+.sidebar-brand-lockup img {
+  position: absolute;
+  display: block;
+  width: 151.89%;
+  max-width: none;
+  height: auto;
+  left: -26.22%;
+  top: -13.71%;
 }
 
 .workspace-switcher {
@@ -1819,76 +1814,103 @@ input:focus-visible {
 
 .desktop-update-indicator {
   position: relative;
-  min-height: 26px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.desktop-update-indicator .desktop-update-trigger {
+  position: relative;
   overflow: hidden;
-  padding: 0 10px;
   color: var(--blue-700);
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
 }
 
-.desktop-update-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 4px;
+.desktop-update-trigger.is-ready {
+  color: #047857;
 }
 
-.desktop-update-actions button {
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 7px;
-  color: var(--slate-600);
-  background: rgba(255, 255, 255, .72);
-  border: 1px solid #dbeafe;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  cursor: pointer;
+.desktop-update-trigger.is-error,
+.desktop-update-popover p.is-error {
+  color: #b91c1c;
 }
 
-.desktop-update-actions button:hover {
-  color: var(--blue-700);
-  border-color: #93c5fd;
-}
-
-.desktop-update-actions button.is-primary {
-  color: #fff;
-  background: var(--blue-600);
-  border-color: var(--blue-600);
-}
-
-.desktop-update-actions button.is-primary:hover {
-  background: var(--blue-700);
-  border-color: var(--blue-700);
-}
-
-.desktop-update-indicator::after {
-  content: "";
+.desktop-update-status {
   position: absolute;
-  inset: auto 0 0 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.desktop-update-progress {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  left: 4px;
   height: 2px;
+  background: #dbeafe;
+  border-radius: 2px;
+}
+
+.desktop-update-progress::after {
+  content: "";
+  display: block;
   width: var(--progress);
-  background: linear-gradient(90deg, var(--blue-500), var(--blue-700));
+  height: 100%;
+  background: var(--blue-600);
   transition: width .2s ease;
 }
 
-.desktop-update-indicator.is-error {
-  color: #b91c1c;
-  background: #fef2f2;
-  border-color: #fecaca;
+.desktop-update-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(320px, calc(100vw - 112px));
+  padding: 12px 16px 16px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
 }
 
-.desktop-update-indicator.is-error::after {
-  display: none;
+.desktop-update-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.desktop-update-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.desktop-update-popover p {
+  margin: 6px 0 16px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.desktop-update-popover progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-bottom: 16px;
+  accent-color: var(--blue-600);
+}
+
+.desktop-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .icon-button {
@@ -5470,7 +5492,7 @@ input:focus-visible {
 
   .global-search kbd,
   .environment-pill,
-  .topbar-actions .icon-button {
+  .topbar-actions > .icon-button {
     display: none;
   }
 
