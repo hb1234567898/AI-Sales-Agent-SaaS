@@ -52,6 +52,7 @@ const sourceLabels: Record<string, string> = {
   WECHAT: '微信',
   WHATSAPP: 'WhatsApp',
   OTHER: '其他聊天工具',
+  EMAIL: '邮件同步',
 }
 
 const directionLabels: Record<InteractionDirection, string> = {

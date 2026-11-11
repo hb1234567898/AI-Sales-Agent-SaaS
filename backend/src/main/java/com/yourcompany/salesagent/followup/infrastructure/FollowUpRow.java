@@ -13,6 +13,10 @@ public class FollowUpRow {
 	private UUID ownerMemberId;
 	private String ownerName;
 	private String status;
+	private String origin;
+	private long version;
+	private Instant createdAt;
+	private Instant completedAt;
 	private Instant dueAt;
 	private int priority;
 	private String intentLevel;
@@ -33,6 +37,14 @@ public class FollowUpRow {
 	public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
 	public String getStatus() { return status; }
 	public void setStatus(String status) { this.status = status; }
+	public String getOrigin() { return origin; }
+	public void setOrigin(String origin) { this.origin = origin; }
+	public long getVersion() { return version; }
+	public void setVersion(long version) { this.version = version; }
+	public Instant getCreatedAt() { return createdAt; }
+	public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+	public Instant getCompletedAt() { return completedAt; }
+	public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
 	public Instant getDueAt() { return dueAt; }
 	public void setDueAt(Instant dueAt) { this.dueAt = dueAt; }
 	public int getPriority() { return priority; }

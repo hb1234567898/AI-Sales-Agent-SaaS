@@ -71,12 +71,12 @@ public class SalesFollowUpAgentService {
 
 	@Transactional(readOnly = true)
 	public AgentRunResponse findRun(UUID runId) {
-		return AgentRunResponse.from(requireRun(runId));
+		return AgentRunResponse.from(requireRun(organizationId, runId));
 	}
 
 	@Transactional(readOnly = true)
 	public IPage<AgentStepResponse> findSteps(UUID runId, int page, int size) {
-		requireRun(runId);
+		requireRun(organizationId, runId);
 		var rows = mapper.selectSteps(Page.of(page + 1L, size), organizationId, runId);
 		return new Page<AgentStepResponse>(rows.getCurrent(), rows.getSize(), rows.getTotal())
 				.setRecords(rows.getRecords().stream().map(AgentStepResponse::from).toList());
@@ -85,6 +85,27 @@ public class SalesFollowUpAgentService {
 	@Transactional
 	public AgentRunResponse runNow(AuthPrincipal principal, AgentRunCreateRequest request) {
 		return runNow(principal, request, "MANUAL", Map.of());
+	}
+
+	@Transactional
+	public AgentRunResponse runScheduled(AuthPrincipal principal, AgentRunCreateRequest request, UUID automationRunId) {
+		return runNow(principal, request, "SCHEDULED", Map.of("automationRunId", automationRunId.toString()));
+	}
+
+	@Transactional(readOnly = true)
+	public IPage<AgentRunResponse> findRuns(AuthPrincipal principal, int page, int size) {
+		return mapper.selectRuns(Page.of(page + 1L, size), principal.organizationId()).convert(AgentRunResponse::from);
+	}
+
+	@Transactional(readOnly = true)
+	public AgentRunResponse findRun(AuthPrincipal principal, UUID runId) {
+		return AgentRunResponse.from(requireRun(principal.organizationId(), runId));
+	}
+
+	@Transactional(readOnly = true)
+	public IPage<AgentStepResponse> findSteps(AuthPrincipal principal, UUID runId, int page, int size) {
+		requireRun(principal.organizationId(), runId);
+		return mapper.selectSteps(Page.of(page + 1L, size), principal.organizationId(), runId).convert(AgentStepResponse::from);
 	}
 
 	@Transactional
@@ -114,8 +135,9 @@ public class SalesFollowUpAgentService {
 		if (CollectionUtils.isEmpty(attachmentIds)) {
 			throw new AgentWorkflowException("发送" + documentType + "需要至少一个附件");
 		}
+		var organizationId = principal.organizationId();
 		var now = clock.instant();
-		var configId = ensureDefaultConfig(now);
+		var configId = ensureDefaultConfig(organizationId, now);
 		var businessDate = LocalDate.ofInstant(now, DEFAULT_BUSINESS_ZONE);
 		var runId = UUID.randomUUID();
 		var actionRequestId = UUID.randomUUID();
@@ -131,10 +153,10 @@ public class SalesFollowUpAgentService {
 
 		mapper.insertRun(runId, organizationId, configId, principal.memberId(), "MCP_ASSISTANT", "RUNNING",
 				businessDate, null, triggerContext, inputSnapshot(principal, "MCP_ASSISTANT", triggerContext), now, now);
-		insertStep(runId, customer.id(), 1, "SYSTEM", "准备客户文件发送邮件", "SUCCEEDED",
+		insertStep(organizationId, runId, customer.id(), 1, "SYSTEM", "准备客户文件发送邮件", "SUCCEEDED",
 				Map.of("documentType", documentType), Map.of("attachmentCount", attachmentIds.size()), now, now, null);
 
-		var files = resolveMcpAttachments(triggerContext, customer.id());
+		var files = resolveMcpAttachments(organizationId, triggerContext, customer.id());
 		var attachmentPreview = fileStorageService.preview(files);
 		var to = customer.primaryContact() == null ? null : customer.primaryContact().email();
 		if (!StringUtils.hasText(to)) {
@@ -163,7 +185,7 @@ public class SalesFollowUpAgentService {
 		payload.put("attachments", attachmentPreview);
 		var contentHash = sha256(payload.toString());
 		var reason = "用户通过 MCP 助手请求给客户发送" + normalizedType + "，需人工核对后发送";
-		var actionStepId = insertStep(runId, customer.id(), 2, "ACTION_PROPOSED", "生成待审批文件发送邮件", "SUCCEEDED",
+		var actionStepId = insertStep(organizationId, runId, customer.id(), 2, "ACTION_PROPOSED", "生成待审批文件发送邮件", "SUCCEEDED",
 				Map.of("attachmentCount", attachmentIds.size()),
 				Map.of("to", to, "subject", subject, "actionRequestId", actionRequestId.toString()), now, now, null);
 		mapper.insertActionRequest(
@@ -174,7 +196,7 @@ public class SalesFollowUpAgentService {
 				"mcp-document-email:" + runId + ":" + customer.id(), now.plus(Duration.ofDays(7)));
 		mapper.insertApproval(approvalId, organizationId, actionRequestId, principal.memberId(), reason, contentHash,
 				now, now.plus(Duration.ofDays(7)));
-		insertStep(runId, customer.id(), 3, "APPROVAL_WAIT", "等待人工确认邮件发送", "SUCCEEDED",
+		insertStep(organizationId, runId, customer.id(), 3, "APPROVAL_WAIT", "等待人工确认邮件发送", "SUCCEEDED",
 				Map.of("actionRequestId", actionRequestId.toString()), Map.of("approvalId", approvalId.toString()),
 				now, now, null);
 		var summary = new LinkedHashMap<String, Object>();
@@ -190,8 +212,9 @@ public class SalesFollowUpAgentService {
 	}
 
 	private AgentRunResponse runNow(AuthPrincipal principal, AgentRunCreateRequest request, String triggerType, Map<String, Object> triggerContext) {
+		var organizationId = principal.organizationId();
 		var now = clock.instant();
-		var configId = ensureDefaultConfig(now);
+		var configId = ensureDefaultConfig(organizationId, now);
 		var maxCustomers = request.maxCustomers() == null ? 5 : request.maxCustomers();
 		var recentDays = request.recentDays() == null ? 30 : request.recentDays();
 		var businessDate = LocalDate.ofInstant(now, DEFAULT_BUSINESS_ZONE);
@@ -199,9 +222,10 @@ public class SalesFollowUpAgentService {
 		var scope = scope(request, maxCustomers, recentDays, businessDate, triggerType, triggerContext);
 
 		mapper.insertRun(runId, organizationId, configId, principal.memberId(), triggerType, "RUNNING",
-				businessDate, null, scope, inputSnapshot(principal, triggerType, triggerContext), now, now);
+				businessDate, "SCHEDULED".equals(triggerType) ? "proactive:" + triggerContext.get("automationRunId") : null,
+				scope, inputSnapshot(principal, triggerType, triggerContext), now, now);
 		var sequence = new Sequence();
-		insertStep(runId, null, sequence.next(), "SYSTEM", "启动客户跟进建议 Agent", "SUCCEEDED",
+		insertStep(organizationId, runId, null, sequence.next(), "SYSTEM", "启动客户跟进建议 Agent", "SUCCEEDED",
 				Map.of("triggerType", triggerType), Map.of("message", "开始扫描最近客户互动"), now, now, null);
 
 		var candidates = mapper.selectCandidates(
@@ -209,7 +233,7 @@ public class SalesFollowUpAgentService {
 				now.minus(Duration.ofDays(recentDays)),
 				CollectionUtils.isEmpty(request.customerIds()) ? null : request.customerIds(),
 				maxCustomers);
-		insertStep(runId, null, sequence.next(), "LOAD_DATA", "读取最近客户互动", "SUCCEEDED",
+		insertStep(organizationId, runId, null, sequence.next(), "LOAD_DATA", "读取最近客户互动", "SUCCEEDED",
 				Map.of("recentDays", recentDays, "maxCustomers", maxCustomers),
 				Map.of("candidateCount", candidates.size()), now, now, null);
 
@@ -219,7 +243,7 @@ public class SalesFollowUpAgentService {
 		for (var candidate : candidates) {
 			try {
 				var analysis = chatAnalysisService.analyze(
-						candidate.getCustomerId(), candidate.getInteractionId(), principal.memberId());
+						organizationId, candidate.getCustomerId(), candidate.getInteractionId(), principal.memberId());
 				var priority = priority(analysis);
 				var dueAt = now.plus(Duration.ofDays("HIGH".equals(analysis.intentLevel()) ? 1 : 3));
 				var actionPlan = resolveActionPlan(analysis);
@@ -228,7 +252,7 @@ public class SalesFollowUpAgentService {
 					var emailTo = mapper.selectNotificationEmail(organizationId, candidate.getCustomerId(), candidate.getOwnerMemberId());
 					var emailSubject = "跟进提醒：" + candidate.getCustomerName();
 					var emailBody = buildEmailBody(candidate.getCustomerName(), analysis);
-					var explicitAttachments = resolveMcpAttachments(triggerContext, candidate.getCustomerId());
+					var explicitAttachments = resolveMcpAttachments(organizationId, triggerContext, candidate.getCustomerId());
 					var attachmentRequired = emailAttachmentRequired(actionPlan.suggestedNextAction()) || !explicitAttachments.isEmpty();
 					var attachments = !explicitAttachments.isEmpty()
 							? fileStorageService.preview(explicitAttachments)
@@ -249,7 +273,7 @@ public class SalesFollowUpAgentService {
 				var contentHash = sha256(payload.toString());
 				var actionRequestId = UUID.randomUUID();
 				var approvalId = UUID.randomUUID();
-				var stepId = insertStep(runId, candidate.getCustomerId(), sequence.next(), "ACTION_PROPOSED",
+				var stepId = insertStep(organizationId, runId, candidate.getCustomerId(), sequence.next(), "ACTION_PROPOSED",
 						"生成待审批跟进建议", "SUCCEEDED",
 						Map.of("interactionId", candidate.getInteractionId().toString()),
 						Map.of("intentScore", analysis.intentScore(), "priority", priority, "action", actionPlan.suggestedNextAction()),
@@ -283,7 +307,7 @@ public class SalesFollowUpAgentService {
 						contentHash,
 						now,
 						now.plus(Duration.ofDays(7)));
-				insertStep(runId, candidate.getCustomerId(), sequence.next(), "APPROVAL_WAIT",
+				insertStep(organizationId, runId, candidate.getCustomerId(), sequence.next(), "APPROVAL_WAIT",
 						"等待人工审批", "SUCCEEDED",
 						Map.of("actionRequestId", actionRequestId.toString()),
 						Map.of("approvalId", approvalId.toString()), now, now, null);
@@ -292,7 +316,7 @@ public class SalesFollowUpAgentService {
 			}
 			catch (RuntimeException exception) {
 				failed++;
-				insertStep(runId, candidate.getCustomerId(), sequence.next(), "ERROR",
+				insertStep(organizationId, runId, candidate.getCustomerId(), sequence.next(), "ERROR",
 						"客户分析失败", "FAILED",
 						Map.of("interactionId", candidate.getInteractionId().toString()),
 						Map.of(), now, now, exception.getMessage());
@@ -309,10 +333,10 @@ public class SalesFollowUpAgentService {
 		summary.put("triggerType", triggerType);
 		mapper.completeRun(runId, organizationId, status, candidates.size(), candidates.size(), succeeded,
 				0, failed, pendingApprovals, summary, failed > 0 ? "部分客户分析失败" : null, now);
-		return findRun(runId);
+		return AgentRunResponse.from(requireRun(organizationId, runId));
 	}
 
-	private UUID ensureDefaultConfig(java.time.Instant now) {
+	private UUID ensureDefaultConfig(UUID organizationId, java.time.Instant now) {
 		mapper.insertDefaultConfigIfAbsent(organizationId, now);
 		var configId = mapper.selectDefaultConfigId(organizationId);
 		if (configId == null) {
@@ -321,7 +345,7 @@ public class SalesFollowUpAgentService {
 		return configId;
 	}
 
-	private AgentRunRow requireRun(UUID runId) {
+	private AgentRunRow requireRun(UUID organizationId, UUID runId) {
 		var run = mapper.selectRun(organizationId, runId);
 		if (run == null) {
 			throw new AgentWorkflowException("Agent 运行记录不存在");
@@ -329,7 +353,7 @@ public class SalesFollowUpAgentService {
 		return run;
 	}
 
-	private UUID insertStep(UUID runId, UUID customerId, long sequenceNo, String stepType, String name, String status,
+	private UUID insertStep(UUID organizationId, UUID runId, UUID customerId, long sequenceNo, String stepType, String name, String status,
 			Map<String, Object> input, Map<String, Object> output, java.time.Instant startedAt,
 			java.time.Instant completedAt, String errorMessage) {
 		var stepId = UUID.randomUUID();
@@ -365,7 +389,7 @@ public class SalesFollowUpAgentService {
 		return snapshot;
 	}
 
-	private List<UploadedFile> resolveMcpAttachments(Map<String, Object> triggerContext, UUID customerId) {
+	private List<UploadedFile> resolveMcpAttachments(UUID organizationId, Map<String, Object> triggerContext, UUID customerId) {
 		var ids = attachmentIds(triggerContext);
 		if (ids.isEmpty()) {
 			return List.of();

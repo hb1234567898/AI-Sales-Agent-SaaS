@@ -22,6 +22,7 @@ import jakarta.validation.constraints.Min;
 
 @Validated
 @RestController
+@org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
 @RequestMapping("/api/v1/approvals")
 public class ApprovalController {
 
@@ -33,15 +34,16 @@ public class ApprovalController {
 
 	@GetMapping
 	public PageResponse<ApprovalResponse> findApprovals(
+			Authentication authentication,
 			@RequestParam(defaultValue = "PENDING") String status,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-		return PageResponse.from(approvalService.findApprovals(status, page, size));
+		return PageResponse.from(approvalService.findApprovals(principal(authentication), status, page, size));
 	}
 
 	@GetMapping("/{approvalId}")
-	public ApprovalResponse findApproval(@PathVariable UUID approvalId) {
-		return approvalService.findApproval(approvalId);
+	public ApprovalResponse findApproval(Authentication authentication, @PathVariable UUID approvalId) {
+		return approvalService.findApproval(principal(authentication), approvalId);
 	}
 
 	@PostMapping("/{approvalId}/approve")
