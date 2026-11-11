@@ -182,7 +182,7 @@
             FROM interaction i
             WHERE i.organization_id = c.organization_id
               AND i.customer_id = c.id
-              AND i.type = 'CHAT_IMPORT'
+              AND i.type IN ('CHAT_IMPORT', 'EMAIL_RECEIVED')
               AND i.occurred_at &gt;= #{since}
             ORDER BY i.occurred_at DESC, i.created_at DESC
             LIMIT 1

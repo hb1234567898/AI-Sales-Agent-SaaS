@@ -22,11 +22,15 @@ import org.springframework.mail.javamail.JavaMailSender;
 class SendEmailToolTests {
 
 	@Test
-	void sendsEmailFromNestedPayloadRecipient() {
+	void sendsEmailFromNestedPayloadRecipient() throws Exception {
 		var mailSender = mock(JavaMailSender.class);
 		var configurationService = mock(EmailConfigurationService.class);
 		var fileStorageService = mock(FileStorageService.class);
-		var tool = new SendEmailTool(mailSender, configurationService, fileStorageService);
+		var delivery = mock(com.yourcompany.salesagent.mail.application.MailDeliveryService.class);
+        var tracked = new com.yourcompany.salesagent.mail.infrastructure.MailMessageRow(); tracked.setMessageId("<tracked@example.test>");
+        when(delivery.prepare(any(), any(), any(), any(), any(), any(), any())).thenReturn(tracked);
+        when(mailSender.createMimeMessage()).thenReturn(new jakarta.mail.internet.MimeMessage(jakarta.mail.Session.getInstance(new java.util.Properties())));
+        var tool = new SendEmailTool(mailSender, configurationService, fileStorageService, delivery);
 		var actionRequestId = UUID.randomUUID();
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
@@ -47,7 +51,7 @@ class SendEmailToolTests {
 				false);
 		when(configurationService.requireRuntimeConfiguration(context.organizationId())).thenReturn(configuration);
 		when(configurationService.mailSender(configuration)).thenReturn(mailSender);
-		var message = ArgumentCaptor.forClass(SimpleMailMessage.class);
+		var message = ArgumentCaptor.forClass(jakarta.mail.internet.MimeMessage.class);
 
 		var result = tool.execute(context, Map.of(
 				"email", Map.of("to", "hecheng@example.test"),
@@ -57,16 +61,18 @@ class SendEmailToolTests {
 		assertThat(result.success()).isTrue();
 		assertThat(result.externalOperationId()).isEqualTo(context.idempotencyKey());
 		verify(mailSender).send(message.capture());
-		assertThat(message.getValue().getFrom()).isEqualTo("notice@example.test");
-		assertThat(message.getValue().getTo()).containsExactly("hecheng@example.test");
+		assertThat(message.getValue().getFrom()[0].toString()).isEqualTo("notice@example.test");
+		assertThat(message.getValue().getAllRecipients()[0].toString()).isEqualTo("hecheng@example.test");
+        assertThat(message.getValue().getMessageID()).isEqualTo("<tracked@example.test>");
+        verify(delivery).sent(tracked);
 		assertThat(message.getValue().getSubject()).isEqualTo("跟进提醒：宁波海天机械");
-		assertThat(message.getValue().getText()).isEqualTo("您好，请查收报价。");
+		assertThat(message.getValue().getContent()).isEqualTo("您好，请查收报价。");
 	}
 
 	@Test
 	void failsWithoutOnlineOrEnvironmentConfiguration() {
 		var configurationService = mock(EmailConfigurationService.class);
-		var tool = new SendEmailTool(mock(JavaMailSender.class), configurationService, mock(FileStorageService.class));
+		var tool = new SendEmailTool(mock(JavaMailSender.class), configurationService, mock(FileStorageService.class), mock(com.yourcompany.salesagent.mail.application.MailDeliveryService.class));
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
 				UUID.randomUUID(),
@@ -89,7 +95,7 @@ class SendEmailToolTests {
 		var mailSender = mock(JavaMailSender.class);
 		var configurationService = mock(EmailConfigurationService.class);
 		var fileStorageService = mock(FileStorageService.class);
-		var tool = new SendEmailTool(mailSender, configurationService, fileStorageService);
+		var tool = new SendEmailTool(mailSender, configurationService, fileStorageService, mock(com.yourcompany.salesagent.mail.application.MailDeliveryService.class));
 		var context = new ToolExecutionContext(
 				UUID.randomUUID(),
 				UUID.randomUUID(),

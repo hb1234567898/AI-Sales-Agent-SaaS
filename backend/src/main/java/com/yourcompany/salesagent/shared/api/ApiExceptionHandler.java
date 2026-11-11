@@ -56,7 +56,8 @@ public class ApiExceptionHandler {
 			FollowUpWorkflowException.class,
 			LeadWorkflowException.class,
 			OpportunityWorkflowException.class,
-			KnowledgeException.class
+			KnowledgeException.class,
+			com.yourcompany.salesagent.mail.application.MailWorkflowException.class
 	})
 	ProblemDetail handleWorkflow(RuntimeException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());

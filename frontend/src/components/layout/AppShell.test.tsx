@@ -9,7 +9,7 @@ const auth = vi.hoisted(() => ({ role: 'GUEST' }))
 vi.mock('../../auth/use-auth', () => ({ useAuth: () => ({ role: auth.role, userId: 'test-user', displayName: '游客', organizationName: '演示团队', email: 'guest@local' }) }))
 vi.mock('../../desktop/DesktopUpdatePrompt', () => ({ DesktopUpdateIndicator: () => null }))
 vi.mock('../../api/approvals-api', () => ({ getPendingApprovals: async () => ({ content: [], totalElements: 0 }) }))
-vi.mock('../../api/follow-ups-api', () => ({ getFollowUps: async () => ({ content: [], totalElements: 0 }) }))
+vi.mock('../../api/follow-ups-api', () => ({ getFollowUpReminders: async () => ({ unreadCount: 0, items: [] }), readFollowUpReminder: async () => {}, readAllFollowUpReminders: async () => {} }))
 function mount() {
   return render(<MemoryRouter initialEntries={['/app/today']}><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><AppShell /></QueryClientProvider></MemoryRouter>)
 }

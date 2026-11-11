@@ -372,7 +372,7 @@ public class AssistantChatService {
 			case "approval.approve" -> approvePlanned(principal, message, stringArgument(arguments, "approvalId"), traces);
 			case "agent.sales_follow_up.run" -> runAgent(
 					principal, conversationId, stringArgument(arguments, "customerName"), traces, attachments);
-			case "follow_up.list" -> listFollowUps(traces);
+			case "follow_up.list" -> listFollowUps(principal, traces);
 			case "knowledge.query" -> queryKnowledge(principal, stringArgument(arguments, "question"), message, traces);
 			case "" -> reply(
 					StringUtils.hasText(plan.response()) ? plan.response() : "请补充你希望完成的销售工作。",
@@ -552,9 +552,9 @@ public class AssistantChatService {
 				"customerName", approval.customerName()));
 	}
 
-	private AssistantChatResponse listFollowUps(List<AssistantToolTrace> traces) {
+	private AssistantChatResponse listFollowUps(AuthPrincipal principal, List<AssistantToolTrace> traces) {
 		traces.add(new AssistantToolTrace("follow_up.list", "RUNNING", "正在查询跟进任务"));
-		var page = followUpService.findFollowUps("ALL", 0, 10);
+		var page = followUpService.findFollowUps(principal, "ALL", "MINE", 0, 10);
 		traces.add(new AssistantToolTrace("follow_up.list", "SUCCEEDED", "读取跟进任务 " + page.getTotal() + " 条"));
 		var tasks = page.getRecords().stream()
 				.map(task -> compactMap(

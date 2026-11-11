@@ -25,6 +25,7 @@ import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerIntercept
 		"com.yourcompany.salesagent.lead.infrastructure",
 		"com.yourcompany.salesagent.opportunity.infrastructure",
 		"com.yourcompany.salesagent.knowledge.infrastructure",
+		"com.yourcompany.salesagent.mail.infrastructure",
 		"com.yourcompany.salesagent.tool.email.infrastructure",
 		"com.yourcompany.salesagent.tool.infrastructure"
 })

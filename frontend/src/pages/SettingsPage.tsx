@@ -6,6 +6,7 @@ import { getEmailSettingsStatus, saveEmailSettings, testEmailSettingsConnection,
 import { getSystemHealth } from '../api/system-api'
 import { SelectField } from '../components/forms/SelectField'
 import { useIsGuest } from '../auth/use-auth'
+import { MailAccountSettings } from '../components/mail/MailAccountSettings'
 
 interface AiModelSettingsFormProps {
   status?: AiModelStatus
@@ -200,6 +201,8 @@ export function SettingsPage() {
               ? <div className="settings-form" role="status">正在读取邮箱配置…</div>
               : <EmailSettingsForm status={emailStatus} isGuest={isGuest} />}
           </section>
+
+          <MailAccountSettings />
 
           <section className="surface settings-section" id="approval-policy">
             <div className="panel-header"><div><h2>审批策略</h2><p>确定哪些 Agent 动作必须经过人工确认</p></div></div>

@@ -53,8 +53,8 @@ class SalesFollowUpAgentServiceTests {
 	void recordsMcpAssistantTriggeredRunsInAgentHistory() {
 		var principal = new AuthPrincipal(
 				UUID.randomUUID(),
-				ORGANIZATION_ID,
 				UUID.randomUUID(),
+				ORGANIZATION_ID,
 				UUID.randomUUID(),
 				"sales@example.test",
 				"销售",
@@ -136,7 +136,7 @@ class SalesFollowUpAgentServiceTests {
 		when(mapper.selectNotificationEmail(ORGANIZATION_ID, customerId, ownerMemberId)).thenReturn("hecheng@example.test");
 		when(fileStorageService.requireActive(ORGANIZATION_ID, fileId)).thenReturn(attachment);
 		when(fileStorageService.preview(List.of(attachment))).thenReturn(attachmentPreview);
-		when(chatAnalysisService.analyze(customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
+		when(chatAnalysisService.analyze(ORGANIZATION_ID, customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
 				UUID.randomUUID(), interactionId, 1, ChatAnalysisStatus.APPLIED,
 				"客户希望本周看报价，需要安排跟进。", 82, "HIGH", "POSITIVE",
 				List.of("报价"), List.of(), List.of(), List.of(), List.of("SEND_EMAIL"),
@@ -187,7 +187,7 @@ class SalesFollowUpAgentServiceTests {
 		when(mapper.selectDefaultConfigId(ORGANIZATION_ID)).thenReturn(configId);
 		when(mapper.selectCandidates(eq(ORGANIZATION_ID), any(), any(), anyInt())).thenReturn(List.of(candidate));
 		when(mapper.selectNotificationEmail(ORGANIZATION_ID, customerId, ownerMemberId)).thenReturn("hecheng@example.test");
-		when(chatAnalysisService.analyze(customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
+		when(chatAnalysisService.analyze(ORGANIZATION_ID, customerId, interactionId, principal.memberId())).thenReturn(new ChatAnalysisResponse(
 				UUID.randomUUID(),
 				interactionId,
 				1,
@@ -308,13 +308,33 @@ class SalesFollowUpAgentServiceTests {
 	private static AuthPrincipal principal() {
 		return new AuthPrincipal(
 				UUID.randomUUID(),
-				ORGANIZATION_ID,
 				UUID.randomUUID(),
+				ORGANIZATION_ID,
 				UUID.randomUUID(),
 				"sales@example.test",
 				"销售",
 				"团队",
 				"SALES",
 				NOW.plusSeconds(900));
+	}
+
+	@Test
+	void scheduledRunsUseTheActorsTenantAndStableBatchDeduplicationKey() {
+		var tenant = UUID.randomUUID();
+		var member = UUID.randomUUID();
+		var principal = new AuthPrincipal(null, UUID.randomUUID(), tenant, member,
+				"sales@example.test", "Sales", "Team", "SALES", NOW.plusSeconds(900));
+		var configId = UUID.randomUUID();
+		var batchId = UUID.randomUUID();
+		when(mapper.selectDefaultConfigId(tenant)).thenReturn(configId);
+		when(mapper.selectCandidates(eq(tenant), any(), any(), anyInt())).thenReturn(List.of());
+		when(mapper.selectRun(eq(tenant), any())).thenAnswer(invocation -> {
+			var row = new AgentRunRow(); row.setId(invocation.getArgument(1));
+			row.setTriggerType("SCHEDULED"); row.setStatus("COMPLETED"); return row;
+		});
+		var result = service.runScheduled(principal, new AgentRunCreateRequest(5, 180, null), batchId);
+		assertThat(result.triggerType()).isEqualTo("SCHEDULED");
+		verify(mapper).insertRun(any(), eq(tenant), eq(configId), eq(member), eq("SCHEDULED"), eq("RUNNING"),
+				any(), eq("proactive:" + batchId), any(), any(), eq(NOW), eq(NOW));
 	}
 }

@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from './SettingsPage'
 import { fetchRequestJson, fetchRequestMethod, fetchRequestUrl } from '../test/fetch-request'
+vi.mock('../auth/use-auth', () => ({ useAuth: () => ({ role: 'OWNER' }), useIsGuest: () => false }))
+vi.mock('../api/mail-api', () => ({ getMailAccount: async () => ({ host: '', port: 993, username: '', ssl: true, folder: 'INBOX', enabled: false, passwordConfigured: false, version: -1, lastSyncAt: null, lastError: null, syncing: false }), saveMailAccount: vi.fn(), testMailAccount: vi.fn() }))
 
 afterEach(() => {
   cleanup()

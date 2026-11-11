@@ -24,6 +24,7 @@ import jakarta.validation.constraints.Min;
 
 @Validated
 @RestController
+@org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
 @RequestMapping("/api/v1/agent-runs")
 public class AgentRunController {
 
@@ -35,22 +36,24 @@ public class AgentRunController {
 
 	@GetMapping
 	public PageResponse<AgentRunResponse> findRuns(
+			Authentication authentication,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-		return PageResponse.from(agentService.findRuns(page, size));
+		return PageResponse.from(agentService.findRuns(principal(authentication), page, size));
 	}
 
 	@GetMapping("/{runId}")
-	public AgentRunResponse findRun(@PathVariable UUID runId) {
-		return agentService.findRun(runId);
+	public AgentRunResponse findRun(Authentication authentication, @PathVariable UUID runId) {
+		return agentService.findRun(principal(authentication), runId);
 	}
 
 	@GetMapping("/{runId}/steps")
 	public PageResponse<AgentStepResponse> findSteps(
+			Authentication authentication,
 			@PathVariable UUID runId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "50") @Min(1) @Max(200) int size) {
-		return PageResponse.from(agentService.findSteps(runId, page, size));
+		return PageResponse.from(agentService.findSteps(principal(authentication), runId, page, size));
 	}
 
 	@PostMapping

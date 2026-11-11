@@ -1,13 +1,25 @@
 import type { Customer } from './customers-api'
 import type { Lead } from './leads-api'
 import type { KnowledgeAnswer, KnowledgeDocument } from './knowledge-api'
+import type { FollowUp } from './follow-ups-api'
+import type { MailMessage } from './mail-api'
 
 const now = new Date().toISOString()
 const later = new Date(Date.now() + 86400000).toISOString()
+const guestMail: MailMessage[] = [
+  { id: 'demo-mail-1', customerId: 'demo-customer-1', customerName: '云岚科技', direction: 'INBOUND', status: 'RECEIVED', fromAddress: 'lin@example.com', recipients: ['sales@example.com'], subject: 'Re: 销售协同方案评审', bodyText: '陈经理您好，方案已看过。我们想进一步确认私有化部署周期、数据迁移范围和年度费用。周四下午可以安排一次技术评审吗？\n\n林婉清', attachmentNames: [], occurredAt: now, threadId: 'demo-mail-thread', parentId: 'demo-mail-2', version: 0, replyApprovalId: null, approvalStatus: null, actionStatus: null },
+  { id: 'demo-mail-2', customerId: 'demo-customer-1', customerName: '云岚科技', direction: 'OUTBOUND', status: 'SENT', fromAddress: 'sales@example.com', recipients: ['lin@example.com'], subject: '销售协同方案评审', bodyText: '林总您好，现发送销售协同初步方案，请您查阅。期待进一步确认评审安排。', attachmentNames: ['销售协同方案.pdf'], occurredAt: new Date(Date.now() - 86400000).toISOString(), threadId: 'demo-mail-thread', parentId: null, version: 0, replyApprovalId: null, approvalStatus: null, actionStatus: null },
+  { id: 'demo-mail-3', customerId: null, customerName: null, direction: 'INBOUND', status: 'UNMATCHED', fromAddress: 'buyer@example.com', recipients: ['sales@example.com'], subject: '咨询产品演示', bodyText: '您好，希望了解贵司产品并预约演示，请联系。', attachmentNames: [], occurredAt: now, threadId: 'demo-mail-thread-2', parentId: null, version: 0, replyApprovalId: null, approvalStatus: null, actionStatus: null },
+]
 const owners = [{ id: 'demo-owner', name: '陈默' }, { id: 'demo-owner-2', name: '李昕' }]
 const customers: Customer[] = [
   { id: 'demo-customer-1', name: '云岚科技', industry: '软件服务', website: null, employeeRange: '200-500', stage: 'PROPOSAL', status: 'ACTIVE', source: 'CHAT', ownerMemberId: owners[0].id, ownerName: owners[0].name, score: 92, estimatedValue: 180000, nextAction: '确认方案范围与评审时间', lastInteractionAt: now, nextFollowUpAt: later, primaryContact: { name: '林婉清', email: 'lin@example.com', phone: '13800000001' }, createdAt: now, updatedAt: now, version: 0 },
   { id: 'demo-customer-2', name: '恒川智造', industry: '机械制造', website: null, employeeRange: '500-1000', stage: 'DISCOVERY', status: 'ACTIVE', source: 'IMPORT', ownerMemberId: owners[1].id, ownerName: owners[1].name, score: 86, estimatedValue: 260000, nextAction: '安排技术交流', lastInteractionAt: now, nextFollowUpAt: later, primaryContact: { name: '周启明', email: 'zhou@example.com', phone: '13800000002' }, createdAt: now, updatedAt: now, version: 0 },
+]
+const guestFollowUps: FollowUp[] = [
+  { id: 'demo-task-1', customerId: customers[0].id, customerName: customers[0].name, ownerMemberId: owners[0].id, ownerName: owners[0].name, status: 'OPEN', dueAt: new Date(Date.now() + 15 * 60_000).toISOString(), priority: 90, intentLevel: 'HIGH', riskLevel: 'LOW', reason: '客户希望确认方案范围', recommendedActionType: 'CALL', recommendedAction: { title: '确认方案评审时间', source: 'AI_AGENT' }, origin: 'AI', version: 0, createdAt: now, completedAt: null },
+  { id: 'demo-task-2', customerId: customers[1].id, customerName: customers[1].name, ownerMemberId: owners[0].id, ownerName: owners[0].name, status: 'OPEN', dueAt: new Date(Date.now() - 2 * 3600_000).toISOString(), priority: 60, intentLevel: null, riskLevel: null, reason: '客户已连续 7 天未联系', recommendedActionType: 'OTHER', recommendedAction: { title: '了解技术方案评估进度', source: 'AUTOMATION' }, origin: 'RULE', version: 0, createdAt: now, completedAt: null },
+  { id: 'demo-task-3', customerId: customers[0].id, customerName: customers[0].name, ownerMemberId: owners[0].id, ownerName: owners[0].name, status: 'COMPLETED', dueAt: new Date(Date.now() - 86400_000).toISOString(), priority: 30, intentLevel: null, riskLevel: null, reason: '已确认参会人员', recommendedActionType: 'MEETING', recommendedAction: { title: '预约产品演示', source: 'MANUAL' }, origin: 'MANUAL', version: 1, createdAt: now, completedAt: now },
 ]
 const leads: Lead[] = [
   { id: 'demo-lead-1', company: '星河数字', industry: '软件服务', contactName: '张宁', contactEmail: 'zhang@example.com', contactPhone: '13800000003', contactTitle: '销售经理', source: 'IMPORT', status: 'NEW', ownerMemberId: null, ownerName: null, score: 72, nextAction: '了解客户团队规模', nextFollowUpAt: later, lastActivityAt: null, createdAt: now, updatedAt: now },
@@ -52,14 +64,27 @@ export function getGuestData(path: string, extraParams?: unknown): unknown {
   }
   if (route.startsWith('/api/v1/customers/')) return customers.find(c => c.id === route.split('/').at(-1)) ?? null
   if (route === '/api/v1/follow-ups') {
-    const tasks = [{ id: 'demo-task-1', customerId: customers[0].id, customerName: customers[0].name, ownerMemberId: owners[0].id, ownerName: owners[0].name, status: 'OPEN', dueAt: later, priority: 90, intentLevel: 'HIGH', riskLevel: 'LOW', reason: '客户希望确认方案', recommendedActionType: 'CALL', recommendedAction: { title: '确认方案评审时间', source: 'AI_AGENT' } }]
-    return page(p.get('filter') === 'ALL' ? tasks : [], p)
+    const selectedFilter = p.get('filter') ?? 'ALL'
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1)
+    return page(guestFollowUps.filter(task => selectedFilter === 'CLOSED' ? task.status === 'COMPLETED' : task.status !== 'COMPLETED'
+      && (selectedFilter !== 'OVERDUE' || Date.parse(task.dueAt) <= Date.now())
+      && (selectedFilter !== 'TODAY' || Date.parse(task.dueAt) >= dayStart.getTime() && Date.parse(task.dueAt) < dayEnd.getTime())), p)
   }
+  if (route === '/api/v1/follow-ups/metrics') return { pending: 2, today: 2, overdue: 1, completed: 1 }
+  if (route === '/api/v1/follow-ups/options') return { customers: customers.filter(c => c.name.includes(p.get('query') ?? '')).map(c => ({ id: c.id, name: c.name })), owners }
+  if (route === '/api/v1/follow-ups/automation') return { enabled: true, inactiveDays: 7, runHour: 9, maxCustomers: 5, autoAnalyze: false, reminderMinutes: 30, version: 0, lastRun: { id: 'demo-automation', status: 'COMPLETED', createdCount: 1, agentRunId: null, errorMessage: null, createdAt: now } }
+  if (route === '/api/v1/follow-ups/reminders') return { unreadCount: 2, items: guestFollowUps.filter(t => t.status === 'OPEN').map(task => ({ id: `reminder-${task.id}`, followUpId: task.id, customerName: task.customerName, title: task.recommendedAction.title, kind: Date.parse(task.dueAt) <= Date.now() ? 'OVERDUE' : 'DUE_SOON', dueAt: task.dueAt, createdAt: now })) }
+  if (route.startsWith('/api/v1/follow-ups/')) return guestFollowUps.find(t => t.id === route.split('/').at(-1)) ?? null
   if (route === '/api/v1/approvals') return page([{ id: 'demo-approval', actionRequestId: 'demo-action', runId: 'demo-run', customerId: customers[0].id, customerName: customers[0].name, actionType: 'SEND_EMAIL', riskLevel: 'HIGH', actionStatus: 'PENDING', failureCode: null, failureMessage: null, status: 'PENDING', reason: '向客户发送方案需要人工确认。', preview: { action: '发送方案确认邮件', to: 'lin@example.com', subject: '方案确认', body: '您好，感谢沟通，期待与您确认方案范围。', priority: '高' }, requester: 'AI 助手', version: 0, requestedAt: now, expiresAt: null, actionCompletedAt: null }], p)
   if (route === '/api/v1/agent-runs') return page([{ id: 'demo-run', name: '客户跟进分析', triggerType: 'MCP_ASSISTANT', status: 'WAITING_APPROVAL', businessDate: now.slice(0, 10), scope: { recentDays: 30, maxCustomers: 5 }, outputSummary: { message: '已生成 1 条待审批建议。' }, totalCandidates: 2, processedCount: 2, succeededCount: 2, skippedCount: 0, failedCount: 0, pendingApprovalCount: 1, errorMessage: null, queuedAt: now, startedAt: now, completedAt: now, createdAt: now }], p)
   if (/\/agent-runs\/[^/]+\/steps$/.test(route)) return page([{ id: 'demo-step', customerId: customers[0].id, sequenceNo: 1, stepType: 'ANALYSIS', name: '分析客户需求', status: 'SUCCEEDED', inputSnapshot: {}, outputSnapshot: {}, errorMessage: null, startedAt: now, completedAt: now, durationMs: 3200 }], p)
   if (route === '/api/v1/ai/model') return { provider: 'QWEN', model: 'qwen-plus（演示）', baseUrl: '', apiKeyConfigured: false, ready: false, status: 'MISSING_API_KEY', usage: { inputTokens: 1200, outputTokens: 500, cachedInputTokens: 0, totalTokens: 1700, successfulCalls: 4, lastCalledAt: now, remainingTokens: null, remainingStatus: '演示数据', memberAllocatedTokens: 10000, memberUsedTokens: 1700, memberRemainingTokens: 8300 } }
   if (route === '/api/v1/email/settings') return { host: null, port: null, username: null, fromAddress: null, smtpAuth: true, starttlsEnabled: true, starttlsRequired: false, passwordConfigured: false, ready: false, status: 'MISSING_CONFIGURATION' }
+  if (route === '/api/v1/mail/account') return { host: 'imap.example.com', port: 993, username: 'sales@example.com', ssl: true, folder: 'INBOX', enabled: true, passwordConfigured: false, version: -1, lastSyncAt: now, lastError: null, syncing: false }
+  if (route === '/api/v1/mail/messages') return page(guestMail.filter(m => p.get('filter') === 'ALL' || p.get('filter') === 'PENDING' && m.status === 'RECEIVED' || p.get('filter') === 'UNMATCHED' && m.status === 'UNMATCHED' || p.get('filter') === 'SENT' && m.direction === 'OUTBOUND' || p.get('filter') === 'CLOSED' && ['REPLIED', 'HANDLED'].includes(m.status)), p)
+  const mail = route.match(/^\/api\/v1\/mail\/messages\/([^/]+)(\/thread)?$/)
+  if (mail) { const message = guestMail.find(m => m.id === mail[1]); return mail[2] ? guestMail.filter(m => m.threadId === message?.threadId) : message ?? null }
   if (route === '/api/v1/knowledge/documents') return page(filtered(guestDocuments, p, d => `${d.title} ${d.filename}`, d => d.category, 'category'), p)
   const knowledge = route.match(/^\/api\/v1\/knowledge\/documents\/([^/]+)(?:\/(chunks|file))?$/)
   if (knowledge) {

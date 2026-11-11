@@ -548,7 +548,7 @@ input:focus-visible {
 .sidebar-brand-lockup {
   position: relative;
   display: block;
-  flex: 0 1 170px;
+  flex: 0 1 148px;
   min-width: 0;
   aspect-ratio: 1430 / 350;
   overflow: hidden;

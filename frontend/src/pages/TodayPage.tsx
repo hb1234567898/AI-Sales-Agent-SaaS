@@ -13,20 +13,13 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { getSystemHealth } from '../api/system-api'
+import { TodayFollowUps } from '../components/followup/TodayFollowUps'
 
 const metrics = [
   { label: '今日待跟进', value: 12, note: '3 项临近截止', icon: ClockCountdown },
   { label: '高优先级客户', value: 4, note: '新增 2 个信号', icon: UserFocus },
   { label: '待人工审批', value: 3, note: '1 项建议优先处理', icon: SealCheck },
   { label: '本周已触达', value: 28, note: '回复率 32%', icon: Lightning },
-]
-
-const priorityCustomers = [
-  { company: '云岚科技', contact: '林婉清', priority: '高', interaction: '18 分钟前', action: '发送方案确认邮件', owner: '陈默', score: 92 },
-  { company: '恒川智造', contact: '周启明', priority: '高', interaction: '1 小时前', action: '确认技术评审时间', owner: '李昕', score: 88 },
-  { company: '北辰零售', contact: '宋雨', priority: '高', interaction: '昨天 16:40', action: '跟进试用反馈', owner: '陈默', score: 84 },
-  { company: '澄海数据', contact: '许哲', priority: '中', interaction: '昨天 11:20', action: '补充 ROI 测算', owner: '王宁', score: 76 },
-  { company: '拓维物流', contact: '韩知远', priority: '中', interaction: '2 天前', action: '重新确认采购窗口', owner: '李昕', score: 71 },
 ]
 
 const aiReviews = [
@@ -108,57 +101,7 @@ export function TodayPage() {
 
       <div className="dashboard-grid">
         <div className="dashboard-primary">
-          <section className="surface priority-panel">
-            <div className="panel-header">
-              <div>
-                <h2>优先跟进队列</h2>
-                <p>按购买意向、互动信号与跟进时效综合排序</p>
-              </div>
-              <div className="panel-actions">
-                <span className="count-label">12 项</span>
-                <Link className="text-link" to="/app/follow-ups">
-                  查看全部 <ArrowRight size={14} />
-                </Link>
-              </div>
-            </div>
-
-            <div
-              className="table-scroll"
-              role="region"
-              aria-label="优先跟进客户列表"
-              tabIndex={0}
-            >
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>客户</th>
-                    <th>优先级</th>
-                    <th>最近互动</th>
-                    <th>建议动作</th>
-                    <th>负责人</th>
-                    <th aria-label="操作" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {priorityCustomers.map((customer) => (
-                    <tr key={customer.company}>
-                      <td>
-                        <div className="customer-cell">
-                          <span className="company-avatar">{customer.company.slice(0, 1)}</span>
-                          <span><strong>{customer.company}</strong><small>{customer.contact} · 评分 {customer.score}</small></span>
-                        </div>
-                      </td>
-                      <td><span className={`priority-badge priority-${customer.priority === '高' ? 'high' : 'medium'}`}>{customer.priority}</span></td>
-                      <td className="muted-cell">{customer.interaction}</td>
-                      <td>{customer.action}</td>
-                      <td className="muted-cell">{customer.owner}</td>
-                      <td><Link className="row-action" to="/app/follow-ups">处理</Link></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <TodayFollowUps />
 
           <section className="surface runs-panel">
             <div className="panel-header">

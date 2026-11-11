@@ -20,10 +20,12 @@ import com.yourcompany.salesagent.tool.spi.ToolDescriptor;
 
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
+import com.yourcompany.salesagent.mail.application.MailDeliveryService;
+import com.yourcompany.salesagent.mail.application.MailWorkflowException;
+import com.yourcompany.salesagent.mail.infrastructure.MailMessageRow;
 
 /**
  * 真实发送邮件。HIGH 风险，必须由人工审批后才能执行（策略见设计文档 8.2 节）。
@@ -35,14 +37,16 @@ public class SendEmailTool implements AgentTool {
 	private final JavaMailSender mailSender;
 	private final EmailConfigurationService configurationService;
 	private final FileStorageService fileStorageService;
+	private final MailDeliveryService delivery;
 
 	public SendEmailTool(
 			JavaMailSender mailSender,
 			EmailConfigurationService configurationService,
-			FileStorageService fileStorageService) {
+			FileStorageService fileStorageService, MailDeliveryService delivery) {
 		this.mailSender = mailSender;
 		this.configurationService = configurationService;
 		this.fileStorageService = fileStorageService;
+		this.delivery = delivery;
 	}
 
 	@Override
@@ -62,6 +66,9 @@ public class SendEmailTool implements AgentTool {
 		var to = firstText(asString(payload.get("to")), nestedEmailField(payload, "to"));
 		var subject = asString(payload.get("subject"));
 		var body = asString(payload.get("body"));
+		if (subject != null && (subject.length() > 500 || subject.contains("\r") || subject.contains("\n"))) {
+			return ToolResult.failure("邮件主题过长或包含非法换行，无法发送");
+		}
 		if (to == null || to.isBlank()) {
 			return ToolResult.failure("缺少收件人(to)，无法发送邮件");
 		}
@@ -73,39 +80,48 @@ public class SendEmailTool implements AgentTool {
 		if (attachments == null) {
 			return ToolResult.failure("邮件需要附件，但没有找到可发送的上传文件，请先在客户档案上传文件后再审批");
 		}
+		MailMessageRow tracked = null;
 		try {
+			tracked = delivery.prepare(context, configuration.fromAddress(), List.of(recipients), subject == null ? "(无主题)" : subject,
+					body == null ? "" : body, attachments.stream().map(UploadedFile::getOriginalFilename).toList(), payload);
 			var mail = sender(configuration);
-			if (attachments.isEmpty()) {
-				var message = new SimpleMailMessage();
-				message.setFrom(configuration.fromAddress());
-				message.setTo(recipients);
-				message.setSubject(subject == null ? "(无主题)" : subject);
-				message.setText(body == null ? "" : body);
-				mail.send(message);
+			var message = mail.createMimeMessage();
+			var helper = new MimeMessageHelper(message, !attachments.isEmpty(), StandardCharsets.UTF_8.name());
+			helper.setFrom(configuration.fromAddress());
+			helper.setTo(recipients);
+			helper.setSubject(subject == null ? "(无主题)" : subject);
+			helper.setText(body == null ? "" : body, false);
+			for (var attachment : attachments) {
+				helper.addAttachment(attachment.getOriginalFilename(), new ByteArrayResource(attachment.getContent()),
+						attachment.getContentType());
 			}
-			else {
-				var message = mail.createMimeMessage();
-				var helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
-				helper.setFrom(configuration.fromAddress());
-				helper.setTo(recipients);
-				helper.setSubject(subject == null ? "(无主题)" : subject);
-				helper.setText(body == null ? "" : body, false);
-				for (var attachment : attachments) {
-					helper.addAttachment(attachment.getOriginalFilename(), new ByteArrayResource(attachment.getContent()),
-							attachment.getContentType());
-				}
-				mail.send(message);
+			message.setHeader("Message-ID", tracked.getMessageId());
+			if (tracked.getParentId() != null) {
+				message.setHeader("In-Reply-To", tracked.getReferencesHeader());
+				message.setHeader("References", tracked.getReferencesHeader());
 			}
+			mail.send(message);
+			delivery.sent(tracked);
 			var attachmentPreview = attachments.isEmpty() ? List.<Map<String, Object>>of() : fileStorageService.preview(attachments);
 			return ToolResult.success(context.idempotencyKey(), "邮件已发送至 " + String.join(", ", recipients),
 					Map.of(
 							"to", String.join(", ", recipients),
 							"subject", subject == null ? "(无主题)" : subject,
+							"messageId", tracked.getMessageId(),
 							"attachments", attachmentPreview));
 		}
 		catch (MailException | jakarta.mail.MessagingException e) {
 			// 发送失败直接标记失败，交由人工处理；不盲目重试，避免重复触达客户。
-			return ToolResult.failure("邮件发送失败: " + e.getMessage());
+			if (tracked != null) delivery.unknown(tracked);
+			return ToolResult.failure("邮件发送结果需人工核对，请检查原邮箱后处理，不要直接重复发送。");
+		}
+		catch (MailWorkflowException e) {
+			if (tracked != null) delivery.unknown(tracked);
+			return ToolResult.failure(e.getMessage());
+		}
+		catch (RuntimeException e) {
+			if (tracked != null) delivery.unknown(tracked);
+			return ToolResult.failure("邮件发送或记录未能完成，请核对原邮箱，不要直接重复发送。");
 		}
 	}
 
@@ -188,12 +204,15 @@ public class SendEmailTool implements AgentTool {
 		return Arrays.stream(value.split("[,;]"))
 				.map(String::strip)
 				.filter(SendEmailTool::looksLikeEmail)
+				.map(recipient -> recipient.toLowerCase(java.util.Locale.ROOT))
 				.distinct()
 				.toArray(String[]::new);
 	}
 
 	private static boolean looksLikeEmail(String value) {
-		return value != null && value.length() <= 320 && value.contains("@") && !value.contains(" ");
+		if (value == null || value.length() > 320 || value.contains("\r") || value.contains("\n")) return false;
+		try { new jakarta.mail.internet.InternetAddress(value, true).validate(); return true; }
+		catch (jakarta.mail.internet.AddressException ignored) { return false; }
 	}
 
 	@SuppressWarnings("unchecked")
