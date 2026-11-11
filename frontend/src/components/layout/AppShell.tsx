@@ -1,5 +1,4 @@
 import {
-  Bell,
   BookOpen,
   Buildings,
   CaretDown,
@@ -7,6 +6,7 @@ import {
   ChartLineUp,
   CheckSquareOffset,
   GearSix,
+  EnvelopeSimple,
   House,
   List,
   MagnifyingGlass,
@@ -29,10 +29,10 @@ import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getPendingApprovals } from '../../api/approvals-api'
 import { logout } from '../../api/auth-api'
-import { getFollowUps } from '../../api/follow-ups-api'
 import { useAuth } from '../../auth/use-auth'
 import { leaveGuestMode } from '../../auth/guest-session'
 import { DesktopUpdateIndicator } from '../../desktop/DesktopUpdatePrompt'
+import { FollowUpNotifications } from '../followup/FollowUpNotifications'
 import { FeatureGuides, type GuideMode } from '../guides/FeatureGuides'
 
 interface NavItem {
@@ -47,6 +47,7 @@ const workNavigation: NavItem[] = [
   { to: '/app/customers', label: '客户', icon: UsersThree },
   { to: '/app/opportunities', label: '商机', icon: Kanban },
   { to: '/app/follow-ups', label: '跟进任务', icon: Target },
+  { to: '/app/mail', label: '客户邮件', icon: EnvelopeSimple },
   { to: '/app/forecast', label: '销售预测', icon: PresentationChart },
   { to: '/app/approvals', label: '审批', icon: CheckSquareOffset },
 ]
@@ -174,12 +175,7 @@ export function AppShell() {
     queryFn: getPendingApprovals,
     enabled: !guestMode,
     staleTime: 30_000,
-  })
-  const followUpsQuery = useQuery({
-    queryKey: ['follow-ups', 'topbar', 'TODAY'],
-    queryFn: () => getFollowUps('TODAY'),
-    enabled: !guestMode,
-    staleTime: 30_000,
+    refetchInterval: 30_000,
   })
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -200,21 +196,6 @@ export function AppShell() {
   }
 
   const pendingApprovals = approvalsQuery.data?.totalElements ?? 0
-  const pendingFollowUps = followUpsQuery.data?.totalElements ?? 0
-  const notificationCount = pendingApprovals + pendingFollowUps
-  const notificationTitle = notificationCount > 0
-    ? `${pendingApprovals} 条待审批建议，${pendingFollowUps} 条跟进任务`
-    : '暂无待处理通知'
-
-  function openNotifications() {
-    if (pendingApprovals > 0) {
-      navigate('/app/approvals')
-      return
-    }
-    if (pendingFollowUps > 0) {
-      navigate('/app/follow-ups')
-    }
-  }
 
   return (
     <div className={`app-shell${guestMode ? ' is-guest' : ''}`}>
@@ -262,18 +243,7 @@ export function AppShell() {
               </span>
             ) : null}
             <DesktopUpdateIndicator />
-            <button
-              className={`icon-button notification-button${notificationCount > 0 ? ' has-unread' : ''}`}
-              type="button"
-              aria-label={notificationTitle}
-              title={notificationTitle}
-              onClick={openNotifications}
-            >
-              <Bell size={19} />
-              {notificationCount > 0 ? (
-                <span className="notification-badge" aria-hidden>{notificationCount > 99 ? '99+' : notificationCount}</span>
-              ) : null}
-            </button>
+            <FollowUpNotifications pendingApprovals={pendingApprovals} guest={guestMode} />
             <span className="topbar-avatar" aria-label={session.displayName}>{session.displayName.slice(0, 1)}</span>
           </div>
         </header>

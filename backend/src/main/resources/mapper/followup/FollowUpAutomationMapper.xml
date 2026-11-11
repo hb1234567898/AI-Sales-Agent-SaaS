@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.followup.infrastructure.FollowUpAutomationMapper">
+    <select id="selectRule" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpRuleRow">
+        SELECT * FROM follow_up_rule WHERE organization_id = #{org} AND member_id = #{member}
+    </select>
+    <select id="lockRule" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpRuleRow">
+        SELECT * FROM follow_up_rule WHERE organization_id = #{org} AND member_id = #{member} FOR UPDATE
+    </select>
+    <insert id="insertRule">
+        INSERT INTO follow_up_rule (organization_id, member_id, enabled, inactive_days, run_hour, max_customers, auto_analyze, reminder_minutes, updated_at)
+        VALUES (#{org}, #{member}, #{input.enabled}, #{input.inactiveDays}, #{input.runHour}, #{input.maxCustomers}, #{input.autoAnalyze}, #{input.reminderMinutes}, #{now})
+        ON CONFLICT (organization_id, member_id) DO NOTHING
+    </insert>
+    <update id="updateRule">
+        UPDATE follow_up_rule SET enabled = #{input.enabled}, inactive_days = #{input.inactiveDays}, run_hour = #{input.runHour},
+            max_customers = #{input.maxCustomers}, auto_analyze = #{input.autoAnalyze}, reminder_minutes = #{input.reminderMinutes},
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{org} AND member_id = #{member} AND version = #{input.version}
+    </update>
+    <select id="selectActor" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpActorRow">
+        SELECT m.organization_id, m.id AS member_id, u.id AS user_id, u.email, u.display_name, o.name AS organization_name, m.role
+        FROM organization_member m JOIN app_user u ON u.id = m.user_id JOIN organization o ON o.id = m.organization_id
+        WHERE m.organization_id = #{org} AND m.id = #{member} AND m.status = 'ACTIVE' AND u.status = 'ACTIVE'
+          AND o.status = 'ACTIVE' AND m.role IN ('OWNER', 'ADMIN', 'MANAGER', 'SALES')
+    </select>
+    <select id="selectDueRules" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpRuleRow">
+        SELECT r.* FROM follow_up_rule r
+        JOIN organization o ON o.id = r.organization_id AND o.status = 'ACTIVE'
+        JOIN organization_member m ON m.organization_id = r.organization_id AND m.id = r.member_id AND m.status = 'ACTIVE'
+        JOIN app_user u ON u.id = m.user_id AND u.status = 'ACTIVE'
+        WHERE r.enabled AND r.run_hour &lt;= #{hour} AND m.role IN ('OWNER', 'ADMIN', 'MANAGER', 'SALES')
+          AND NOT EXISTS (SELECT 1 FROM follow_up_automation_run b WHERE b.organization_id = r.organization_id AND b.rule_id = r.id AND b.business_date = #{day})
+        ORDER BY r.updated_at, r.id LIMIT 50
+    </select>
+    <insert id="insertRun">
+        INSERT INTO follow_up_automation_run (id, organization_id, rule_id, member_id, business_date, status, created_at)
+        VALUES (#{id}, #{rule.organizationId}, #{rule.id}, #{rule.memberId}, #{day}, 'QUEUED', #{now})
+        ON CONFLICT (organization_id, rule_id, business_date) DO NOTHING
+    </insert>
+    <insert id="createTasks">
+        INSERT INTO follow_up (organization_id, customer_id, owner_member_id, origin, status, due_at, priority,
+            score_version, reason, recommended_action_type, recommended_action, automation_run_id, created_at, updated_at)
+        SELECT c.organization_id, c.id, #{rule.memberId}, 'RULE', 'OPEN', CAST(#{now} AS timestamptz) + interval '1 hour',
+            CASE WHEN c.attributes->>'score' ~ '^[0-9]{1,3}$' THEN LEAST(100, (c.attributes->>'score')::integer) ELSE 60 END, 'proactive-rule-v1',
+            CASE WHEN c.next_follow_up_at &lt;= #{now} THEN '客户计划跟进时间已到' ELSE '客户已连续 ' || CAST(#{rule.inactiveDays} AS text) || ' 天未联系' END,
+            'OTHER', jsonb_build_object('title', COALESCE(NULLIF(btrim(c.attributes->>'nextAction'), ''), '联系客户，确认下一步安排'), 'source', 'AUTOMATION'),
+            #{id}, #{now}, #{now}
+        FROM customer c
+        WHERE c.organization_id = #{rule.organizationId} AND c.owner_member_id = #{rule.memberId}
+          AND c.deleted_at IS NULL AND c.status = 'ACTIVE' AND c.stage NOT IN ('WON', 'LOST')
+          AND (c.next_follow_up_at &lt;= #{now} OR COALESCE(c.last_interaction_at, c.created_at) &lt;= #{cutoff})
+          AND NOT EXISTS (SELECT 1 FROM follow_up f WHERE f.organization_id = c.organization_id AND f.customer_id = c.id
+              AND (f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED') OR GREATEST(f.created_at, f.completed_at) &gt; #{cutoff}))
+        ORDER BY c.next_follow_up_at ASC NULLS LAST,
+            CASE WHEN c.attributes->>'score' ~ '^[0-9]{1,3}$' THEN LEAST(100, (c.attributes->>'score')::integer) ELSE 60 END DESC, c.id
+        LIMIT #{rule.maxCustomers}
+        ON CONFLICT DO NOTHING
+    </insert>
+    <select id="selectRunCustomers" resultType="java.util.UUID">
+        SELECT f.customer_id FROM follow_up f
+        JOIN customer c ON c.organization_id = f.organization_id AND c.id = f.customer_id
+        JOIN follow_up_automation_run b ON b.organization_id = f.organization_id AND b.id = f.automation_run_id
+        WHERE f.organization_id = #{org} AND f.automation_run_id = #{id} AND f.owner_member_id = b.member_id
+          AND f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED') AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+          AND c.owner_member_id = b.member_id AND c.stage NOT IN ('WON', 'LOST') ORDER BY f.id
+    </select>
+    <update id="prepared">
+        UPDATE follow_up_automation_run SET created_count = #{count}, status = #{status},
+            completed_at = CASE WHEN #{status} = 'COMPLETED' THEN CAST(#{now} AS timestamptz) ELSE NULL END
+        WHERE organization_id = #{org} AND id = #{id} AND status = 'QUEUED'
+    </update>
+    <select id="selectRun" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpAutomationRunRow">
+        SELECT * FROM follow_up_automation_run WHERE organization_id = #{org} AND member_id = #{member} AND business_date = #{day}
+    </select>
+    <select id="selectLatestRun" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpAutomationRunRow">
+        SELECT * FROM follow_up_automation_run WHERE organization_id = #{org} AND member_id = #{member} ORDER BY created_at DESC LIMIT 1
+    </select>
+    <select id="selectQueuedRuns" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpAutomationRunRow">
+        SELECT * FROM follow_up_automation_run WHERE status = 'QUEUED' ORDER BY created_at, id LIMIT 2
+    </select>
+    <update id="claimRun">
+        UPDATE follow_up_automation_run SET status = 'RUNNING', started_at = #{now}
+        WHERE organization_id = #{org} AND id = #{id} AND status = 'QUEUED'
+    </update>
+    <update id="finishRun">
+        UPDATE follow_up_automation_run SET status = #{status}, agent_run_id = #{agentRunId}, error_message = #{error}, completed_at = #{now}
+        WHERE organization_id = #{org} AND id = #{id} AND status = 'RUNNING'
+    </update>
+    <update id="expireRuns">
+        UPDATE follow_up_automation_run SET status = 'FAILED', error_message = '后台任务中断，请核对 Agent 运行记录后处理。', completed_at = #{now}
+        WHERE status = 'RUNNING' AND started_at &lt; #{cutoff}
+    </update>
+    <insert id="createReminders">
+        INSERT INTO follow_up_reminder (organization_id, follow_up_id, member_id, kind, scheduled_for, created_at)
+        SELECT f.organization_id, f.id, f.owner_member_id,
+            CASE WHEN f.due_at &lt;= #{now} THEN 'OVERDUE' ELSE 'DUE_SOON' END, f.due_at, #{now}
+        FROM follow_up f
+        JOIN customer c ON c.organization_id = f.organization_id AND c.id = f.customer_id AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+        JOIN organization o ON o.id = f.organization_id AND o.status = 'ACTIVE'
+        JOIN organization_member m ON m.organization_id = f.organization_id AND m.id = f.owner_member_id AND m.status = 'ACTIVE'
+        LEFT JOIN follow_up_rule r ON r.organization_id = f.organization_id AND r.member_id = f.owner_member_id
+        WHERE f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
+          AND f.due_at &lt;= CAST(#{now} AS timestamptz) + make_interval(mins => COALESCE(r.reminder_minutes, 30))
+        <if test="org != null">AND f.organization_id = #{org}</if>
+        <if test="member != null">AND f.owner_member_id = #{member}</if>
+        ON CONFLICT (organization_id, follow_up_id, member_id, kind, scheduled_for) DO NOTHING
+    </insert>
+    <sql id="ActiveReminders">
+        FROM follow_up_reminder n
+        JOIN follow_up f ON f.organization_id = n.organization_id AND f.id = n.follow_up_id
+        JOIN customer c ON c.organization_id = f.organization_id AND c.id = f.customer_id
+        WHERE n.organization_id = #{org} AND n.member_id = #{member} AND n.read_at IS NULL
+          AND f.owner_member_id = n.member_id AND n.scheduled_for = f.due_at
+          AND f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED') AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+          AND ((n.kind = 'OVERDUE' AND f.due_at &lt;= #{now}) OR (n.kind = 'DUE_SOON' AND f.due_at &gt; #{now}))
+    </sql>
+    <select id="selectReminders" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpReminderRow">
+        SELECT n.id, f.id AS follow_up_id, c.name AS customer_name, COALESCE(f.recommended_action->>'title', '跟进客户') AS title,
+            n.kind, f.due_at, n.created_at
+        <include refid="ActiveReminders" /> ORDER BY f.due_at, n.created_at DESC, n.id LIMIT 10
+    </select>
+    <select id="countReminders" resultType="long">
+        SELECT count(*) <include refid="ActiveReminders" />
+    </select>
+    <update id="readReminder">
+        UPDATE follow_up_reminder SET read_at = #{now} WHERE organization_id = #{org} AND member_id = #{member} AND read_at IS NULL
+        <if test="id != null">AND id = #{id}</if>
+    </update>
+</mapper>

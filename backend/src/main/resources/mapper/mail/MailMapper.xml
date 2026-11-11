@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.mail.infrastructure.MailMapper">
+    <resultMap id="Message" type="com.yourcompany.salesagent.mail.infrastructure.MailMessageRow" autoMapping="true">
+        <id property="id" column="id" />
+        <result property="recipients" column="recipients" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbStringListTypeHandler" />
+        <result property="attachmentNames" column="attachment_names" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbStringListTypeHandler" />
+    </resultMap>
+    <select id="account" resultType="com.yourcompany.salesagent.mail.infrastructure.MailAccountRow">SELECT * FROM mail_account WHERE organization_id = #{org}</select>
+    <insert id="insertAccount">
+        INSERT INTO mail_account (organization_id, host, port, username, encrypted_password, ssl, folder, enabled, updated_at)
+        VALUES (#{row.organizationId}, #{row.host}, #{row.port}, #{row.username}, #{row.encryptedPassword}, #{row.ssl}, #{row.folder}, #{row.enabled}, #{now}) ON CONFLICT DO NOTHING
+    </insert>
+    <update id="updateAccount">
+        UPDATE mail_account SET uid_validity = CASE WHEN host = #{row.host} AND username = #{row.username} AND folder = #{row.folder} THEN uid_validity ELSE 0 END,
+            last_uid = CASE WHEN host = #{row.host} AND username = #{row.username} AND folder = #{row.folder} THEN last_uid ELSE 0 END,
+            host = #{row.host}, port = #{row.port}, username = #{row.username}, encrypted_password = #{row.encryptedPassword}, ssl = #{row.ssl},
+            folder = #{row.folder}, enabled = #{row.enabled}, version = version + 1, updated_at = #{now}, last_error = NULL
+        WHERE organization_id = #{row.organizationId} AND version = #{version} AND (lease_until IS NULL OR lease_until &lt; #{now})
+    </update>
+    <select id="dueAccounts" resultType="java.util.UUID">
+        SELECT a.organization_id FROM mail_account a JOIN organization o ON o.id = a.organization_id AND o.status = 'ACTIVE'
+        WHERE a.enabled AND a.next_sync_at &lt;= #{now} AND (a.lease_until IS NULL OR a.lease_until &lt; #{now}) ORDER BY a.next_sync_at LIMIT 10
+    </select>
+    <update id="claim">
+        UPDATE mail_account SET lease_token = #{token}, lease_until = CAST(#{now} AS timestamptz) + interval '5 minutes'
+        WHERE organization_id = #{org} AND enabled AND (lease_until IS NULL OR lease_until &lt; #{now})
+    </update>
+    <update id="finishSync">
+        UPDATE mail_account SET uid_validity = #{validity}, last_uid = #{uid}, last_error = #{error},
+            last_sync_at = CASE WHEN #{error,jdbcType=VARCHAR} IS NULL THEN CAST(#{now} AS timestamptz) ELSE last_sync_at END,
+            next_sync_at = CAST(#{now} AS timestamptz) + interval '1 minute', lease_until = NULL, lease_token = NULL
+        WHERE organization_id = #{org} AND lease_token = #{token}
+    </update>
+    <insert id="insertMessage">
+        INSERT INTO mail_message (id, organization_id, customer_id, owner_member_id, action_request_id, interaction_id, thread_id, parent_id,
+            direction, status, message_id, from_address, recipients, subject, body_text, attachment_names, references_header, occurred_at, created_at)
+        VALUES (#{row.id}, #{row.organizationId}, #{row.customerId}, #{row.ownerMemberId}, #{row.actionRequestId}, #{row.interactionId}, #{row.threadId}, #{row.parentId},
+            #{row.direction}, #{row.status}, #{row.messageId}, #{row.fromAddress}, #{row.recipients,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbStringListTypeHandler},
+            #{row.subject}, #{row.bodyText}, #{row.attachmentNames,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbStringListTypeHandler},
+            #{row.referencesHeader}, #{row.occurredAt}, #{row.createdAt}) ON CONFLICT DO NOTHING
+    </insert>
+    <sql id="Joins">
+        FROM mail_message m LEFT JOIN customer c ON c.organization_id = m.organization_id AND c.id = m.customer_id
+        LEFT JOIN approval a ON a.organization_id = m.organization_id AND a.id = m.reply_approval_id
+        LEFT JOIN action_request ar ON ar.organization_id = a.organization_id AND ar.id = a.action_request_id
+    </sql>
+    <sql id="Scope">m.organization_id = #{org} AND (m.customer_id IS NULL OR c.deleted_at IS NULL)
+        <if test="owner != null">AND m.customer_id IS NOT NULL AND (c.owner_member_id = #{owner} OR c.owner_member_id IS NULL)</if>
+    </sql>
+    <select id="message" resultMap="Message">
+        SELECT m.*, c.name AS customer_name, c.owner_member_id, a.status AS approval_status, ar.status AS action_status,
+            EXISTS (SELECT 1 FROM mail_message d WHERE d.organization_id = m.organization_id AND d.parent_id = m.id AND d.direction = 'OUTBOUND' AND d.status IN ('SENDING', 'UNKNOWN')) AS delivery_uncertain
+        <include refid="Joins" /> WHERE m.organization_id = #{org} AND m.id = #{id} AND (m.customer_id IS NULL OR c.deleted_at IS NULL)
+    </select>
+    <select id="parent" resultMap="Message">
+        SELECT m.* FROM mail_message m JOIN customer c ON c.organization_id = m.organization_id AND c.id = m.customer_id AND c.deleted_at IS NULL
+        WHERE m.organization_id = #{org} AND m.direction = 'OUTBOUND' AND m.status IN ('SENT', 'UNKNOWN')
+          AND m.message_id IN <foreach collection="references" item="ref" open="(" close=")" separator=",">#{ref}</foreach>
+          AND m.recipients @&gt; jsonb_build_array(CAST(#{sender} AS text))
+          AND m.from_address IN <foreach collection="recipients" item="recipient" open="(" close=")" separator=",">#{recipient}</foreach>
+        ORDER BY m.occurred_at DESC, m.id LIMIT 1
+    </select>
+    <select id="customersByEmail" resultType="com.yourcompany.salesagent.mail.infrastructure.MailCustomerRow">
+        SELECT c.id, c.owner_member_id, c.name FROM customer c WHERE c.organization_id = #{org} AND c.deleted_at IS NULL AND c.status = 'ACTIVE'
+        AND EXISTS (SELECT 1 FROM customer_contact cc WHERE cc.organization_id = c.organization_id AND cc.customer_id = c.id AND cc.deleted_at IS NULL AND lower(btrim(cc.email)) = #{email}) LIMIT 2
+    </select>
+    <select id="customer" resultType="com.yourcompany.salesagent.mail.infrastructure.MailCustomerRow">
+        SELECT id, owner_member_id, name FROM customer WHERE organization_id = #{org} AND id = #{id} AND deleted_at IS NULL AND status = 'ACTIVE'
+    </select>
+    <select id="page" resultMap="Message">
+        SELECT m.id, m.organization_id, m.customer_id, c.name AS customer_name, c.owner_member_id, m.direction, m.status,
+            m.subject, left(m.body_text, 300) AS body_text, m.from_address, m.recipients, m.attachment_names, m.occurred_at, m.created_at,
+            m.thread_id, m.parent_id, m.version, m.reply_approval_id, a.status AS approval_status, ar.status AS action_status
+        <include refid="Joins" /> WHERE <include refid="Scope" />
+        <choose>
+            <when test="filter == 'PENDING'">AND m.direction = 'INBOUND' AND m.status = 'RECEIVED'</when>
+            <when test="filter == 'UNMATCHED'">AND m.status = 'UNMATCHED'</when>
+            <when test="filter == 'SENT'">AND m.direction = 'OUTBOUND'</when>
+            <when test="filter == 'CLOSED'">AND m.direction = 'INBOUND' AND m.status IN ('HANDLED', 'REPLIED', 'IGNORED')</when>
+        </choose>
+        ORDER BY m.occurred_at DESC, m.id
+    </select>
+    <select id="thread" resultMap="Message">
+        SELECT m.*, c.name AS customer_name, c.owner_member_id, a.status AS approval_status, ar.status AS action_status
+        <include refid="Joins" /> WHERE <include refid="Scope" /> AND m.thread_id = #{thread} ORDER BY m.occurred_at DESC, m.id LIMIT 30
+    </select>
+    <insert id="insertInteraction">
+        INSERT INTO interaction (id, organization_id, customer_id, type, direction, occurred_at, subject, body_text, body_preview, participants, source, external_id, metadata, created_at)
+        VALUES (#{row.interactionId}, #{row.organizationId}, #{row.customerId},
+            CASE WHEN #{row.direction} = 'INBOUND' THEN 'EMAIL_RECEIVED' ELSE 'EMAIL_SENT' END,
+            #{row.direction}, #{row.occurredAt}, #{row.subject}, #{row.bodyText}, left(#{row.bodyText}, 500),
+            #{row.recipients,typeHandler=com.yourcompany.salesagent.shared.persistence.JsonbStringListTypeHandler}, 'EMAIL', CAST(#{row.id} AS text),
+            jsonb_build_object('mailMessageId', CAST(#{row.id} AS text), 'messageId', CAST(#{row.messageId} AS text)), #{row.createdAt}) ON CONFLICT DO NOTHING
+    </insert>
+    <update id="touchCustomer">
+        UPDATE customer SET last_interaction_at = GREATEST(last_interaction_at, #{row.occurredAt}), updated_at = #{row.createdAt}
+        WHERE organization_id = #{row.organizationId} AND id = #{row.customerId} AND deleted_at IS NULL
+    </update>
+    <update id="attachInteraction">UPDATE mail_message SET interaction_id = #{interaction} WHERE organization_id = #{org} AND id = #{id}</update>
+    <insert id="createTask">
+        INSERT INTO follow_up (organization_id, customer_id, owner_member_id, origin, status, due_at, priority, score_version, reason, recommended_action_type, recommended_action, mail_message_id, created_at, updated_at)
+        VALUES (#{row.organizationId}, #{row.customerId}, #{row.ownerMemberId}, 'IMPORT', 'OPEN', CAST(#{now} AS timestamptz) + interval '1 hour', 80,
+            'email-reply-v1', '已收到客户邮件，请确认需求并回复', 'EMAIL',
+            jsonb_build_object('title', '回复客户邮件：' || CAST(#{row.subject} AS text), 'mailMessageId', CAST(#{row.id} AS text)), #{row.id}, #{now}, #{now}) ON CONFLICT DO NOTHING
+    </insert>
+    <update id="link">
+        UPDATE mail_message SET customer_id = #{customer.id}, owner_member_id = #{customer.ownerMemberId}, interaction_id = #{interaction}, status = 'RECEIVED', version = version + 1
+        WHERE organization_id = #{org} AND id = #{id} AND status = 'UNMATCHED' AND version = #{version}
+    </update>
+    <sql id="NoActiveApproval">NOT EXISTS (SELECT 1 FROM approval a JOIN action_request ar ON ar.organization_id = a.organization_id AND ar.id = a.action_request_id
+        WHERE a.organization_id = mail_message.organization_id AND a.id = mail_message.reply_approval_id
+          AND (a.status = 'PENDING' OR (a.status = 'APPROVED' AND ar.status IN ('APPROVED', 'EXECUTING'))))</sql>
+    <update id="handle">UPDATE mail_message SET status = CASE WHEN customer_id IS NULL THEN 'IGNORED' ELSE 'HANDLED' END, version = version + 1
+        WHERE organization_id = #{org} AND id = #{id} AND status IN ('RECEIVED', 'UNMATCHED') AND version = #{version} AND <include refid="NoActiveApproval" />
+    </update>
+    <update id="reserveReply">UPDATE mail_message SET version = version + 1
+        WHERE organization_id = #{org} AND id = #{id} AND status = 'RECEIVED' AND version = #{version} AND <include refid="NoActiveApproval" />
+        AND NOT EXISTS (SELECT 1 FROM mail_message delivery WHERE delivery.organization_id = mail_message.organization_id AND delivery.parent_id = mail_message.id AND delivery.direction = 'OUTBOUND' AND delivery.status IN ('SENDING', 'SENT', 'UNKNOWN'))
+    </update>
+    <update id="attachApproval">UPDATE mail_message SET reply_approval_id = #{approval} WHERE organization_id = #{org} AND id = #{id}</update>
+    <update id="completeTask">UPDATE follow_up SET status = 'COMPLETED', completed_at = #{now}, updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{org} AND mail_message_id = #{id} AND status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')</update>
+    <update id="deliveryStatus">UPDATE mail_message SET status = #{status}, version = version + 1 WHERE organization_id = #{org} AND id = #{id} AND status = 'SENDING'</update>
+    <update id="replied">UPDATE mail_message SET status = 'REPLIED', version = version + 1 WHERE organization_id = #{org} AND id = #{id} AND status = 'RECEIVED'</update>
+    <update id="expireSending">UPDATE mail_message SET status = 'UNKNOWN', version = version + 1 WHERE status = 'SENDING' AND created_at &lt; CAST(#{now} AS timestamptz) - interval '10 minutes'</update>
+</mapper>

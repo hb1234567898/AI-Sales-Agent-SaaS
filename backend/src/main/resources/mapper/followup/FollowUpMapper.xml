@@ -1,76 +1,96 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper
-        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.yourcompany.salesagent.followup.infrastructure.FollowUpMapper">
-
     <resultMap id="FollowUpMap" type="com.yourcompany.salesagent.followup.infrastructure.FollowUpRow" autoMapping="true">
         <id property="id" column="follow_up_id" />
-        <result property="customerId" column="customer_id" />
-        <result property="customerName" column="customer_name" />
-        <result property="ownerMemberId" column="owner_member_id" />
-        <result property="ownerName" column="owner_name" />
-        <result property="dueAt" column="due_at" />
-        <result property="intentLevel" column="intent_level" />
-        <result property="riskLevel" column="risk_level" />
-        <result property="recommendedActionType" column="recommended_action_type" />
         <result property="recommendedAction" column="recommended_action" typeHandler="com.yourcompany.salesagent.shared.persistence.JsonbMapTypeHandler" />
     </resultMap>
-
     <sql id="FollowUpSelect">
-        SELECT f.id AS follow_up_id,
-               f.customer_id,
-               c.name AS customer_name,
-               f.owner_member_id,
-               owner.display_name AS owner_name,
-               f.status,
-               f.due_at,
-               f.priority,
-               f.intent_level,
-               f.risk_level,
-               f.reason,
-               f.recommended_action_type,
-               f.recommended_action
+        SELECT f.id AS follow_up_id, f.customer_id, c.name AS customer_name,
+               f.owner_member_id, u.display_name AS owner_name, f.status, f.origin, f.version,
+               f.created_at, f.completed_at, f.due_at, f.priority, f.intent_level, f.risk_level,
+               f.reason, f.recommended_action_type, f.recommended_action
         FROM follow_up f
-        JOIN customer c
-          ON c.organization_id = f.organization_id
-         AND c.id = f.customer_id
-        LEFT JOIN organization_member member
-          ON member.organization_id = f.organization_id
-         AND member.id = f.owner_member_id
-        LEFT JOIN app_user owner ON owner.id = member.user_id
+        JOIN customer c ON c.organization_id = f.organization_id AND c.id = f.customer_id
+        LEFT JOIN organization_member m ON m.organization_id = f.organization_id AND m.id = f.owner_member_id
+        LEFT JOIN app_user u ON u.id = m.user_id
     </sql>
-
+    <sql id="Scope">
+        f.organization_id = #{organizationId} AND c.deleted_at IS NULL
+        <if test="owner != null">AND (f.owner_member_id = #{owner} OR f.owner_member_id IS NULL)</if>
+    </sql>
     <select id="selectFollowUps" resultMap="FollowUpMap">
         <include refid="FollowUpSelect" />
-        WHERE f.organization_id = #{organizationId}
-          AND f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
-          AND c.deleted_at IS NULL
-        <if test="filter == 'TODAY'">
-          AND f.due_at &lt; CAST(#{now} AS timestamptz) + interval '1 day'
-        </if>
-        <if test="filter == 'OVERDUE'">
-          AND f.due_at &lt; CAST(#{now} AS timestamptz)
-        </if>
-        ORDER BY f.due_at ASC, f.priority DESC, f.id
+        WHERE <include refid="Scope" />
+        <choose>
+            <when test="filter == 'CLOSED'">AND f.status IN ('COMPLETED', 'DISMISSED', 'CANCELLED')</when>
+            <otherwise>AND f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')</otherwise>
+        </choose>
+        <if test="filter == 'TODAY'">AND f.due_at &gt;= #{dayStart} AND f.due_at &lt; #{dayEnd}</if>
+        <if test="filter == 'OVERDUE'">AND f.due_at &lt;= #{now}</if>
+        ORDER BY CASE WHEN f.status IN ('COMPLETED', 'DISMISSED', 'CANCELLED') THEN 1 ELSE 0 END,
+                 f.due_at ASC, f.priority DESC, f.id
     </select>
-
     <select id="selectFollowUp" resultMap="FollowUpMap">
         <include refid="FollowUpSelect" />
-        WHERE f.organization_id = #{organizationId}
-          AND f.id = #{followUpId}
-        LIMIT 1
+        WHERE f.organization_id = #{organizationId} AND f.id = #{followUpId} AND c.deleted_at IS NULL
     </select>
-
-    <update id="completeFollowUp">
-        UPDATE follow_up
-        SET status = 'COMPLETED',
-            completed_at = #{now},
-            updated_at = #{now},
-            version = version + 1
-        WHERE organization_id = #{organizationId}
-          AND id = #{followUpId}
+    <select id="selectMetrics" resultType="com.yourcompany.salesagent.followup.api.FollowUpMetricsResponse">
+        SELECT count(*) FILTER (WHERE f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')) AS pending,
+               count(*) FILTER (WHERE f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED') AND f.due_at &gt;= #{dayStart} AND f.due_at &lt; #{dayEnd}) AS today,
+               count(*) FILTER (WHERE f.status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED') AND f.due_at &lt;= #{now}) AS overdue,
+               count(*) FILTER (WHERE f.status = 'COMPLETED') AS completed
+        FROM follow_up f JOIN customer c ON c.organization_id = f.organization_id AND c.id = f.customer_id
+        WHERE <include refid="Scope" />
+    </select>
+    <select id="customerExists" resultType="int">
+        SELECT count(*) FROM customer WHERE organization_id = #{organizationId} AND id = #{id}
+          AND deleted_at IS NULL AND status = 'ACTIVE'
+        <if test="owner != null">AND (owner_member_id = #{owner} OR owner_member_id IS NULL)</if>
+    </select>
+    <select id="ownerExists" resultType="int">
+        SELECT count(*) FROM organization_member m JOIN app_user u ON u.id = m.user_id
+        WHERE m.organization_id = #{organizationId} AND m.id = #{id} AND m.status = 'ACTIVE'
+          AND m.role &lt;&gt; 'VIEWER' AND u.status = 'ACTIVE'
+    </select>
+    <select id="selectCustomers" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpChoiceRow">
+        SELECT id, name FROM customer WHERE organization_id = #{organizationId} AND deleted_at IS NULL AND status = 'ACTIVE'
+        <if test="query != null and query != ''">AND name ILIKE '%' || #{query} || '%'</if>
+        <if test="owner != null">AND (owner_member_id = #{owner} OR owner_member_id IS NULL)</if>
+        ORDER BY name, id LIMIT 50
+    </select>
+    <select id="selectOwners" resultType="com.yourcompany.salesagent.followup.infrastructure.FollowUpChoiceRow">
+        SELECT m.id, u.display_name AS name FROM organization_member m JOIN app_user u ON u.id = m.user_id
+        WHERE m.organization_id = #{organizationId} AND m.status = 'ACTIVE' AND u.status = 'ACTIVE' AND m.role &lt;&gt; 'VIEWER'
+        <if test="owner != null">AND m.id = #{owner}</if>
+        ORDER BY u.display_name, m.id
+    </select>
+    <insert id="insert">
+        INSERT INTO follow_up (id, organization_id, customer_id, owner_member_id, origin, status, due_at,
+            priority, score_version, reason, recommended_action_type, recommended_action, created_at, updated_at)
+        VALUES (#{id}, #{organizationId}, #{input.customerId}, #{input.ownerMemberId}, 'MANUAL', 'OPEN',
+            #{input.dueAt}, #{input.priority}, 'manual-v1', COALESCE(#{input.reason}, ''), #{input.actionType},
+            jsonb_build_object('title', CAST(#{input.title} AS text), 'source', 'MANUAL'), #{now}, #{now})
+    </insert>
+    <update id="update">
+        UPDATE follow_up SET owner_member_id = #{input.ownerMemberId}, due_at = #{input.dueAt},
+            priority = #{input.priority}, reason = COALESCE(#{input.reason}, ''), recommended_action_type = #{input.actionType},
+            recommended_action = recommended_action || jsonb_build_object('title', CAST(#{input.title} AS text)),
+            status = 'OPEN', snoozed_until = NULL, updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND id = #{id} AND version = #{input.version}
           AND status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
-          AND (owner_member_id IS NULL OR owner_member_id = #{memberId})
+    </update>
+    <update id="changeStatus">
+        UPDATE follow_up SET status = #{status}, completed_at = CASE WHEN #{status} = 'COMPLETED' THEN CAST(#{now} AS timestamptz) ELSE NULL END,
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND id = #{id} AND version = #{version}
+          AND status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
+    </update>
+    <update id="snooze">
+        UPDATE follow_up SET status = 'SNOOZED', due_at = #{input.dueAt}, snoozed_until = #{input.dueAt},
+            reason = CASE WHEN COALESCE(#{input.reason}, '') = '' THEN reason ELSE #{input.reason} END,
+            updated_at = #{now}, version = version + 1
+        WHERE organization_id = #{organizationId} AND id = #{id} AND version = #{input.version}
+          AND status IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
     </update>
 </mapper>

@@ -4,6 +4,13 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TodayPage } from './TodayPage'
 
+vi.mock('../auth/use-auth', () => ({ useAuth: () => ({ role: 'GUEST', memberId: 'guest' }) }))
+vi.mock('../api/follow-ups-api', () => ({
+  getFollowUps: async () => ({ content: [], totalElements: 0 }),
+  getFollowUpMetrics: async () => ({ pending: 0, today: 0, overdue: 0, completed: 0 }),
+  completeFollowUp: vi.fn(),
+}))
+
 afterEach(async () => {
   cleanup()
   await new Promise<void>((resolve) => queueMicrotask(resolve))
@@ -37,7 +44,8 @@ describe('TodayPage', () => {
 
     expect(screen.getByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
     expect(screen.getByText('演示数据')).toBeInTheDocument()
-    expect(screen.getAllByText('云岚科技')).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: '我的跟进待办' })).toBeInTheDocument()
+    expect(await screen.findByText('暂无待办')).toBeInTheDocument()
     expect(await screen.findByText('已连接')).toBeInTheDocument()
   })
 })

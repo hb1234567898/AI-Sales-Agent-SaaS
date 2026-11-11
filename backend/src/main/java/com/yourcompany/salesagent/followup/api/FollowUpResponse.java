@@ -19,7 +19,11 @@ public record FollowUpResponse(
 		String riskLevel,
 		String reason,
 		String recommendedActionType,
-		Map<String, Object> recommendedAction) {
+		Map<String, Object> recommendedAction,
+		String origin,
+		long version,
+		Instant createdAt,
+		Instant completedAt) {
 
 	public static FollowUpResponse from(FollowUpRow row) {
 		return new FollowUpResponse(
@@ -35,6 +39,6 @@ public record FollowUpResponse(
 				row.getRiskLevel(),
 				row.getReason(),
 				row.getRecommendedActionType(),
-				row.getRecommendedAction());
+				row.getRecommendedAction(), row.getOrigin(), row.getVersion(), row.getCreatedAt(), row.getCompletedAt());
 	}
 }

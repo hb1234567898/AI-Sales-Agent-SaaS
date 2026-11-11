@@ -99,8 +99,13 @@ public class ChatAnalysisService {
 
 	@Transactional
 	public ChatAnalysisResponse analyze(UUID customerId, UUID interactionId, UUID memberId) {
-		var customer = requireCustomer(customerId);
-		var interaction = requireChatInteraction(customerId, interactionId);
+		return analyze(organizationId, customerId, interactionId, memberId);
+	}
+
+	@Transactional
+	public ChatAnalysisResponse analyze(UUID organizationId, UUID customerId, UUID interactionId, UUID memberId) {
+		var customer = requireCustomer(organizationId, customerId);
+		var interaction = requireChatInteraction(organizationId, customerId, interactionId);
 		var modelConfiguration = memberId == null
 				? modelService.requireRuntimeConfiguration(organizationId)
 				: modelService.requireRuntimeConfiguration(organizationId, memberId);
@@ -157,7 +162,7 @@ public class ChatAnalysisService {
 		}
 
 		var output = parseAndValidate(rawOutput);
-		var previous = latestAnalysis(interactionId);
+		var previous = latestAnalysis(organizationId, interactionId);
 		var version = previous == null ? 1 : previous.getAnalysisVersion() + 1;
 		var now = clock.instant();
 		var analysis = ChatAnalysis.create(
@@ -205,6 +210,10 @@ public class ChatAnalysisService {
 	}
 
 	private Customer requireCustomer(UUID customerId) {
+		return requireCustomer(organizationId, customerId);
+	}
+
+	private Customer requireCustomer(UUID organizationId, UUID customerId) {
 		var customer = customerMapper.selectOne(Wrappers.<Customer>lambdaQuery()
 				.eq(Customer::getId, customerId)
 				.eq(Customer::getOrganizationId, organizationId)
@@ -217,6 +226,10 @@ public class ChatAnalysisService {
 	}
 
 	private Interaction requireChatInteraction(UUID customerId, UUID interactionId) {
+		return requireChatInteraction(organizationId, customerId, interactionId);
+	}
+
+	private Interaction requireChatInteraction(UUID organizationId, UUID customerId, UUID interactionId) {
 		var interaction = interactionMapper.selectOne(Wrappers.<Interaction>lambdaQuery()
 				.eq(Interaction::getId, interactionId)
 				.eq(Interaction::getOrganizationId, organizationId)
@@ -225,13 +238,17 @@ public class ChatAnalysisService {
 		if (interaction == null) {
 			throw new InteractionValidationException("聊天记录不存在或不属于当前客户");
 		}
-		if (interaction.getType() != InteractionType.CHAT_IMPORT) {
-			throw new InteractionValidationException("只有导入的聊天记录可以执行 AI 分析");
+		if (interaction.getType() != InteractionType.CHAT_IMPORT && interaction.getType() != InteractionType.EMAIL_RECEIVED) {
+			throw new InteractionValidationException("只有聊天记录或客户来信可以执行 AI 分析");
 		}
 		return interaction;
 	}
 
 	private ChatAnalysis latestAnalysis(UUID interactionId) {
+		return latestAnalysis(organizationId, interactionId);
+	}
+
+	private ChatAnalysis latestAnalysis(UUID organizationId, UUID interactionId) {
 		return analysisMapper.selectOne(Wrappers.<ChatAnalysis>lambdaQuery()
 				.eq(ChatAnalysis::getOrganizationId, organizationId)
 				.eq(ChatAnalysis::getInteractionId, interactionId)

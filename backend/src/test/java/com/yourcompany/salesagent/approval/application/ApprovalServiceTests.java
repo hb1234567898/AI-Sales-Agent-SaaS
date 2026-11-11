@@ -91,7 +91,7 @@ class ApprovalServiceTests {
 		doAnswer(invocation -> {
 			events.add("tool:execute");
 			return null;
-		}).when(toolExecutionService).execute(actionRequestId);
+		}).when(toolExecutionService).execute(ORGANIZATION_ID, actionRequestId);
 		when(mapper.refreshRunApprovalState(ORGANIZATION_ID, runId, NOW)).thenAnswer(invocation -> {
 			events.add("run:refresh");
 			return 1;
@@ -116,8 +116,8 @@ class ApprovalServiceTests {
 	private static AuthPrincipal principal() {
 		return new AuthPrincipal(
 				UUID.randomUUID(),
-				ORGANIZATION_ID,
 				UUID.randomUUID(),
+				ORGANIZATION_ID,
 				UUID.randomUUID(),
 				"sales@example.test",
 				"销售",
