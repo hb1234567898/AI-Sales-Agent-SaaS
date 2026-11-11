@@ -14,13 +14,3 @@
 .follow-up-notification-popover footer { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 12px; padding: 14px 16px; }
 .follow-up-notification-empty, .follow-up-notification-popover .form-error { margin: 0; padding: 18px 16px; font-size: 12px; overflow-wrap: anywhere; }
 .follow-up-approval-link { padding: 14px 16px; color: var(--blue-700); font-size: 12px; border-bottom: 1px solid var(--border); }
-.today-follow-up-list > article { display: flex; align-items: center; gap: 14px; min-height: 88px; padding: 18px 22px; border-top: 1px solid var(--border); }
-.today-follow-up-list > article > a { display: grid; gap: 6px; min-width: 0; flex: 1; }
-.today-follow-up-list strong { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
-.today-follow-up-list span { color: var(--muted); font-size: 11px; }
-.today-follow-up-list time { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; white-space: nowrap; }
-.today-follow-up-list time.is-overdue { color: #b91c1c; }
-@media (max-width: 640px) {
-  .today-follow-up-list > article { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px 12px; padding: 16px; }
-  .today-follow-up-list time { grid-column: 2; }
-}
