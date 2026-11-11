@@ -4,6 +4,12 @@ The desktop bundle uses the blue-background, white-mark variant of the AI Sales
 Agent logo. Keep the transparent rounded corners when regenerating assets.
 The website logo and mobile icon assets are intentionally independent.
 
+On Windows, `src/lib.rs` sets the running window/taskbar icon separately from
+the executable icon. `icons/taskbar-dark.png` uses the original dark-background
+variant; the blue bundle icon remains the desktop shortcut and executable icon.
+The taskbar bitmap is embedded at compile time with `tauri::include_image!`, so
+it needs no runtime file path, resource lookup or additional image decoder.
+
 ## Source and generation
 
 `frontend/src-tauri/icons/icon.png` is the canonical desktop bitmap. The blue
