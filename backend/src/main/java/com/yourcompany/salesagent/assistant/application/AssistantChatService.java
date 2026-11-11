@@ -34,6 +34,7 @@ import com.yourcompany.salesagent.ai.application.ModelCallRecorder;
 import com.yourcompany.salesagent.ai.application.ModelUsage;
 import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
 import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient.AssistantPlan;
+import com.yourcompany.salesagent.ai.infrastructure.PythonAiClient.PythonAiException;
 import com.yourcompany.salesagent.agent.api.AgentRunResponse;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.api.ApprovalDecisionRequest;
@@ -60,6 +61,8 @@ import com.yourcompany.salesagent.followup.application.FollowUpService;
 import com.yourcompany.salesagent.interaction.api.ChatImportRequest;
 import com.yourcompany.salesagent.interaction.application.InteractionService;
 import com.yourcompany.salesagent.interaction.domain.ChatPlatform;
+import com.yourcompany.salesagent.knowledge.application.KnowledgeService;
+import com.yourcompany.salesagent.knowledge.api.KnowledgeQueryRequest;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -77,7 +80,8 @@ public class AssistantChatService {
 			assistantTool("approval.list", "查看当前组织的待审批建议", "LOW", List.of()),
 			assistantTool("approval.approve", "批准指定审批并执行已批准动作。参数键：approvalId", "HIGH", List.of("approvalId")),
 			assistantTool("agent.sales_follow_up.run", "运行客户跟进分析 Agent。参数键：customerName，可省略", "LOW", List.of()),
-			assistantTool("follow_up.list", "查看跟进任务", "LOW", List.of()));
+			assistantTool("follow_up.list", "查看跟进任务", "LOW", List.of()),
+			assistantTool("knowledge.query", "查询企业知识库，回答产品、定价、销售方法和流程制度问题，并引用资料。参数键：question", "LOW", List.of("question")));
 
 	private final AssistantConversationMapper conversationMapper;
 	private final CustomerService customerService;
@@ -92,6 +96,7 @@ public class AssistantChatService {
 	private final ModelCallRecorder modelCallRecorder;
 	private final FileStorageService fileStorageService;
 	private final TransactionTemplate transactions;
+	private final KnowledgeService knowledgeService;
 
 	public AssistantChatService(
 			AssistantConversationMapper conversationMapper,
@@ -106,7 +111,8 @@ public class AssistantChatService {
 			AiOrchestrationClient modelClient,
 			ModelCallRecorder modelCallRecorder,
 			FileStorageService fileStorageService,
-			PlatformTransactionManager transactionManager) {
+			PlatformTransactionManager transactionManager,
+			KnowledgeService knowledgeService) {
 		this.conversationMapper = conversationMapper;
 		this.customerService = customerService;
 		this.interactionService = interactionService;
@@ -120,6 +126,7 @@ public class AssistantChatService {
 		this.modelCallRecorder = modelCallRecorder;
 		this.fileStorageService = fileStorageService;
 		this.transactions = new TransactionTemplate(transactionManager);
+		this.knowledgeService = knowledgeService;
 	}
 
 	/** 在请求线程校验会话并提交用户消息，不让长时间模型请求占住数据库事务。 */
@@ -159,7 +166,12 @@ public class AssistantChatService {
 			data.putAll(result.data());
 			events.accept("summary", Map.of("text", summary));
 			events.accept("result", result);
-			try {
+			if ("HELP".equals(result.data().get("intent")) || result.data().containsKey("knowledgeSources")) {
+				events.accept("progress", Map.of("text", result.data().containsKey("knowledgeSources") ? "知识库检索已完成。" : "已返回助手支持的业务能力。"));
+				content.append(result.content());
+				events.accept("delta", Map.of("text", result.content()));
+			}
+			else try {
 				var configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
 				var verifiedResult = objectMapper.writeValueAsString(result);
 				var startedAt = clock.instant();
@@ -311,6 +323,9 @@ public class AssistantChatService {
 	}
 
 	private AssistantChatResponse route(AuthPrincipal principal, UUID conversationId, String message, List<AssistantToolTrace> traces, AttachmentContext attachments) {
+		if (isHelpRequest(message)) {
+			return help(traces);
+		}
 		com.yourcompany.salesagent.ai.application.AiModelRuntimeConfiguration configuration;
 		try {
 			configuration = aiModelService.requireRuntimeConfiguration(principal.organizationId(), principal.memberId());
@@ -322,7 +337,15 @@ public class AssistantChatService {
 		context.put("attachmentCount", attachments.ids().size());
 		context.put("attachments", attachments.preview());
 		var startedAt = clock.instant();
-		var plan = modelClient.planAssistantAction(configuration, message, context, ASSISTANT_TOOLS);
+		AssistantPlan plan;
+		try {
+			plan = modelClient.planAssistantAction(configuration, message, context, ASSISTANT_TOOLS);
+		}
+		catch (PythonAiException exception) {
+			LOGGER.warn("FastAPI assistant planning request failed", exception);
+			throw new AssistantWorkflowException(
+					"AI 规划服务暂时不可用，请联系管理员检查 AI 服务地址和内部令牌配置。", exception);
+		}
 		var completedAt = clock.instant();
 		recordPlannerModelCall(principal, configuration.model(), plan, startedAt, completedAt, message);
 		traces.add(new AssistantToolTrace("assistant.langgraph.plan", "SUCCEEDED",
@@ -337,7 +360,9 @@ public class AssistantChatService {
 		}
 
 		var arguments = plan.arguments();
-		AssistantChatResponse result = switch (plan.toolName() == null ? "" : plan.toolName()) {
+		var toolName = plan.toolName() == null ? "" : plan.toolName();
+		if ("KNOWLEDGE_QUERY".equals(plan.intent()) && toolName.isBlank()) toolName = "knowledge.query";
+		AssistantChatResponse result = switch (toolName) {
 			case "customer.create" -> createCustomer(customerDraft(arguments), traces);
 			case "interaction.chat_import" -> importChatAndRunAgent(
 					principal, conversationId, importCommand(arguments), traces, attachments);
@@ -347,7 +372,8 @@ public class AssistantChatService {
 			case "approval.approve" -> approvePlanned(principal, message, stringArgument(arguments, "approvalId"), traces);
 			case "agent.sales_follow_up.run" -> runAgent(
 					principal, conversationId, stringArgument(arguments, "customerName"), traces, attachments);
-			case "follow_up.list" -> listFollowUps(traces);
+			case "follow_up.list" -> listFollowUps(principal, traces);
+			case "knowledge.query" -> queryKnowledge(principal, stringArgument(arguments, "question"), message, traces);
 			case "" -> reply(
 					StringUtils.hasText(plan.response()) ? plan.response() : "请补充你希望完成的销售工作。",
 					"LangGraph 将本次请求识别为 " + plan.intent() + "，未提出业务工具调用。",
@@ -359,6 +385,16 @@ public class AssistantChatService {
 		resultData.putAll(planData(plan));
 		return new AssistantChatResponse(result.conversationId(), result.messageId(), result.role(), result.content(),
 				result.reasoningSummary(), result.toolTraces(), resultData, result.createdAt());
+	}
+
+	private AssistantChatResponse queryKnowledge(AuthPrincipal principal, String question, String message, List<AssistantToolTrace> traces) {
+		traces.add(new AssistantToolTrace("knowledge.query", "RUNNING", "正在检索当前可访问的企业资料"));
+		var answer = knowledgeService.ask(principal, new KnowledgeQueryRequest(StringUtils.hasText(question) ? question : message, null));
+		traces.add(new AssistantToolTrace("knowledge.query", "SUCCEEDED", "引用 " + answer.sources().size() + " 个知识片段"));
+		var data = new LinkedHashMap<String, Object>();
+		data.put("knowledgeSources", answer.sources());
+		if (answer.usage() != null) data.put("modelUsage", usageSnapshot(answer.usage()));
+		return reply(answer.content(), "检索企业知识库并根据资料回答。", traces, data);
 	}
 
 	private AssistantChatResponse proposeDocumentEmail(AuthPrincipal principal, UUID conversationId, DocumentSendCommand command,
@@ -516,9 +552,9 @@ public class AssistantChatService {
 				"customerName", approval.customerName()));
 	}
 
-	private AssistantChatResponse listFollowUps(List<AssistantToolTrace> traces) {
+	private AssistantChatResponse listFollowUps(AuthPrincipal principal, List<AssistantToolTrace> traces) {
 		traces.add(new AssistantToolTrace("follow_up.list", "RUNNING", "正在查询跟进任务"));
-		var page = followUpService.findFollowUps("ALL", 0, 10);
+		var page = followUpService.findFollowUps(principal, "ALL", "MINE", 0, 10);
 		traces.add(new AssistantToolTrace("follow_up.list", "SUCCEEDED", "读取跟进任务 " + page.getTotal() + " 条"));
 		var tasks = page.getRecords().stream()
 				.map(task -> compactMap(
@@ -559,7 +595,20 @@ public class AssistantChatService {
 
 				8. 给客户发送方案、报价或合同附件
 				示例：选择文件后输入：给和成科技发送方案
+
+				9. 查询企业知识库
+				示例：查知识库：发送报价前需要哪些审批？
 				""", "没有匹配到明确业务指令，因此返回当前支持的工具调用方式和示例。", traces, Map.of("intent", "HELP"));
+	}
+
+	private boolean isHelpRequest(String message) {
+		var normalized = message.toLowerCase()
+				.replaceAll("[\\s?？!！。,.，]+", "");
+		return switch (normalized) {
+			case "你能做什么", "能做什么", "你可以做什么", "可以做什么", "有什么功能", "支持什么",
+					"帮助", "使用说明", "help" -> true;
+			default -> false;
+		};
 	}
 
 	private CustomerResponse resolveCustomer(String keyword) {

@@ -1,0 +1,102 @@
+.mcp-activity {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.mcp-activity .mcp-reasoning { border-radius: 8px; font-size: 12px; }
+.mcp-activity .mcp-reasoning strong { font-size: 12px; }
+
+.mcp-activity-records > strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.mcp-activity-records ol {
+  display: grid;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mcp-activity-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid #e5edf7;
+  color: #64748b;
+}
+
+.mcp-activity-row > svg {
+  margin-top: 2px;
+}
+
+.mcp-activity-row.is-succeeded > svg { color: #059669; }
+.mcp-activity-row.is-failed > svg { color: #dc2626; }
+.mcp-activity-row.is-running > svg { color: var(--blue-700); }
+
+.mcp-activity-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.mcp-activity-head b {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.mcp-activity-head em {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.65;
+  white-space: nowrap;
+}
+
+.mcp-activity-row.is-succeeded em { color: #047857; background: #ecfdf5; }
+.mcp-activity-row.is-failed em { color: #b91c1c; background: #fef2f2; }
+.mcp-activity-row.is-running em { color: var(--blue-700); background: #eff6ff; }
+
+.mcp-activity-row p,
+.mcp-activity-details p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.mcp-activity-details {
+  min-width: 0;
+  border-top: 1px solid #e5edf7;
+  padding-top: 8px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.mcp-activity-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mcp-activity-details > summary::-webkit-details-marker { display: none; }
+.mcp-activity-details[open] > summary svg { transform: rotate(90deg); }
+.mcp-activity-details > summary:focus-visible { outline: 2px solid var(--blue-700); outline-offset: 3px; }
+.mcp-activity-details > div { display: grid; gap: 12px; padding-top: 8px; }
+.mcp-activity-details strong { color: #475569; }
+.mcp-activity-details dl { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 4px 8px; margin: 6px 0 0; }
+.mcp-activity-details dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mcp-activity-details code { font-size: 11px; }

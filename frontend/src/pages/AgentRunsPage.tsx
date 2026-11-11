@@ -64,7 +64,7 @@ export function AgentRunsPage() {
       />
 
       <div className="module-stat-grid" aria-label="Agent 运行指标">
-        <div><span>今日运行</span><strong>{stats.todayRuns}</strong><small>手动触发的客户跟进 Agent</small></div>
+        <div><span>今日运行</span><strong>{stats.todayRuns}</strong><small>手动、助手和自动跟进触发</small></div>
         <div><span>处理客户</span><strong>{stats.handledCustomers}</strong><small>最近运行累计</small></div>
         <div><span>待审批建议</span><strong>{stats.pendingApprovals}</strong><small>审批后进入跟进任务</small></div>
         <div><span>失败客户</span><strong className={stats.failed > 0 ? 'danger-value' : undefined}>{stats.failed}</strong><small>模型或数据异常</small></div>

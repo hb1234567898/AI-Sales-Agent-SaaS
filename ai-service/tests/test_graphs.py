@@ -93,6 +93,71 @@ def test_langgraph_planner_returns_validated_plan(monkeypatch) -> None:
     assert response.usage.total_tokens == 15
 
 
+def test_planner_falls_back_when_structured_output_is_unsupported(monkeypatch) -> None:
+    class UnsupportedStructuredModel:
+        async def ainvoke(self, _messages):
+            raise RuntimeError("response_format is not supported")
+
+    class FakeModel:
+        def with_structured_output(self, *_args, **_kwargs):
+            return UnsupportedStructuredModel()
+
+        async def ainvoke(self, _messages):
+            return AIMessage(
+                content=(
+                    "```json\n"
+                    '{"intent":"BUSINESS_ACTION","response":"",'
+                    '"tool_name":"customer.create",'
+                    '"arguments":{"name":"云岚科技"},"confidence":0.91}'
+                    "\n```"
+                ),
+                usage_metadata={
+                    "input_tokens": 20,
+                    "output_tokens": 10,
+                    "total_tokens": 30,
+                },
+            )
+
+    monkeypatch.setattr("app.features.agent.workflow.create_chat_model", lambda _request: FakeModel())
+    request = AgentPlanRequest(
+        **model_configuration(),
+        user_message="新增客户云岚科技",
+        available_tools=[ToolDefinition(
+            name="customer.create",
+            description="新增客户",
+            required_fields=["name"],
+        )],
+    )
+
+    response = asyncio.run(create_agent_plan(request))
+
+    assert response.decision.tool_name == "customer.create"
+    assert response.validation_errors == []
+    assert response.usage.total_tokens == 30
+
+
+def test_planner_returns_clarify_when_fallback_json_is_invalid(monkeypatch) -> None:
+    class EmptyStructuredModel:
+        async def ainvoke(self, _messages):
+            return {"raw": AIMessage(content=""), "parsed": None, "parsing_error": "invalid"}
+
+    class FakeModel:
+        def with_structured_output(self, *_args, **_kwargs):
+            return EmptyStructuredModel()
+
+        async def ainvoke(self, _messages):
+            return AIMessage(content="暂时无法判断用户意图")
+
+    monkeypatch.setattr("app.features.agent.workflow.create_chat_model", lambda _request: FakeModel())
+    request = AgentPlanRequest(**model_configuration(), user_message="帮我处理一下")
+
+    response = asyncio.run(create_agent_plan(request))
+
+    assert response.decision.intent == "CLARIFY"
+    assert response.decision.tool_name is None
+    assert response.validation_errors == []
+
+
 def test_knowledge_candidates_are_ranked_and_limited() -> None:
     candidates = [
         KnowledgeCandidate(id="pricing", title="报价流程", content="报价单需要销售经理审批后才能发送给客户。"),

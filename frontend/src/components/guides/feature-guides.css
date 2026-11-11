@@ -1,0 +1,71 @@
+.feature-guide-dialog { width: min(1040px, calc(100vw - 40px)); max-width: none; height: min(820px, calc(100dvh - 48px)); max-height: none; padding: 0; overflow: hidden; color: var(--ink); background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 24px 64px rgb(15 23 42 / 22%); }
+.feature-guide-dialog::backdrop { background: rgb(15 23 42 / 44%); }
+.feature-guide-dialog[open] { display: flex; flex-direction: column; }
+.feature-guide-header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+.feature-guide-header > div { display: flex; align-items: center; gap: 14px; }
+.feature-guide-header svg { flex-shrink: 0; color: var(--blue-600); }
+.feature-guide-header h2 { margin: 0; font-size: 18px; }
+.feature-guide-header p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.feature-guide-layout { min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); flex: 1; }
+.feature-guide-directory { min-height: 0; padding: 20px 12px; overflow-y: auto; border-right: 1px solid var(--border); background: #f8fafc; }
+.feature-guide-overall { padding: 0 12px 18px; }
+.feature-guide-overall strong { font-size: 12px; }
+.feature-guide-overall progress { display: block; width: 100%; height: 5px; margin-top: 10px; accent-color: #167d64; }
+.feature-guide-directory section + section { margin-top: 20px; }
+.feature-guide-directory h3 { margin: 0 12px 7px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.feature-guide-directory button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 10px 12px; text-align: left; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #475467; font: inherit; cursor: pointer; }
+.feature-guide-directory button > svg { flex-shrink: 0; margin-top: 2px; color: #98a2b3; }
+.feature-guide-directory button.is-complete > svg { color: #167d64; }
+.feature-guide-directory button span { min-width: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.feature-guide-directory button small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.feature-guide-directory button:hover { background: #eef2f6; }
+.feature-guide-directory button[aria-current="true"] { color: var(--blue-700); background: #edf4ff; border-color: #c8dcff; }
+.feature-guide-detail { min-width: 0; min-height: 0; padding: 26px 30px 0; overflow-y: auto; }
+.feature-guide-category { margin: 0 0 8px; color: var(--blue-600); font-size: 11px; }
+.feature-guide-detail > h3 { margin: 0; font-size: 22px; line-height: 1.4; }
+.feature-guide-summary { margin: 10px 0 20px; color: #475467; font-size: 14px; line-height: 1.7; }
+.feature-guide-preparation { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 12px; margin: 0 0 24px; padding: 16px 0; border-block: 1px solid var(--border); font-size: 12px; line-height: 1.7; }
+.feature-guide-preparation dt { font-weight: 600; }
+.feature-guide-preparation dd { margin: 0; color: #667085; overflow-wrap: anywhere; }
+.feature-guide-outline { margin: 0; padding: 0; list-style: none; }
+.feature-guide-outline li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding-bottom: 24px; }
+.feature-guide-outline li > span { display: grid; place-items: center; width: 25px; height: 25px; color: var(--blue-700); background: #edf4ff; border: 1px solid #d6e5ff; border-radius: 50%; font-size: 11px; font-weight: 600; }
+.feature-guide-outline h4 { margin: 2px 0 7px; font-size: 14px; }
+.feature-guide-outline p { margin: 0; color: #475467; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.feature-guide-outline small { display: block; margin-top: 8px; color: #167d64; font-size: 11px; line-height: 1.6; }
+.feature-guide-detail-footer { position: sticky; bottom: 0; padding: 15px 0 20px; background: #fff; border-top: 1px solid var(--border); }
+.feature-guide-detail-footer p { margin: 0 0 12px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.feature-guide-detail-footer > div { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.feature-guide-notice { position: fixed; bottom: 20px; right: 20px; z-index: 1000000010; display: flex; align-items: center; gap: 12px; max-width: min(620px, calc(100vw - 32px)); padding: 14px 16px; border: 1px solid #c8dcff; border-radius: 6px; box-shadow: 0 8px 30px rgb(15 23 42 / 12%); color: #344054; background: #fff; font-size: 12px; }
+.feature-guide-notice > svg { flex-shrink: 0; color: #167d64; }
+.feature-guide-notice.is-error { color: #b42318; border-color: #fecdca; }
+.feature-tour.driver-popover { width: min(360px, calc(100vw - 32px)); min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 8px; color: var(--ink); background: #fff; font-family: inherit; box-shadow: 0 14px 45px rgb(15 23 42 / 20%); }
+.feature-tour .driver-popover-title { padding-right: 12px; font-weight: 600; font-size: 16px; line-height: 1.5; font-family: inherit; }
+.feature-tour .driver-popover-description { margin-top: 10px; font-family: inherit; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.feature-tour .driver-popover-description > p { margin: 0; }
+.feature-tour-result { display: grid; gap: 4px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.feature-tour-result strong { color: #167d64; font-size: 11px; }
+.feature-tour-result span { color: #475467; font-size: 12px; }
+.feature-tour .feature-tour-guest { margin-top: 12px !important; color: #667085; font-size: 11px; }
+.feature-tour .driver-popover-footer { margin-top: 18px; }
+.feature-tour .driver-popover-footer button { padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 5px; color: #344054; background: #fff; font-family: inherit; font-size: 12px; text-shadow: none; box-shadow: none; }
+.feature-tour .driver-popover-footer button.driver-popover-next-btn { color: #fff; background: var(--blue-600); border-color: var(--blue-600); }
+.feature-tour .driver-popover-progress-text { color: #667085; font-size: 11px; }
+.feature-tour .driver-popover-close-btn { top: 7px; right: 7px; color: #667085; }
+.feature-guide-topbar { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 0; background: transparent; color: #475467; font: inherit; font-size: 12px; cursor: pointer; }
+@media (max-width: 700px) {
+  .feature-guide-dialog { width: calc(100vw - 24px); height: calc(100dvh - 24px); }
+  .feature-guide-header { padding: 16px; }
+  .feature-guide-layout { display: flex; flex-direction: column; }
+  .feature-guide-directory { max-height: 170px; flex: 0 0 auto; padding: 12px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .feature-guide-overall { display: flex; align-items: center; gap: 12px; padding: 0 4px 12px; }
+  .feature-guide-overall progress { width: 100px; margin: 0; }
+  .feature-guide-directory section { display: inline; }
+  .feature-guide-directory h3 { display: none; }
+  .feature-guide-directory button { display: inline-flex; width: auto; max-width: 100%; padding: 8px; }
+  .feature-guide-directory button small { display: none; }
+  .feature-guide-detail { padding: 20px 16px 0; flex: 1; }
+  .feature-guide-detail > h3 { font-size: 19px; }
+  .feature-guide-notice { bottom: 12px; right: 12px; flex-wrap: wrap; }
+  .feature-guide-topbar span { display: none; }
+}

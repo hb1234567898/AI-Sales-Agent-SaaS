@@ -80,6 +80,7 @@
         WHERE organization_id = #{organizationId}
           AND id = #{approvalId}
           AND status = 'PENDING'
+        <if test="status == 'APPROVED'">AND (expires_at IS NULL OR expires_at &gt; #{now})</if>
         <if test="expectedVersion != null">
           AND version = #{expectedVersion}
         </if>

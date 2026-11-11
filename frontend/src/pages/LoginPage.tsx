@@ -31,6 +31,7 @@ export function LoginPage() {
     mutationFn: login,
     onSuccess: (session) => {
       leaveGuestMode()
+      queryClient.clear()
       queryClient.setQueryData(['auth-session'], session)
       const requestedPath = (location.state as LoginLocationState | null)?.from
       navigate(requestedPath?.startsWith('/app') ? requestedPath : '/app/today', { replace: true })
@@ -46,7 +47,7 @@ export function LoginPage() {
 
   function browseAsGuest() {
     enterGuestMode()
-    queryClient.removeQueries({ queryKey: ['auth-session'] })
+    queryClient.clear()
     navigate('/app/today', { replace: true })
   }
 
@@ -62,9 +63,9 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-story" aria-label="产品介绍">
         <div className="login-brand">
-          <span className="brand-symbol" aria-hidden><img src="/brand-logo.png" alt="" /></span>
+          <span className="brand-symbol" aria-hidden><img src="/brand-mark.png" alt="" /></span>
           <span>
-            <strong>Sales Agent</strong>
+            <strong>AI Sales Agent</strong>
             <small>销售运营工作台</small>
           </span>
         </div>
@@ -86,8 +87,8 @@ export function LoginPage() {
 
       <section className="login-form-side">
         <div className="login-mobile-brand">
-          <span className="brand-symbol" aria-hidden><img src="/brand-logo.png" alt="" /></span>
-          <strong>Sales Agent</strong>
+          <span className="brand-symbol" aria-hidden><img src="/brand-mark.png" alt="" /></span>
+          <strong>AI Sales Agent</strong>
         </div>
 
         <form className="login-card" onSubmit={handleSubmit}>

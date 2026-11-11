@@ -5,6 +5,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios'
 import { clearAuthTokens, getAuthTokens, replaceAuthTokens, type AuthTokens } from '../auth/auth-token-storage'
+import { getGuestData } from './guest-data'
 
 export type JsonRequestConfig = Omit<AxiosRequestConfig, 'baseURL' | 'url'>
 
@@ -63,6 +64,11 @@ export const authRefreshClient = axios.create({
 apiClient.interceptors.request.use(async (config) => {
   const path = requestPath(config.url)
   const method = (config.method ?? 'GET').toUpperCase()
+  if (sessionStorage.getItem('sales-agent:guest-mode') === 'true' && !path.startsWith('/api/v1/auth/')) {
+    if (!safeMethods.has(method)) throw new ApiError('游客模式只能浏览，登录后才能执行修改操作', 403)
+    config.adapter = async (request) => ({ data: getGuestData(request.url ?? '', request.params), status: 200, statusText: 'OK', headers: new AxiosHeaders(), config: request })
+    return config
+  }
   if (
     !safeMethods.has(method)
     && !authenticationWritePaths.has(path)

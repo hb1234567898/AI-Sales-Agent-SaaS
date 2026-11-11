@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+import logging
 
 from fastapi.testclient import TestClient
 
@@ -58,6 +59,44 @@ def test_agent_plan_endpoint(monkeypatch) -> None:
     response = TestClient(app).post("/v1/agent/plan", json=payload)
     assert response.status_code == 200
     assert response.json()["decision"]["intent"] == "ANSWER"
+
+
+def test_agent_plan_accepts_legacy_camel_case_payload(monkeypatch) -> None:
+    async def fake_plan(request) -> AgentPlanResponse:
+        assert request.api_key == "test-key"
+        assert request.user_message == "新增客户"
+        assert request.available_tools[0].risk_level == "HIGH"
+        assert request.available_tools[0].required_fields == ["name"]
+        return AgentPlanResponse(decision=AgentDecision(intent="ANSWER", response="可以"))
+
+    monkeypatch.setattr("app.features.agent.workflow.create_agent_plan", fake_plan)
+    payload = {
+        "apiKey": "test-key",
+        "baseUrl": "https://example.invalid/v1",
+        "model": "test-model",
+        "userMessage": "新增客户",
+        "businessContext": {},
+        "availableTools": [{
+            "name": "customer.create",
+            "riskLevel": "HIGH",
+            "requiredFields": ["name"],
+        }],
+    }
+
+    response = TestClient(app).post("/v1/agent/plan", json=payload)
+
+    assert response.status_code == 200
+
+
+def test_validation_error_logs_fields_without_request_values(caplog) -> None:
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        response = TestClient(app).post("/v1/agent/plan", json={"api_key": "do-not-log"})
+
+    assert response.status_code == 422
+    assert "body.base_url" in caplog.text
+    assert "body.model" in caplog.text
+    assert "body.user_message" in caplog.text
+    assert "do-not-log" not in caplog.text
 
 
 def test_knowledge_query_without_candidates_does_not_call_model() -> None:

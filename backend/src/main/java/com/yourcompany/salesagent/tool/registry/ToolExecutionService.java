@@ -51,6 +51,11 @@ public class ToolExecutionService {
 
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	public void execute(UUID actionRequestId) {
+		execute(organizationId, actionRequestId);
+	}
+
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	public void execute(UUID organizationId, UUID actionRequestId) {
 		var row = mapper.selectActionRequestForExecution(organizationId, actionRequestId);
 		if (row == null) {
 			throw new ToolExecutionException("动作不存在: " + actionRequestId);
@@ -123,7 +128,7 @@ public class ToolExecutionService {
 		}
 
 		if (result.success()) {
-			persistSuccessSideEffects(row);
+			persistSuccessSideEffects(organizationId, row);
 			mapper.updateActionSucceeded(organizationId, actionRequestId, clock.instant());
 		}
 		else {
@@ -134,7 +139,8 @@ public class ToolExecutionService {
 	/**
 	 * 执行成功后把结果落回业务系统：创建内部跟进动作写 follow_up，其余动作回写 interaction 时间线。
 	 */
-	private void persistSuccessSideEffects(ActionRequestRow row) {
+	private void persistSuccessSideEffects(UUID organizationId, ActionRequestRow row) {
+		if ("SEND_EMAIL".equals(row.getActionType())) return;
 		if ("CREATE_INTERNAL_FOLLOW_UP".equals(row.getActionType())) {
 			approvalMapper.insertFollowUpFromApprovedAction(organizationId, row.getId(), clock.instant());
 			return;

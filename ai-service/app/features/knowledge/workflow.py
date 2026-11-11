@@ -1,5 +1,4 @@
 import math
-import re
 from typing import Any, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -14,6 +13,7 @@ from app.features.knowledge.schemas import (
 )
 from app.llm.factory import create_chat_model
 from app.llm.messages import message_metadata, message_text, message_usage
+from app.features.knowledge.documents import search_terms
 
 
 class KnowledgeState(TypedDict, total=False):
@@ -23,10 +23,7 @@ class KnowledgeState(TypedDict, total=False):
 
 
 def _terms(value: str) -> set[str]:
-    normalized = re.sub(r"\s+", "", value.lower())
-    latin = set(re.findall(r"[a-z0-9_]{2,}", normalized))
-    chinese = {normalized[index:index + 2] for index in range(max(0, len(normalized) - 1))}
-    return latin | chinese
+    return set(search_terms(value))
 
 
 def rank_candidates(query: str, candidates: list[KnowledgeCandidate], top_k: int) -> list[KnowledgeSource]:

@@ -77,7 +77,7 @@ export function ApprovalsPage() {
 
         <aside className="approval-sidebar">
           <section className="surface policy-panel">
-            <div className="panel-header"><div><h2>今日审批概况</h2><p>真实待审批队列</p></div></div>
+            <div className="panel-header"><div><h2>今日审批概况</h2><p>{isGuest ? '模拟待审批队列' : '真实待审批队列'}</p></div></div>
             <dl className="policy-stats">
               <div><dt>待处理</dt><dd>{pending.length}</dd></div>
               <div><dt>中风险</dt><dd>{pending.filter((approval) => approval.riskLevel === 'MEDIUM').length}</dd></div>

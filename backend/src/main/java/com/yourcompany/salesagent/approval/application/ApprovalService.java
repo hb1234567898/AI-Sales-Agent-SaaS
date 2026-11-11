@@ -50,9 +50,10 @@ public class ApprovalService {
 	}
 
 	public ApprovalResponse approve(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
+		var organizationId = principal.organizationId();
 		var approved = transactions.execute(status -> {
 			decide(principal, approvalId, request, "APPROVED");
-			var approval = requireApproval(approvalId);
+			var approval = requireApproval(organizationId, approvalId);
 			// 先提交动作状态，再交给 Tool 执行层真正发生副作用（发邮件 / 建任务 / 回写）。
 			var actionUpdated = toolMapper.markActionApproved(organizationId, approval.actionRequestId(), clock.instant());
 			if (actionUpdated == 0) {
@@ -66,7 +67,7 @@ public class ApprovalService {
 
 		RuntimeException executionError = null;
 		try {
-			toolExecutionService.execute(approved.actionRequestId());
+			toolExecutionService.execute(organizationId, approved.actionRequestId());
 		}
 		catch (RuntimeException exception) {
 			executionError = exception;
@@ -74,7 +75,7 @@ public class ApprovalService {
 
 		var refreshed = transactions.execute(status -> {
 			mapper.refreshRunApprovalState(organizationId, approved.runId(), clock.instant());
-			return requireApproval(approvalId);
+			return requireApproval(organizationId, approvalId);
 		});
 		if (executionError != null) {
 			throw executionError;
@@ -90,17 +91,28 @@ public class ApprovalService {
 		return requireApproval(approvalId);
 	}
 
+	@Transactional(readOnly = true)
+	public IPage<ApprovalResponse> findApprovals(AuthPrincipal principal, String status, int page, int size) {
+		return mapper.selectApprovals(Page.of(page + 1L, size), principal.organizationId(), normalizeStatus(status)).convert(ApprovalResponse::from);
+	}
+
+	@Transactional(readOnly = true)
+	public ApprovalResponse findApproval(AuthPrincipal principal, UUID approvalId) { return requireApproval(principal.organizationId(), approvalId); }
+
 	@Transactional
 	public ApprovalResponse reject(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request) {
+		var organizationId = principal.organizationId();
 		decide(principal, approvalId, request, "REJECTED");
-		var approval = requireApproval(approvalId);
+		var approval = requireApproval(organizationId, approvalId);
 		var now = clock.instant();
 		mapper.markActionRejected(organizationId, approval.actionRequestId(), now);
 		mapper.refreshRunApprovalState(organizationId, approval.runId(), now);
-		return requireApproval(approvalId);
+		return requireApproval(organizationId, approvalId);
 	}
 
 	private void decide(AuthPrincipal principal, UUID approvalId, ApprovalDecisionRequest request, String decision) {
+		if (!java.util.Set.of("OWNER", "ADMIN", "MANAGER", "SALES").contains(principal.role())) throw new org.springframework.security.access.AccessDeniedException("当前账号不能处理审批");
+		var organizationId = principal.organizationId();
 		var updated = mapper.updateDecision(
 				organizationId,
 				approvalId,
@@ -115,6 +127,10 @@ public class ApprovalService {
 	}
 
 	private ApprovalResponse requireApproval(UUID approvalId) {
+		return requireApproval(organizationId, approvalId);
+	}
+
+	private ApprovalResponse requireApproval(UUID organizationId, UUID approvalId) {
 		var row = mapper.selectApproval(organizationId, approvalId);
 		if (row == null) {
 			throw new ApprovalWorkflowException("审批记录不存在");

@@ -18,6 +18,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yourcompany.salesagent.ai.application.*;
 import com.yourcompany.salesagent.ai.infrastructure.AiOrchestrationClient;
+import com.yourcompany.salesagent.ai.infrastructure.PythonAiClient.PythonAiException;
 import com.yourcompany.salesagent.agent.application.SalesFollowUpAgentService;
 import com.yourcompany.salesagent.approval.application.ApprovalService;
 import com.yourcompany.salesagent.assistant.api.AssistantChatResponse;
@@ -46,6 +47,7 @@ class AssistantStreamingTests {
 	final FileStorageService fileStorageService = mock(FileStorageService.class);
 	final CustomerService customers = mock(CustomerService.class);
 	final SalesFollowUpAgentService agentService = mock(SalesFollowUpAgentService.class);
+	final com.yourcompany.salesagent.knowledge.application.KnowledgeService knowledge = mock(com.yourcompany.salesagent.knowledge.application.KnowledgeService.class);
 	final PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
 	final UUID conversationId = UUID.randomUUID();
 	final AuthPrincipal principal = new AuthPrincipal(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -73,12 +75,40 @@ class AssistantStreamingTests {
 		});
 		service = new AssistantChatService(mapper, customers, mock(InteractionService.class),
 				agentService, approvals, mock(FollowUpService.class),
-				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, fileStorageService, tx);
+				JsonMapper.builder().build(), Clock.systemUTC(), settings, model, modelCallRecorder, fileStorageService, tx,
+				knowledge);
 	}
 
 	void receive(String type, Object data) {
 		events.add(type);
 		if (type.equals("done")) saved = (AssistantChatResponse) data;
+	}
+
+	@Test
+	void knowledgeIntentWithoutToolStillRetrievesAuthorizedDocuments() {
+		when(model.planAssistantAction(any(), anyString(), anyMap(), anyList()))
+				.thenReturn(plan("KNOWLEDGE_QUERY", null, Map.of()));
+		when(knowledge.ask(eq(principal), any())).thenReturn(new com.yourcompany.salesagent.knowledge.api.KnowledgeAnswerResponse(
+				"没有相关资料", List.of(), null));
+		service.streamChat(principal, conversationId, "报价制度", null, this::receive);
+		assertThat(saved.content()).isEqualTo("没有相关资料");
+		verify(knowledge).ask(eq(principal), argThat(input -> input.question().equals("报价制度")));
+		verify(model, never()).streamAssistantReplyWithUsage(any(), anyString(), anyString());
+	}
+
+	@Test
+	void knowledgeAnswersKeepCitationsAndAvoidASecondUnGroundedSummary() {
+		when(model.planAssistantAction(any(), anyString(), anyMap(), anyList()))
+				.thenReturn(plan("BUSINESS_ACTION", "knowledge.query", Map.of("question", "报价审批")));
+		var source = new com.yourcompany.salesagent.knowledge.api.KnowledgeAnswerResponse.Source(
+				UUID.randomUUID(), UUID.randomUUID(), "报价制度", 0, 2, "需要经理审批", 0.8, 1);
+		when(knowledge.ask(eq(principal), any())).thenReturn(new com.yourcompany.salesagent.knowledge.api.KnowledgeAnswerResponse(
+				"需要经理审批。[资料 1]", List.of(source), new ModelUsage(20, 10, 30, 0L, null)));
+		service.streamChat(principal, conversationId, "知识库里报价需要谁审批", null, this::receive);
+		assertThat(saved.content()).isEqualTo("需要经理审批。[资料 1]");
+		assertThat(saved.data()).containsEntry("knowledgeSources", List.of(source));
+		assertThat(events).containsSubsequence("commit", "done");
+		verify(model, never()).streamAssistantReplyWithUsage(any(), anyString(), anyString());
 	}
 
 	@Test
@@ -114,6 +144,28 @@ class AssistantStreamingTests {
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).contains("配置并启用 AI 模型");
 		verify(approvals, never()).findApprovals(anyString(), anyInt(), anyInt());
+	}
+
+	@Test
+	void answersCapabilityQuestionWithoutCallingPythonPlanner() {
+		service.streamChat(principal, conversationId, "你能做什么？", null, this::receive);
+
+		assertThat(saved.content()).contains("我现在可以帮你自动化这些事").contains("给客户发送方案、报价或合同附件");
+		assertThat(saved.toolTraces()).anyMatch(trace -> trace.name().equals("assistant.router"));
+		verify(model, never()).planAssistantAction(any(), anyString(), anyMap(), anyList());
+		verify(model, never()).streamAssistantReplyWithUsage(any(), anyString(), anyString());
+	}
+
+	@Test
+	void reportsPythonPlannerFailureAsAiServiceConfigurationProblem() {
+		when(model.planAssistantAction(any(), anyString(), anyMap(), anyList()))
+				.thenThrow(new PythonAiException("Python AI service returned status 401"));
+
+		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
+
+		assertThat(saved.content()).contains("AI 规划服务暂时不可用").contains("AI 服务地址和内部令牌配置");
+		assertThat(events).containsSubsequence("error", "done");
+		verifyNoInteractions(approvals);
 	}
 
 	@Test

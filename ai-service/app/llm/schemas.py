@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class ModelConfiguration(BaseModel):
-    api_key: str = Field(min_length=1)
-    base_url: str = Field(min_length=1)
+    model_config = ConfigDict(populate_by_name=True)
+
+    api_key: str = Field(min_length=1, validation_alias=AliasChoices("api_key", "apiKey"))
+    base_url: str = Field(min_length=1, validation_alias=AliasChoices("base_url", "baseUrl"))
     model: str = Field(min_length=1)
 
 

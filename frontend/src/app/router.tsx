@@ -52,6 +52,10 @@ export const router = createBrowserRouter([
         }),
       },
       {
+        path: 'mail',
+        lazy: async () => ({ Component: (await import('../pages/MailPage')).MailPage }),
+      },
+      {
         path: 'approvals',
         lazy: async () => ({
           Component: (await import('../pages/ApprovalsPage')).ApprovalsPage,
@@ -68,6 +72,10 @@ export const router = createBrowserRouter([
         lazy: async () => ({
           Component: (await import('../pages/McpAssistantPage')).McpAssistantPage,
         }),
+      },
+      {
+        path: 'knowledge',
+        lazy: async () => ({ Component: (await import('../pages/KnowledgePage')).KnowledgePage }),
       },
       {
         path: 'analytics',

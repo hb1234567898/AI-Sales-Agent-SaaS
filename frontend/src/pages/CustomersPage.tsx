@@ -139,7 +139,7 @@ export function CustomersPage() {
       />
 
       <div className="module-stat-grid" aria-label="客户指标">
-        <div><span>客户总数</span><strong>{metrics?.total ?? '—'}</strong><small>来自当前组织的实时数据</small></div>
+        <div><span>客户总数</span><strong>{metrics?.total ?? '—'}</strong><small>{isGuest ? '来自演示数据' : '来自当前组织的实时数据'}</small></div>
         <div><span>高意向客户</span><strong>{metrics?.highIntent ?? '—'}</strong><small>意向评分达到 80 分</small></div>
         <div><span>活跃商机</span><strong>{metrics?.activeOpportunities ?? '—'}</strong><small>需求确认至商务谈判</small></div>
         <div><span>平均客户评分</span><strong>{metrics?.averageScore?.toFixed(1) ?? '—'}</strong><small>基于当前有效客户</small></div>
@@ -149,7 +149,7 @@ export function CustomersPage() {
         <div className="module-toolbar">
           <div>
             <h2>客户列表</h2>
-            <span>{customersQuery.data ? `共 ${customersQuery.data.totalElements} 条真实记录` : '正在读取数据库'}</span>
+            <span>{customersQuery.data ? `共 ${customersQuery.data.totalElements} 条${isGuest ? '演示' : '真实'}记录` : '正在读取数据'}</span>
           </div>
           <div className="toolbar-controls">
             <label className="compact-search">

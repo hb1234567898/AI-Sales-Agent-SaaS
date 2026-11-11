@@ -1,3 +1,5 @@
+import json
+import logging
 from typing import Any, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -6,7 +8,20 @@ from langgraph.graph import END, START, StateGraph
 from app.features.agent.prompts import PLANNER_SYSTEM_PROMPT
 from app.features.agent.schemas import AgentDecision, AgentPlanRequest, AgentPlanResponse
 from app.llm.factory import create_chat_model
-from app.llm.messages import message_metadata, message_usage
+from app.llm.messages import message_metadata, message_text, message_usage
+
+
+LOGGER = logging.getLogger(__name__)
+
+JSON_FALLBACK_PROMPT = """
+当前模型接口不支持结构化输出协议。请只返回一个 JSON 对象，不要使用 Markdown 代码块或补充说明。
+JSON 字段必须为：
+- intent: ANSWER、BUSINESS_ACTION、KNOWLEDGE_QUERY 或 CLARIFY
+- response: 给用户的文字回复
+- tool_name: 候选工具名称；不调用工具时为 null
+- arguments: 工具参数对象
+- confidence: 0 到 1 之间的数字
+""".strip()
 
 
 class AgentState(TypedDict, total=False):
@@ -28,22 +43,64 @@ def _tool_catalog(request: AgentPlanRequest) -> str:
     )
 
 
-async def plan(state: AgentState) -> AgentState:
-    request = state["request"]
-    model = create_chat_model(request)
-    structured_model = model.with_structured_output(AgentDecision, include_raw=True)
-    result = await structured_model.ainvoke([
-        SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+def _planner_messages(request: AgentPlanRequest, *, json_fallback: bool = False) -> list[Any]:
+    system_prompt = PLANNER_SYSTEM_PROMPT
+    if json_fallback:
+        system_prompt = f"{system_prompt}\n\n{JSON_FALLBACK_PROMPT}"
+    return [
+        SystemMessage(content=system_prompt),
         HumanMessage(content=(
             f"用户请求：\n{request.user_message}\n\n"
             f"业务上下文：\n{request.business_context}\n\n"
             f"可用工具：\n{_tool_catalog(request)}"
         )),
-    ])
-    raw = result.get("raw")
-    parsed = result.get("parsed")
+    ]
+
+
+def _parse_json_decision(content: Any) -> AgentDecision:
+    text = message_text(content).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("model response does not contain a JSON object")
+    return AgentDecision.model_validate(json.loads(text[start:end + 1]))
+
+
+async def _plain_json_plan(model: Any, request: AgentPlanRequest) -> tuple[Any, AgentDecision]:
+    raw = await model.ainvoke(_planner_messages(request, json_fallback=True))
+    try:
+        return raw, _parse_json_decision(raw.content)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        LOGGER.warning("AI planner returned invalid JSON: %s", exc)
+        return raw, AgentDecision(
+            intent="CLARIFY",
+            response="我还不能确定要执行的操作，请补充更明确的信息。",
+        )
+
+
+async def plan(state: AgentState) -> AgentState:
+    request = state["request"]
+    model = create_chat_model(request)
+    raw = None
+    parsed = None
+    try:
+        structured_model = model.with_structured_output(AgentDecision, include_raw=True)
+        result = await structured_model.ainvoke(_planner_messages(request))
+        raw = result.get("raw")
+        parsed = result.get("parsed")
+        if parsed is None and raw is not None:
+            try:
+                parsed = _parse_json_decision(raw.content)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+    except Exception as exc:
+        LOGGER.warning(
+            "Structured AI planning failed; falling back to plain JSON: %s",
+            exc,
+        )
+
     if parsed is None:
-        parsed = AgentDecision(intent="CLARIFY", response="我还不能确定要执行的操作，请补充更明确的信息。")
+        raw, parsed = await _plain_json_plan(model, request)
     request_id, model_name = message_metadata(raw, request.model) if raw is not None else (None, request.model)
     return {
         **state,

@@ -28,4 +28,14 @@ class FollowUpMapperXmlTests {
 					.doesNotThrowAnyException();
 		}
 	}
+
+	@Test
+	void parsesAutomationMapperXml() throws Exception {
+		var configuration = new MybatisConfiguration();
+		configuration.getTypeHandlerRegistry().register(UUID.class, UuidTypeHandler.class);
+		configuration.addMapper(FollowUpAutomationMapper.class);
+		try (var input = getClass().getResourceAsStream("/mapper/followup/FollowUpAutomationMapper.xml")) {
+			assertThatCode(() -> new XMLMapperBuilder(input, configuration, "mapper/followup/FollowUpAutomationMapper.xml", configuration.getSqlFragments()).parse()).doesNotThrowAnyException();
+		}
+	}
 }

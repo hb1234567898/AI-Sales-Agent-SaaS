@@ -45,18 +45,7 @@ public class FileStorageService {
 			var contentType = StringUtils.hasText(multipartFile.getContentType())
 					? multipartFile.getContentType().strip()
 					: "application/octet-stream";
-			var file = UploadedFile.create(
-					UUID.randomUUID(),
-					principal.organizationId(),
-					principal.memberId(),
-					customerId,
-					filename,
-					contentType,
-					content,
-					sha256(content),
-					clock.instant());
-			mapper.insert(file);
-			return UploadedFileResponse.from(file);
+			return uploadContent(principal, customerId, filename, contentType, content);
 		}
 		catch (Exception exception) {
 			if (exception instanceof FileStorageException storageException) {
@@ -64,6 +53,17 @@ public class FileStorageService {
 			}
 			throw new FileStorageException("附件上传失败，请重试", exception);
 		}
+	}
+
+	@Transactional
+	public UploadedFileResponse uploadContent(AuthPrincipal principal, UUID customerId, String filename, String contentType, byte[] content) {
+		if (content == null || content.length == 0 || content.length > MAX_FILE_SIZE) {
+			throw new FileStorageException("附件不能为空且不能超过 10MB");
+		}
+		var file = UploadedFile.create(UUID.randomUUID(), principal.organizationId(), principal.memberId(), customerId,
+				cleanFilename(filename), contentType, content, sha256(content), clock.instant());
+		mapper.insert(file);
+		return UploadedFileResponse.from(file);
 	}
 
 	@Transactional(readOnly = true)

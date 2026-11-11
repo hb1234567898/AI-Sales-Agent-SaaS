@@ -43,7 +43,7 @@
 			version = version + 1
 		WHERE organization_id = #{organizationId}
 		  AND id = #{actionRequestId}
-		  AND status IN ('APPROVED', 'EXECUTING')
+		  AND status = 'APPROVED'
 	</update>
 
 	<update id="updateActionExecuting">
