@@ -1,6 +1,8 @@
 import { ArrowClockwise, ArrowRight, Kanban, ListBullets, MagnifyingGlass, PencilSimple, Plus, WarningCircle, X } from '@phosphor-icons/react'
 import { useDeferredValue, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router'
+import { useCommercialRole } from '../components/commercial/commercial-utils'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
 import { SelectField } from '../components/forms/SelectField'
 import { useIsGuest } from '../auth/use-auth'
@@ -23,6 +25,7 @@ function compactMoney(value: number) { return `¥${(value / 10000).toFixed(1)}�
 function errorText(error: unknown) { return error instanceof Error ? error.message : '请求失败，请重试' }
 
 export function OpportunitiesPage() {
+  const commercialRole = useCommercialRole()
   const isGuest = useIsGuest()
   const queryClient = useQueryClient()
   const [view, setView] = useState<'BOARD' | 'LIST'>('BOARD')
@@ -119,6 +122,7 @@ export function OpportunitiesPage() {
         <dl><div><dt>商机金额</dt><dd>{money.format(current.amount ?? 0)}</dd></div><div><dt>成交概率</dt><dd>{current.probability ?? 0}%</dd></div><div><dt>销售阶段</dt><dd>{opportunityStages[current.stage]}</dd></div><div><dt>预测分类</dt><dd>{forecastCategories[current.forecastCategory]}</dd></div><div><dt>负责人</dt><dd>{current.ownerName ?? '未分配'}</dd></div><div><dt>预计成交</dt><dd>{current.expectedCloseDate ?? '未设置'}</dd></div></dl>
         <section><span>下一步动作</span><p>{current.nextStep ?? '未设置'}</p></section>
         {current.closeReason && <section><span>关闭原因</span><p>{current.closeReason}</p></section>}
+        {!selectedIsDemo && !isGuest && commercialRole.writer && current.status === 'OPEN' && !detail.isError && (commercialRole.manager || current.ownerMemberId === commercialRole.memberId) && <section><Link className="button button-secondary" to={`/app/quotes?opportunity=${current.id}`}>为此商机创建报价<ArrowRight size={15} /></Link></section>}
         {!selectedIsDemo && <section><h3>变更历史</h3>{history.isPending ? <p>正在读取…</p> : history.isError ? <p className="form-error" role="alert">{errorText(history.error)}</p> : history.data?.length ? <ol className="opportunity-history">{history.data.map((event) => <li key={event.id}><strong>{event.summary}</strong><span>{event.fromStage !== event.toStage && `${event.fromStage ? opportunityStages[event.fromStage] + ' → ' : ''}${opportunityStages[event.toStage]} · `}{event.actorName}</span><time>{new Date(event.createdAt).toLocaleString('zh-CN')}</time></li>)}</ol> : <p>暂无变更记录</p>}</section>}
         <footer><button className="button button-secondary" disabled={selectedIsDemo || isGuest || current.status !== 'OPEN' || detail.isError} onClick={() => { save.reset(); setEditor(current) }}><PencilSimple size={16} />编辑</button><button className="button button-primary" disabled={selectedIsDemo || isGuest || current.status !== 'OPEN' || detail.isError} onClick={() => { changeStage.reset(); setStageEditor(current) }}>变更阶段<ArrowRight size={15} /></button></footer>
       </aside></div>}

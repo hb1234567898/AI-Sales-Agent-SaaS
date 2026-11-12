@@ -170,6 +170,22 @@ describe('Axios HTTP client JWT refresh', () => {
     expect(adapter).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
   })
+
+  it('报价到成交的游客读取使用模拟快照，写操作不会发到服务器', async () => {
+    sessionStorage.setItem('sales-agent:guest-mode', 'true')
+    const adapter = vi.fn((config: InternalAxiosRequestConfig) => resolve(config, 200, {}))
+    apiClient.defaults.adapter = adapter
+    const products = await requestJson<{ content: { sku: string }[] }>('/api/v1/commercial/products')
+    expect(products.content[0].sku).toBe('CRM-PRO')
+    const quote = await requestJson<{ snapshot: { revision: number } }>('/api/v1/commercial/quotes/demo-quote-1?revision=1')
+    expect(quote.snapshot.revision).toBe(1)
+    const plans = await requestJson<{ content: { status: string }[] }>('/api/v1/commercial/receivables?overdue=true')
+    expect(plans.content.every(plan => plan.status === 'OVERDUE')).toBe(true)
+    for (const route of ['/products', '/quotes', '/contracts', '/contracts/demo-contract-1/installments/demo-plan-2/receipts']) {
+      await expect(requestJson(`/api/v1/commercial${route}`, { method: 'POST', data: {} })).rejects.toMatchObject({ status: 403 })
+    }
+    expect(adapter).not.toHaveBeenCalled()
+  })
 })
 
 function saveExpiredTokens(remember: boolean) {

@@ -7,7 +7,7 @@ import { changeOpportunityStage, createOpportunity, getOpportunities, getOpportu
 import { getCustomers, getCustomerOwners } from '../api/customers-api'
 
 const auth = vi.hoisted(() => ({ guest: false }))
-vi.mock('../auth/use-auth', () => ({ useIsGuest: () => auth.guest }))
+vi.mock('../auth/use-auth', () => ({ useIsGuest: () => auth.guest, useAuth: () => ({ role: auth.guest ? 'GUEST' : 'VIEWER', memberId: 'member-1' }) }))
 vi.mock('../api/opportunities-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../api/opportunities-api')>(),
   getOpportunities: vi.fn(), getOpportunity: vi.fn(), getOpportunityMetrics: vi.fn(), getOpportunityHistory: vi.fn(),
