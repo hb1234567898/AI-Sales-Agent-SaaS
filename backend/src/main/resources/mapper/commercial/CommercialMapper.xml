@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yourcompany.salesagent.commercial.infrastructure.CommercialMapper">
+    <select id="products" resultType="com.yourcompany.salesagent.commercial.infrastructure.ProductRow">
+        SELECT * FROM sales_product WHERE organization_id=#{org}
+        <if test="active != null">AND active=#{active}</if>
+        <if test="query != ''">AND (sku ILIKE CONCAT('%',#{query},'%') OR name ILIKE CONCAT('%',#{query},'%'))</if>
+        ORDER BY updated_at DESC,id
+    </select>
+    <select id="product" resultType="com.yourcompany.salesagent.commercial.infrastructure.ProductRow">SELECT * FROM sales_product WHERE organization_id=#{org} AND id=#{id}</select>
+    <insert id="insertProduct">
+        INSERT INTO sales_product(id,organization_id,sku,name,unit,list_price,tax_rate,active,description,updated_at)
+        VALUES(#{id},#{org},UPPER(#{input.sku}),#{input.name},#{input.unit},#{input.listPrice},#{input.taxRate},#{input.active},#{input.description},#{now})
+    </insert>
+    <update id="updateProduct">
+        UPDATE sales_product SET sku=UPPER(#{input.sku}),name=#{input.name},unit=#{input.unit},list_price=#{input.listPrice},tax_rate=#{input.taxRate},active=#{input.active},description=#{input.description},updated_at=#{now},version=version+1
+        WHERE organization_id=#{org} AND id=#{id} AND version=#{input.version}
+    </update>
+    <select id="books" resultType="com.yourcompany.salesagent.commercial.infrastructure.PriceBookRow">SELECT * FROM sales_price_book WHERE organization_id=#{org} ORDER BY updated_at DESC,id LIMIT 1000</select>
+    <select id="book" resultType="com.yourcompany.salesagent.commercial.infrastructure.PriceBookRow">SELECT * FROM sales_price_book WHERE organization_id=#{org} AND id=#{id}</select>
+    <select id="lockBook" resultType="com.yourcompany.salesagent.commercial.infrastructure.PriceBookRow">SELECT * FROM sales_price_book WHERE organization_id=#{org} AND id=#{id} FOR UPDATE</select>
+    <insert id="insertBook">INSERT INTO sales_price_book(id,organization_id,name,valid_from,valid_until,active,updated_at) VALUES(#{id},#{org},#{input.name},#{input.validFrom},#{input.validUntil},#{input.active},#{now})</insert>
+    <update id="updateBook">UPDATE sales_price_book SET name=#{input.name},valid_from=#{input.validFrom},valid_until=#{input.validUntil},active=#{input.active},updated_at=#{now},version=version+1 WHERE organization_id=#{org} AND id=#{id} AND version=#{input.version}</update>
+    <select id="entries" resultType="com.yourcompany.salesagent.commercial.infrastructure.PriceEntryRow">SELECT e.product_id,p.sku,p.name AS product_name,e.unit_price FROM sales_price_entry e JOIN sales_product p ON p.organization_id=e.organization_id AND p.id=e.product_id WHERE e.organization_id=#{org} AND e.price_book_id=#{id} ORDER BY p.sku</select>
+    <delete id="deleteEntries">DELETE FROM sales_price_entry WHERE organization_id=#{org} AND price_book_id=#{id}</delete>
+    <insert id="insertEntry">INSERT INTO sales_price_entry(organization_id,price_book_id,product_id,unit_price) VALUES(#{org},#{id},#{input.productId},#{input.unitPrice})</insert>
+    <select id="pricing" resultType="com.yourcompany.salesagent.commercial.infrastructure.ProductRow">
+        SELECT p.id,p.sku,p.name,p.unit,p.tax_rate,p.active,COALESCE(e.unit_price,p.list_price) AS list_price
+        FROM sales_product p LEFT JOIN sales_price_entry e ON e.organization_id=p.organization_id AND e.product_id=p.id AND e.price_book_id=#{book,jdbcType=OTHER}
+        WHERE p.organization_id=#{org} AND p.active=true AND p.id IN
+        <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>
+        <if test="book != null">AND e.product_id IS NOT NULL</if>
+    </select>
+    <sql id="OpportunityJoins">JOIN opportunity o ON o.organization_id=q.organization_id AND o.id=q.opportunity_id JOIN customer c ON c.organization_id=o.organization_id AND c.id=o.customer_id LEFT JOIN organization_member m ON m.organization_id=o.organization_id AND m.id=o.owner_member_id LEFT JOIN app_user u ON u.id=m.user_id</sql>
+    <sql id="QuoteScope">q.organization_id=#{org} AND o.deleted_at IS NULL AND c.deleted_at IS NULL <if test="owner != null">AND o.owner_member_id=#{owner}</if></sql>
+    <select id="opportunity" resultType="com.yourcompany.salesagent.commercial.infrastructure.CommercialOpportunityRow">
+        SELECT o.id,o.customer_id,o.name,c.name AS customer_name,o.owner_member_id,o.status,o.version,u.display_name AS owner_name,
+            (SELECT cc.email FROM customer_contact cc WHERE cc.organization_id=o.organization_id AND cc.customer_id=o.customer_id AND cc.is_primary AND cc.deleted_at IS NULL LIMIT 1) AS contact_email
+        FROM opportunity o JOIN customer c ON c.organization_id=o.organization_id AND c.id=o.customer_id LEFT JOIN organization_member m ON m.organization_id=o.organization_id AND m.id=o.owner_member_id LEFT JOIN app_user u ON u.id=m.user_id
+        WHERE o.organization_id=#{org} AND o.id=#{id} AND o.deleted_at IS NULL AND c.deleted_at IS NULL AND c.status='ACTIVE'
+        <if test="owner != null">AND o.owner_member_id=#{owner}</if>
+    </select>
+    <sql id="QuoteSelect">
+        SELECT q.id,q.number,q.opportunity_id,o.name AS opportunity_name,q.customer_id,c.name AS customer_name,o.owner_member_id,u.display_name AS owner_name,q.status,q.current_revision AS revision,q.version,q.updated_at,
+            v.title,v.subtotal,v.tax,v.total,v.valid_until,v.approval_id,a.status AS approval_status,ar.status AS action_status,mm.status AS delivery_status,
+            (SELECT cc.email FROM customer_contact cc WHERE cc.organization_id=q.organization_id AND cc.customer_id=q.customer_id AND cc.is_primary AND cc.deleted_at IS NULL LIMIT 1) AS contact_email
+        FROM sales_quote q <include refid="OpportunityJoins" />
+        JOIN sales_quote_version v ON v.organization_id=q.organization_id AND v.quote_id=q.id AND v.revision=q.current_revision
+        LEFT JOIN approval a ON a.organization_id=v.organization_id AND a.id=v.approval_id
+        LEFT JOIN action_request ar ON ar.organization_id=a.organization_id AND ar.id=a.action_request_id
+        LEFT JOIN mail_message mm ON mm.organization_id=ar.organization_id AND mm.action_request_id=ar.id
+        WHERE <include refid="QuoteScope" />
+    </sql>
+    <select id="quotes" resultType="com.yourcompany.salesagent.commercial.infrastructure.QuoteRow">
+        <include refid="QuoteSelect" />
+        <if test="query != ''">AND (q.number ILIKE CONCAT('%',#{query},'%') OR v.title ILIKE CONCAT('%',#{query},'%') OR c.name ILIKE CONCAT('%',#{query},'%'))</if>
+        <if test="status != ''">AND q.status=#{status}</if> ORDER BY q.updated_at DESC,q.id
+    </select>
+    <select id="quote" resultType="com.yourcompany.salesagent.commercial.infrastructure.QuoteRow"><include refid="QuoteSelect" /> AND q.id=#{id}</select>
+    <select id="lockQuote" resultType="long">SELECT version FROM sales_quote WHERE organization_id=#{org} AND id=#{id} FOR UPDATE</select>
+    <insert id="insertQuote">INSERT INTO sales_quote(id,organization_id,number,opportunity_id,customer_id,created_at,updated_at) VALUES(#{row.id},#{org},#{row.number},#{row.opportunityId},#{row.customerId},#{now},#{now})</insert>
+    <update id="reviseQuote">UPDATE sales_quote SET current_revision=current_revision+1,status='DRAFT',version=version+1,updated_at=#{now} WHERE organization_id=#{org} AND id=#{id} AND version=#{version}</update>
+    <update id="quoteStatus">UPDATE sales_quote SET status=#{status},version=version+1,updated_at=#{now} WHERE organization_id=#{org} AND id=#{id} AND version=#{version}</update>
+    <insert id="insertQuoteVersion">
+        INSERT INTO sales_quote_version(id,organization_id,quote_id,revision,title,price_book_id,price_book_name,customer_name,seller_name,valid_until,terms,subtotal,tax,total,created_by,created_at)
+        VALUES(#{row.id},#{org},#{row.quoteId},#{row.revision},#{row.title},#{row.priceBookId},#{row.priceBookName},#{row.customerName},#{row.sellerName},#{row.validUntil},#{row.terms},#{row.subtotal},#{row.tax},#{row.total},#{actor},#{row.createdAt})
+    </insert>
+    <insert id="insertLine">INSERT INTO sales_quote_line(organization_id,quote_version_id,position,product_id,sku,product_name,unit,quantity,unit_price,discount_percent,tax_rate,subtotal,tax,total) VALUES(#{org},#{id},#{row.position},#{row.productId},#{row.sku},#{row.productName},#{row.unit},#{row.quantity},#{row.unitPrice},#{row.discountPercent},#{row.taxRate},#{row.subtotal},#{row.tax},#{row.total})</insert>
+    <sql id="VersionSelect">SELECT v.*,u.display_name AS created_by_name FROM sales_quote_version v JOIN organization_member m ON m.organization_id=v.organization_id AND m.id=v.created_by JOIN app_user u ON u.id=m.user_id WHERE v.organization_id=#{org} AND v.quote_id=#{id}</sql>
+    <select id="versions" resultType="com.yourcompany.salesagent.commercial.infrastructure.QuoteVersionRow"><include refid="VersionSelect" /> ORDER BY v.revision DESC</select>
+    <select id="snapshot" resultType="com.yourcompany.salesagent.commercial.infrastructure.QuoteVersionRow"><include refid="VersionSelect" /> AND v.revision=#{revision}</select>
+    <select id="lines" resultType="com.yourcompany.salesagent.commercial.infrastructure.QuoteLineRow">SELECT * FROM sales_quote_line WHERE organization_id=#{org} AND quote_version_id=#{id} ORDER BY position</select>
+    <update id="attachFile">UPDATE sales_quote_version SET file_id=#{file} WHERE organization_id=#{org} AND id=#{id}</update>
+    <update id="attachApproval">UPDATE sales_quote_version SET approval_id=#{approval} WHERE organization_id=#{org} AND id=#{id} AND approval_id IS NULL</update>
+    <select id="events" resultType="com.yourcompany.salesagent.commercial.infrastructure.CommercialEventRow">SELECT e.id,u.display_name AS actor_name,e.summary,e.created_at FROM sales_commercial_event e JOIN organization_member m ON m.organization_id=e.organization_id AND m.id=e.actor_member_id JOIN app_user u ON u.id=m.user_id WHERE e.organization_id=#{org} AND e.entity_type=#{type} AND e.entity_id=#{id} ORDER BY e.created_at DESC,e.id DESC LIMIT 100</select>
+    <insert id="event">INSERT INTO sales_commercial_event(id,organization_id,entity_type,entity_id,actor_member_id,summary,created_at) VALUES(gen_random_uuid(),#{org},#{type},#{id},#{actor},#{summary},#{now})</insert>
+    <sql id="ContractSelect">
+        SELECT k.*,q.number AS quote_number,v.revision AS quote_revision,c.name AS customer_name,o.owner_member_id,u.display_name AS owner_name,f.original_filename AS signed_filename,
+            COALESCE((SELECT SUM(r.amount) FROM sales_receipt r WHERE r.organization_id=k.organization_id AND r.contract_id=k.id),0) AS paid
+        FROM sales_contract k JOIN sales_quote q ON q.organization_id=k.organization_id AND q.id=k.quote_id
+        JOIN sales_quote_version v ON v.organization_id=k.organization_id AND v.id=k.quote_version_id <include refid="OpportunityJoins" />
+        LEFT JOIN uploaded_file f ON f.organization_id=k.organization_id AND f.id=k.signed_file_id
+        WHERE <include refid="QuoteScope" />
+    </sql>
+    <select id="contracts" resultType="com.yourcompany.salesagent.commercial.infrastructure.ContractRow"><include refid="ContractSelect" />
+        <if test="query != ''">AND (k.number ILIKE CONCAT('%',#{query},'%') OR k.name ILIKE CONCAT('%',#{query},'%') OR c.name ILIKE CONCAT('%',#{query},'%') OR CAST(k.quote_id AS text)=#{query})</if>
+        <if test="status != ''">AND k.status=#{status}</if> ORDER BY k.updated_at DESC,k.id
+    </select>
+    <select id="contract" resultType="com.yourcompany.salesagent.commercial.infrastructure.ContractRow"><include refid="ContractSelect" /> AND k.id=#{id}</select>
+    <select id="contractForQuote" resultType="java.util.UUID">SELECT id FROM sales_contract WHERE organization_id=#{org} AND quote_id=#{id}</select>
+    <select id="lockContract" resultType="long">SELECT version FROM sales_contract WHERE organization_id=#{org} AND id=#{id} FOR UPDATE</select>
+    <insert id="insertContract">INSERT INTO sales_contract(id,organization_id,number,quote_id,quote_version_id,customer_id,opportunity_id,name,total,starts_on,ends_on,terms,created_at,updated_at) VALUES(#{row.id},#{org},#{row.number},#{row.quoteId},#{row.quoteVersionId},#{row.customerId},#{row.opportunityId},#{row.name},#{row.total},#{row.startsOn},#{row.endsOn},#{row.terms},#{now},#{now})</insert>
+    <update id="updateContract">UPDATE sales_contract SET name=#{input.name},starts_on=#{input.startsOn},ends_on=#{input.endsOn},terms=#{input.terms},updated_at=#{now},version=version+1 WHERE organization_id=#{org} AND id=#{id} AND version=#{input.version} AND status='DRAFT'</update>
+    <update id="signContract">UPDATE sales_contract SET status='SIGNED',signed_on=#{input.signedOn},signed_file_id=#{input.signedFileId},updated_at=#{now},version=version+1 WHERE organization_id=#{org} AND id=#{id} AND version=#{input.version} AND status='DRAFT'</update>
+    <update id="contractStatus">UPDATE sales_contract SET status=#{status},updated_at=#{now},version=version+1 WHERE organization_id=#{org} AND id=#{id} AND version=#{version}</update>
+    <delete id="deletePlans">DELETE FROM sales_payment_plan WHERE organization_id=#{org} AND contract_id=#{id}</delete>
+    <insert id="insertPlan">INSERT INTO sales_payment_plan(id,organization_id,contract_id,position,name,amount,due_on) VALUES(#{row.id},#{org},#{id},#{row.position},#{row.name},#{row.amount},#{row.dueOn})</insert>
+    <sql id="PlanSelect">
+        SELECT pp.id,pp.contract_id,k.number AS contract_number,c.name AS customer_name,pp.position,pp.name,pp.amount,pp.due_on,
+            COALESCE(SUM(r.amount),0) AS paid,
+            CASE WHEN COALESCE(SUM(r.amount),0)=pp.amount THEN 'PAID' WHEN pp.due_on &lt; #{today} AND k.status IN ('SIGNED','COMPLETED') THEN 'OVERDUE' WHEN COALESCE(SUM(r.amount),0)>0 THEN 'PARTIAL' ELSE 'UNPAID' END AS status
+        FROM sales_payment_plan pp JOIN sales_contract k ON k.organization_id=pp.organization_id AND k.id=pp.contract_id
+        JOIN sales_quote q ON q.organization_id=k.organization_id AND q.id=k.quote_id <include refid="OpportunityJoins" />
+        LEFT JOIN sales_receipt r ON r.organization_id=pp.organization_id AND r.plan_id=pp.id
+        WHERE <include refid="QuoteScope" />
+    </sql>
+    <sql id="PlanGroup">GROUP BY pp.id,k.number,c.name,k.status</sql>
+    <select id="plans" resultType="com.yourcompany.salesagent.commercial.infrastructure.PaymentPlanRow"><include refid="PlanSelect" /> AND k.id=#{id} <include refid="PlanGroup" /> ORDER BY pp.position</select>
+    <select id="receivables" resultType="com.yourcompany.salesagent.commercial.infrastructure.PaymentPlanRow"><include refid="PlanSelect" /> AND k.status='SIGNED'
+        <if test="overdue">AND pp.due_on &lt; #{today}</if><include refid="PlanGroup" /> HAVING COALESCE(SUM(r.amount),0)&lt;pp.amount ORDER BY pp.due_on,pp.id
+    </select>
+    <select id="receipts" resultType="com.yourcompany.salesagent.commercial.infrastructure.ReceiptRow">SELECT r.*,u.display_name AS created_by_name FROM sales_receipt r JOIN organization_member m ON m.organization_id=r.organization_id AND m.id=r.created_by JOIN app_user u ON u.id=m.user_id WHERE r.organization_id=#{org} AND r.contract_id=#{id} ORDER BY r.created_at DESC,r.id</select>
+    <select id="receiptByKey" resultType="com.yourcompany.salesagent.commercial.infrastructure.ReceiptRow">SELECT * FROM sales_receipt WHERE organization_id=#{org} AND request_key=#{key}</select>
+    <select id="receiptReferenceExists" resultType="int">SELECT COUNT(*) FROM sales_receipt WHERE organization_id=#{org} AND contract_id=#{id} AND reference=#{reference}</select>
+    <insert id="insertReceipt">INSERT INTO sales_receipt(id,organization_id,contract_id,plan_id,amount,received_on,reference,note,request_key,created_by,created_at) VALUES(gen_random_uuid(),#{org},#{id},#{plan},#{input.amount},#{input.receivedOn},#{input.reference},#{input.note},#{input.requestKey},#{actor},#{now})</insert>
+    <select id="metrics" resultType="com.yourcompany.salesagent.commercial.infrastructure.CommercialMetricsRow">
+        SELECT
+          (SELECT COUNT(*) FROM sales_quote q <include refid="OpportunityJoins" /> WHERE <include refid="QuoteScope" /> AND q.status='DRAFT') AS draft_quotes,
+          (SELECT COUNT(*) FROM sales_quote q <include refid="OpportunityJoins" /> WHERE <include refid="QuoteScope" /> AND q.status='ISSUED') AS awaiting_customer,
+          COALESCE(SUM(CASE WHEN k.status IN ('SIGNED','COMPLETED') THEN k.total ELSE 0 END),0) AS signed_amount,
+          COALESCE(SUM(CASE WHEN k.status='SIGNED' THEN k.total-COALESCE((SELECT SUM(r.amount) FROM sales_receipt r WHERE r.organization_id=k.organization_id AND r.contract_id=k.id),0) ELSE 0 END),0) AS receivable,
+          COALESCE(SUM(CASE WHEN k.status='SIGNED' THEN (SELECT COALESCE(SUM(pp.amount-COALESCE((SELECT SUM(r.amount) FROM sales_receipt r WHERE r.organization_id=pp.organization_id AND r.plan_id=pp.id),0)),0) FROM sales_payment_plan pp WHERE pp.organization_id=k.organization_id AND pp.contract_id=k.id AND pp.due_on &lt; #{today}) ELSE 0 END),0) AS overdue_amount
+        FROM sales_contract k JOIN sales_quote q ON q.organization_id=k.organization_id AND q.id=k.quote_id <include refid="OpportunityJoins" /> WHERE <include refid="QuoteScope" />
+    </select>
+</mapper>

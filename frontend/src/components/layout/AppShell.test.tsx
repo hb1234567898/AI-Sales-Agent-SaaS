@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
+import { availableGuides } from '../guides/feature-guides'
 
 const auth = vi.hoisted(() => ({ role: 'GUEST' }))
 vi.mock('../../auth/use-auth', () => ({ useAuth: () => ({ role: auth.role, userId: 'test-user', displayName: '游客', organizationName: '演示团队', email: 'guest@local' }) }))
@@ -27,7 +28,7 @@ describe('guest guide', () => {
   it('offers detailed guides per feature, remembers dismissal and can be reopened', async () => {
     const user = userEvent.setup(); const view = mount()
     const dialog = screen.getByRole('dialog', { name: '功能使用指南' })
-    expect(within(dialog).getByText('已完成 0 / 12')).toBeInTheDocument()
+    expect(within(dialog).getByText(`已完成 0 / ${availableGuides('GUEST').length}`)).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: /企业知识库与带引用问答/ }))
     expect(within(dialog).getByRole('heading', { name: '核对回答来源' })).toBeInTheDocument()
     expect(within(dialog).getByRole('heading', { name: '维护资料版本' })).toBeInTheDocument()
@@ -46,7 +47,7 @@ describe('guest guide', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '打开功能使用指南' }))
     const dialog = screen.getByRole('dialog', { name: '功能使用指南' })
-    expect(within(dialog).getByText('已完成 0 / 16')).toBeInTheDocument()
+    expect(within(dialog).getByText(`已完成 0 / ${availableGuides('OWNER').length}`)).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /团队 Token 预算与成员分配/ })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /操作日志查询与审计/ })).toBeInTheDocument()
   })
@@ -55,7 +56,7 @@ describe('guest guide', () => {
     const user = userEvent.setup(); mount()
     await user.click(screen.getByRole('button', { name: '打开功能使用指南' }))
     const dialog = screen.getByRole('dialog', { name: '功能使用指南' })
-    expect(within(dialog).getByText('已完成 0 / 12')).toBeInTheDocument()
+    expect(within(dialog).getByText(`已完成 0 / ${availableGuides('VIEWER').length}`)).toBeInTheDocument()
     expect(within(dialog).queryByRole('button', { name: /团队 Token 预算与成员分配/ })).not.toBeInTheDocument()
   })
 })

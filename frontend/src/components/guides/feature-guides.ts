@@ -21,6 +21,35 @@ export interface FeatureGuide {
 
 export const featureGuides: FeatureGuide[] = [
   {
+    id: 'products', title: '产品目录与价格表', heading: '产品与价格', path: '/app/products', group: '销售工作',
+    summary: '维护产品标准价及有效期内的合作价格，为报价提供统一定价来源。', prerequisite: '所有者、管理员或主管可以维护；报价使用已启用产品。', guestNote: '可以查看模拟产品与价格表，修改和保存需登录并具备管理权限。',
+    steps: [
+      { title: '产品与价格表分开管理', target: '.commercial-tabs', description: '产品目录保存编码、计价单位、未税标准价和税率。价格表保存特定合作价与生效期间；同一产品可出现在不同价格表。', result: '区分产品基本资料和特定的价格政策。', allowInteraction: true },
+      { title: '核对报价基础', target: '[data-guide="commercial-catalog"] .commercial-table-wrap', description: '报价选择产品后由服务器读取单价和税率。使用指定价格表时，明细产品必须在该价格表中，且价格表已启用并处于有效期。', result: '避免使用未生效或已停用的价格。' },
+      { title: '维护价格而不覆盖历史报价', target: '.commercial-heading', description: '有权限的成员可新建产品、修改标准价或维护价格表。价格变更只影响新报价版本，已保存的报价明细仍保留原单价和税率。', result: '价格可以更新，已发给客户的报价仍可追溯。' },
+    ],
+  },
+  {
+    id: 'quotes', title: '报价、版本与客户确认', heading: '报价单', path: '/app/quotes', group: '销售工作',
+    summary: '从商机创建报价，核算金额后定稿，保留客户确认和历史版本。', prerequisite: '先有进行中的商机和启用的产品；销售只能操作分配给自己的商机。', guestNote: '可查看模拟报价、切换历史版本；创建、导出与邮件发送需正式账号。',
+    steps: [
+      { title: '识别待推进的报价', target: '[data-guide="commercial-quote-metrics"]', description: '草稿报价尚未定稿，待客户确认是已定稿报价。已签约和未收款金额来自合同与回款记录，不代表报价金额已到账。', result: '区分报价、签约和实际回款。' },
+      { title: '搜索并核对状态', target: '[data-guide="commercial-quote-toolbar"]', description: '按客户、单号或报价名称搜索，按草稿、定稿、确认、拒绝或取消筛选。点击报价名称查看明细和操作记录。', result: '定位准确的客户报价。', allowInteraction: true },
+      { title: '创建与保存版本', target: '.commercial-heading', description: '选择商机、价格来源和产品，填写数量、折扣、有效期与条款。点击计算报价核对服务端金额，再保存草稿。修改现有报价会新建版本而非覆盖历史。', result: '形成含单价、税率、折扣和总额的独立快照。' },
+      { title: '定稿、发送和确认', target: '[data-guide="commercial-quotes"] .commercial-table-wrap', description: '主管可定稿报价，销售可提交带版本附件的邮件审批；批准后才会发送，定稿不代表已经发送。客户确认需记录依据，确认后可生成合同。历史版本可查看和导出 CSV。', result: '报价的财务口径、发送状态和客户结论都有记录。' },
+    ],
+  },
+  {
+    id: 'contracts', title: '合同签约与分期回款', heading: '合同与回款', path: '/app/contracts', group: '销售工作',
+    summary: '把客户确认的报价转为合同，登记签约，再按分期核对收款。', prerequisite: '创建合同需客户确认报价；签约和回款需所有者、管理员或主管权限。', guestNote: '可查看模拟合同、分期和流水，不会产生真实合同或收款。',
+    steps: [
+      { title: '核对签约与应收', target: '[data-guide="commercial-contract-metrics"]', description: '已签约包含已签约和已结清合同。未收款只统计已签约合同，逾期按上海时区到期日判断；草稿不进入应收。', result: '了解真实应收，不把草稿算作收入。' },
+      { title: '切换合同与应收', target: '.commercial-tabs', description: '合同管理展示合同与付款进度；应收回款展示未结清分期，可只看逾期，并进入对应合同登记回款。', result: '从合同维度或到期款项维度推进工作。', allowInteraction: true },
+      { title: '绑定确认版本', target: '.commercial-heading', description: '新建合同选择客户已确认的报价。合同金额锁定为该版本含税总额，填写服务期间、条款及分期计划，各期金额合计必须等于合同总额。', result: '报价和合同金额保持一致。' },
+      { title: '签约后再登记回款', target: '[data-guide="commercial-contracts"] .commercial-table-wrap', description: '打开合同，选择客户已有签署附件或本地文件后确认签约。本地文件只在确认时上传。签约会将关联商机标记为赢单。每次回款需填到账日和唯一流水号，不能超收，结清后自动关闭应收。', result: '从签署文件、回款计划到流水形成完整记录。' },
+    ],
+  },
+  {
     id: 'today', title: '今日工作台', heading: '今日工作台', path: '/app/today', group: '销售工作',
     summary: '先判断今天要推进哪些客户，再进入跟进或审批处理具体事项。',
     prerequisite: '可直接浏览；当前工作台指标与队列展示演示内容。', guestNote: '可查看全部示例，并通过链接进入其他功能。',

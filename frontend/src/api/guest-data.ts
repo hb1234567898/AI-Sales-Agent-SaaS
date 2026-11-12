@@ -1,4 +1,5 @@
 import type { Customer } from './customers-api'
+import { commercialGuestData } from '../data/commercial-demo'
 import type { Lead } from './leads-api'
 import type { KnowledgeAnswer, KnowledgeDocument } from './knowledge-api'
 import type { FollowUp } from './follow-ups-api'
@@ -49,6 +50,7 @@ export function getGuestData(path: string, extraParams?: unknown): unknown {
   const p = url.searchParams
   if (extraParams && typeof extraParams === 'object') Object.entries(extraParams).forEach(([key, value]) => { if (value != null) p.set(key, String(value)) })
   const route = url.pathname
+  if (route.startsWith('/api/v1/commercial/')) return commercialGuestData(route, p)
   if (route === '/api/v1/system/health') return { service: '模拟服务', status: 'UP', timestamp: now }
   if (route === '/api/v1/customers/metrics') return { total: 2, highIntent: 2, activeOpportunities: 2, averageScore: 89 }
   if (route === '/api/v1/customers/owners' || route === '/api/v1/leads/owners') return owners

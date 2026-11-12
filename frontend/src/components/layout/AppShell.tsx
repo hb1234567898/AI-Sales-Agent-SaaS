@@ -1,5 +1,7 @@
 import {
   BookOpen,
+  Package,
+  Receipt,
   Buildings,
   CaretDown,
   ChatCircleText,
@@ -58,6 +60,12 @@ const insightNavigation: NavItem[] = [
   { to: '/app/agent-runs', label: 'Agent 运行', icon: Robot },
   { to: '/app/analytics', label: '效果分析', icon: ChartLineUp },
   { to: '/app/settings', label: '设置', icon: GearSix },
+]
+
+const commercialNavigation: NavItem[] = [
+  { to: '/app/products', label: '产品与价格', icon: Package },
+  { to: '/app/quotes', label: '报价单', icon: Receipt },
+  { to: '/app/contracts', label: '合同与回款', icon: FileText },
 ]
 
 const adminNavigation: NavItem[] = [
@@ -137,6 +145,7 @@ function Sidebar({
 
       <div className="sidebar-navigation">
         <NavigationGroup label="销售工作" items={workNavigation} onNavigate={onClose} />
+        <NavigationGroup label="报价与成交" items={commercialNavigation} onNavigate={onClose} />
         <NavigationGroup label="运营与配置" items={insightNavigation} onNavigate={onClose} />
         {role === 'OWNER' || role === 'ADMIN' ? (
           <NavigationGroup label="管理员" items={adminNavigation} onNavigate={onClose} />
