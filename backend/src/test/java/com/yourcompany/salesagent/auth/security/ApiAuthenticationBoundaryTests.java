@@ -146,13 +146,13 @@ class ApiAuthenticationBoundaryTests {
     @Test void validBearerTokenCanReadCustomers() throws Exception {
         mvc.perform(get("/api/v1/customers/" + CUSTOMER).header("Authorization", "Bearer sales.jwt"))
                 .andExpect(status().isOk());
-        verify(customerService).findCustomer(UUID.fromString(CUSTOMER));
+        verify(customerService).findCustomer(principal("SALES"), UUID.fromString(CUSTOMER));
     }
 
     @Test void fallbackTokenHeaderStillAuthenticates() throws Exception {
         mvc.perform(get("/api/v1/customers/" + CUSTOMER).header("X-Sales-Agent-Access-Token", "sales.jwt"))
                 .andExpect(status().isOk());
-        verify(customerService).findCustomer(UUID.fromString(CUSTOMER));
+        verify(customerService).findCustomer(principal("SALES"), UUID.fromString(CUSTOMER));
     }
 
     @Test void loginDoesNotGrantSalesAdministratorDeletionPermission() throws Exception {

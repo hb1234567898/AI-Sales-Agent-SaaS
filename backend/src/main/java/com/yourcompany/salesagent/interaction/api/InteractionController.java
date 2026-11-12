@@ -5,7 +5,8 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +28,7 @@ import jakarta.validation.constraints.Min;
 @Validated
 @RestController
 @RequestMapping("/api/v1/customers/{customerId}/interactions")
+@PreAuthorize("isAuthenticated()")
 public class InteractionController {
 
 	private final InteractionService interactionService;
@@ -39,50 +41,53 @@ public class InteractionController {
 
 	@GetMapping
 	public PageResponse<InteractionResponse> findTimeline(
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@PathVariable UUID customerId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-		return PageResponse.from(interactionService.findTimeline(customerId, page, size));
+		return PageResponse.from(interactionService.findTimeline(actor, customerId, page, size));
 	}
 
 	@PostMapping
 	public ResponseEntity<InteractionResponse> create(
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@PathVariable UUID customerId,
 			@Valid @RequestBody InteractionCreateRequest request) {
-		var interaction = interactionService.create(customerId, request);
+		var interaction = interactionService.create(actor, customerId, request);
 		return ResponseEntity.created(interactionUri(customerId, interaction.id())).body(interaction);
 	}
 
 	@PostMapping("/chat-import")
 	public ResponseEntity<InteractionResponse> importChat(
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@PathVariable UUID customerId,
 			@Valid @RequestBody ChatImportRequest request) {
-		var interaction = interactionService.importChat(customerId, request);
+		var interaction = interactionService.importChat(actor, customerId, request);
 		return ResponseEntity.created(interactionUri(customerId, interaction.id())).body(interaction);
 	}
 
 	@GetMapping("/analyses")
-	public List<ChatAnalysisResponse> findLatestAnalyses(@PathVariable UUID customerId) {
-		return chatAnalysisService.findLatestForCustomer(customerId);
+	public List<ChatAnalysisResponse> findLatestAnalyses(@AuthenticationPrincipal AuthPrincipal actor, @PathVariable UUID customerId) {
+		return chatAnalysisService.findLatestForCustomer(actor, customerId);
 	}
 
 	@PostMapping("/{interactionId}/analysis")
 	public ResponseEntity<ChatAnalysisResponse> analyzeChat(
-			Authentication authentication,
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@PathVariable UUID customerId,
 			@PathVariable UUID interactionId) {
-		var principal = (AuthPrincipal) authentication.getPrincipal();
-		var analysis = chatAnalysisService.analyze(customerId, interactionId, principal.memberId());
+		var analysis = chatAnalysisService.analyze(actor, customerId, interactionId);
 		return ResponseEntity.created(URI.create(interactionUri(customerId, interactionId) + "/analysis/" + analysis.id()))
 				.body(analysis);
 	}
 
 	@PostMapping("/{interactionId}/analysis/{analysisId}/apply")
 	public ChatAnalysisResponse applyAnalysis(
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@PathVariable UUID customerId,
 			@PathVariable UUID interactionId,
 			@PathVariable UUID analysisId) {
-		return chatAnalysisService.apply(customerId, interactionId, analysisId);
+		return chatAnalysisService.apply(actor, customerId, interactionId, analysisId);
 	}
 
 	private URI interactionUri(UUID customerId, UUID interactionId) {

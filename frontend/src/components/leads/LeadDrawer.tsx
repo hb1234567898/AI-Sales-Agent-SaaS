@@ -23,6 +23,7 @@ interface FormState {
 function localDateTime(value?: string | null) {
   if (!value) return ''
   const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
@@ -57,9 +58,11 @@ export function LeadDrawer({ lead, owners, pending, loading, error, readOnly, on
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (readOnly || pending) return
     if (!form.company.trim() || !form.contactName.trim()) return setLocalError('请填写企业名称和联系人')
     if (form.score && (Number(form.score) < 0 || Number(form.score) > 100)) return setLocalError('评分必须在 0 到 100 之间')
     setLocalError(null)
+    try {
     await onSubmit({
       company: form.company.trim(), industry: form.industry.trim() || null, contactName: form.contactName.trim(),
       contactEmail: form.contactEmail.trim() || null, contactPhone: form.contactPhone.trim() || null,
@@ -68,6 +71,9 @@ export function LeadDrawer({ lead, owners, pending, loading, error, readOnly, on
       nextAction: form.nextAction.trim() || null,
       nextFollowUpAt: form.nextFollowUpAt ? new Date(form.nextFollowUpAt).toISOString() : null,
     })
+    } catch {
+      // The parent mutation supplies the error shown below the form.
+    }
   }
 
   return <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -76,7 +82,7 @@ export function LeadDrawer({ lead, owners, pending, loading, error, readOnly, on
       {edit ? <nav className="customer-drawer-tabs" aria-label="线索详情页面"><button className={tab === 'profile' ? 'is-active' : ''} type="button" onClick={() => setTab('profile')}><Crosshair size={14} />线索资料</button><button className={tab === 'interactions' ? 'is-active' : ''} type="button" onClick={() => setTab('interactions')}><ClockCounterClockwise size={14} />跟进记录</button></nav> : null}
       {loading ? <div className="drawer-loading">正在读取线索…</div> : tab === 'interactions' && lead ? <CustomerInteractionsPanel customerId={lead.id} readOnly={readOnly} /> :
         <form className="customer-form" onSubmit={(event) => void submit(event)}>
-          <fieldset className="customer-form-fields" disabled={readOnly}>
+          <fieldset className="customer-form-fields" disabled={readOnly || pending}>
             <section className="form-section"><div className="form-section-title"><Crosshair size={15} /><span>线索信息</span></div><div className="customer-form-grid">
               <label className="field-span-2"><span>企业名称 <b>*</b></span><input autoFocus value={form.company} onChange={(e) => set('company', e.target.value)} maxLength={255} /></label>
               <label><span>所属行业</span><input value={form.industry} onChange={(e) => set('industry', e.target.value)} maxLength={120} /></label>

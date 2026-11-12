@@ -31,6 +31,7 @@ import jakarta.validation.constraints.Min;
 @Validated
 @RestController
 @RequestMapping("/api/v1/customers")
+@PreAuthorize("isAuthenticated()")
 public class CustomerController {
 
 	private final CustomerService customerService;
@@ -41,40 +42,42 @@ public class CustomerController {
 
 	@GetMapping
 	public PageResponse<CustomerResponse> findCustomers(
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@RequestParam(defaultValue = "") String query,
 			@RequestParam(required = false) CustomerStage stage,
 			@RequestParam(required = false) CustomerStatus status,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-		return PageResponse.from(customerService.findCustomers(query, stage, status, page, size));
+		return PageResponse.from(customerService.findCustomers(actor, query, stage, status, page, size));
 	}
 
 	@GetMapping("/{customerId}")
-	public CustomerResponse findCustomer(@PathVariable UUID customerId) {
-		return customerService.findCustomer(customerId);
+	public CustomerResponse findCustomer(@AuthenticationPrincipal AuthPrincipal actor, @PathVariable UUID customerId) {
+		return customerService.findCustomer(actor, customerId);
 	}
 
 	@GetMapping("/metrics")
-	public CustomerMetricsResponse getMetrics() {
-		return customerService.getMetrics();
+	public CustomerMetricsResponse getMetrics(@AuthenticationPrincipal AuthPrincipal actor) {
+		return customerService.getMetrics(actor);
 	}
 
 	@GetMapping("/owners")
-	public List<OwnerOptionResponse> getOwners() {
-		return customerService.loadOwners();
+	public List<OwnerOptionResponse> getOwners(@AuthenticationPrincipal AuthPrincipal actor) {
+		return customerService.loadOwners(actor);
 	}
 
 	@PostMapping
-	public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CustomerUpsertRequest request) {
-		var customer = customerService.createCustomer(request);
+	public ResponseEntity<CustomerResponse> createCustomer(@AuthenticationPrincipal AuthPrincipal actor, @Valid @RequestBody CustomerUpsertRequest request) {
+		var customer = customerService.createCustomer(actor, request);
 		return ResponseEntity.created(URI.create("/api/v1/customers/" + customer.id())).body(customer);
 	}
 
 	@PutMapping("/{customerId}")
 	public CustomerResponse updateCustomer(
+			@AuthenticationPrincipal AuthPrincipal actor,
 			@PathVariable UUID customerId,
 			@Valid @RequestBody CustomerUpsertRequest request) {
-		return customerService.updateCustomer(customerId, request);
+		return customerService.updateCustomer(actor, customerId, request);
 	}
 
     @DeleteMapping("/{customerId}")
