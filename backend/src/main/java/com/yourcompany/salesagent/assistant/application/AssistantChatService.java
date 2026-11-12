@@ -51,7 +51,6 @@ import com.yourcompany.salesagent.auth.security.AuthPrincipal;
 import com.yourcompany.salesagent.customer.api.CustomerResponse;
 import com.yourcompany.salesagent.customer.api.CustomerUpsertRequest;
 import com.yourcompany.salesagent.customer.application.CustomerService;
-import com.yourcompany.salesagent.customer.application.CustomerNotFoundException;
 import com.yourcompany.salesagent.customer.domain.CustomerSource;
 import com.yourcompany.salesagent.customer.domain.CustomerStage;
 import com.yourcompany.salesagent.customer.domain.CustomerStatus;
@@ -363,12 +362,12 @@ public class AssistantChatService {
 		var toolName = plan.toolName() == null ? "" : plan.toolName();
 		if ("KNOWLEDGE_QUERY".equals(plan.intent()) && toolName.isBlank()) toolName = "knowledge.query";
 		AssistantChatResponse result = switch (toolName) {
-			case "customer.create" -> createCustomer(customerDraft(arguments), traces);
+			case "customer.create" -> createCustomer(principal, customerDraft(arguments), traces);
 			case "interaction.chat_import" -> importChatAndRunAgent(
 					principal, conversationId, importCommand(arguments), traces, attachments);
 			case "email.send.prepare" -> proposeDocumentEmail(
 					principal, conversationId, documentSendCommand(arguments), traces, attachments);
-			case "approval.list" -> listPendingApprovals(traces);
+			case "approval.list" -> listPendingApprovals(principal, traces);
 			case "approval.approve" -> approvePlanned(principal, message, stringArgument(arguments, "approvalId"), traces);
 			case "agent.sales_follow_up.run" -> runAgent(
 					principal, conversationId, stringArgument(arguments, "customerName"), traces, attachments);
@@ -413,7 +412,7 @@ public class AssistantChatService {
 					Map.of("intent", "SEND_DOCUMENT_EMAIL", "customerName", command.customerName(), "attachmentRequired", true));
 		}
 
-		var customer = resolveCustomer(command.customerName());
+		var customer = resolveCustomer(principal, command.customerName());
 		traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
 		traces.add(new AssistantToolTrace("email.send.prepare", "RUNNING", "正在生成带附件的邮件发送审批"));
 		var proposal = agentService.proposeDocumentEmailFromMcpAssistant(
@@ -438,15 +437,15 @@ public class AssistantChatService {
 		if (command == null || !StringUtils.hasText(command.customerName()) || !StringUtils.hasText(command.content())) {
 			return reply("我还缺客户名或聊天内容。可以这样发：\n\n给云岚科技导入聊天：客户说下周想看报价，需要私有化方案。", "识别为聊天导入意图，但缺少客户名或聊天正文，因此没有调用业务写入工具。", traces, Map.of("intent", "CHAT_IMPORT"));
 		}
-		var customer = resolveOrCreateCustomer(command.customerName(), command.createCustomer(), traces);
+		var customer = resolveOrCreateCustomer(principal, command.customerName(), command.createCustomer(), traces);
 		traces.add(new AssistantToolTrace("interaction.chat_import", "RUNNING", "正在保存聊天记录"));
 		var interaction = interactionService.importChat(
-				customer.id(),
+				principal, customer.id(),
 				new ChatImportRequest(ChatPlatform.OTHER, clock.instant(), "MCP 助手导入聊天", command.content().strip(), null));
 		traces.add(new AssistantToolTrace("interaction.chat_import", "SUCCEEDED", "已导入聊天记录：" + interaction.id()));
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在分析客户并生成待审批建议"));
 		var run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
-		var approvals = pendingApprovalsForRun(run.id());
+		var approvals = pendingApprovalsForRun(principal, run.id());
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
 		return reply(
 				"已完成自动化处理：我先找到客户「" + customer.name() + "」，导入聊天记录，然后只针对这个客户跑了一次跟进建议 Agent。"
@@ -467,7 +466,7 @@ public class AssistantChatService {
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "RUNNING", "正在读取互动并调用模型分析客户"));
 		AgentRunResponse run;
 		if (StringUtils.hasText(customerName)) {
-			var customer = resolveCustomer(customerName);
+			var customer = resolveCustomer(principal, customerName);
 			traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
 			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, List.of(customer.id())), conversationId, attachments.ids());
 		}
@@ -481,7 +480,7 @@ public class AssistantChatService {
 			run = agentService.runFromMcpAssistant(principal, new AgentRunCreateRequest(5, 30, null), conversationId);
 		}
 		traces.add(new AssistantToolTrace("agent.sales_follow_up.run", "SUCCEEDED", "已触发客户跟进建议 Agent：" + run.id()));
-		var approvals = pendingApprovalsForRun(run.id());
+		var approvals = pendingApprovalsForRun(principal, run.id());
 		return reply("Agent 已运行完成。" + nextRunHint(run) + attachmentHint(attachments), "识别 Agent 运行指令 → 判断是否指定客户 → 触发客户跟进建议 Agent → 汇总运行结果。", traces, Map.of(
 				"agentRunId", run.id(),
 				"agentRunStatus", run.status(),
@@ -491,8 +490,8 @@ public class AssistantChatService {
 				"attachments", attachments.preview()));
 	}
 
-	private List<Map<String, Object>> pendingApprovalsForRun(UUID runId) {
-		return approvalService.findApprovals("PENDING", 0, 50).getRecords().stream()
+	private List<Map<String, Object>> pendingApprovalsForRun(AuthPrincipal principal, UUID runId) {
+		return approvalService.findApprovals(principal, "PENDING", 0, 50).getRecords().stream()
 				.filter(approval -> runId.equals(approval.runId()))
 				.map(approval -> compactMap(
 						"id", approval.id(),
@@ -503,21 +502,21 @@ public class AssistantChatService {
 				.toList();
 	}
 
-	private AssistantChatResponse createCustomer(CustomerDraft draft, List<AssistantToolTrace> traces) {
+	private AssistantChatResponse createCustomer(AuthPrincipal principal, CustomerDraft draft, List<AssistantToolTrace> traces) {
 		if (!StringUtils.hasText(draft.name())) {
 			return reply("我还缺客户名称。可以这样发：\n\n新增客户：沐光医疗，行业：医疗科技，联系人：苏恬，电话：13800000007，邮箱：su@example.com", "识别为新增客户意图，但缺少客户名称，因此没有创建客户。", traces, Map.of("intent", "CUSTOMER_CREATE"));
 		}
 		traces.add(new AssistantToolTrace("customer.create", "RUNNING", "正在创建客户档案"));
-		var customer = createCustomerFromDraft(draft);
+		var customer = createCustomerFromDraft(principal, draft);
 		traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "已新增客户：" + customer.name()));
 		return reply("客户「" + customer.name() + "」已经创建完成。你可以继续说：给" + customer.name() + "导入聊天：……，我会自动导入并运行 Agent。", "识别新增客户指令 → 抽取客户名称、行业和联系人字段 → 创建客户主档和主要联系人。", traces, Map.of(
 				"customerId", customer.id(),
 				"customerName", customer.name()));
 	}
 
-	private AssistantChatResponse listPendingApprovals(List<AssistantToolTrace> traces) {
+	private AssistantChatResponse listPendingApprovals(AuthPrincipal principal, List<AssistantToolTrace> traces) {
 		traces.add(new AssistantToolTrace("approval.list", "RUNNING", "正在查询待审批建议"));
-		var page = approvalService.findApprovals("PENDING", 0, 10);
+		var page = approvalService.findApprovals(principal, "PENDING", 0, 10);
 		traces.add(new AssistantToolTrace("approval.list", "SUCCEEDED", "读取待审批建议 " + page.getTotal() + " 条"));
 		var approvals = page.getRecords().stream()
 				.map(approval -> compactMap(
@@ -611,11 +610,15 @@ public class AssistantChatService {
 		};
 	}
 
-	private CustomerResponse resolveCustomer(String keyword) {
-		var customers = customerService.findCustomers(keyword.strip(), null, null, 0, 5).getRecords();
-		if (customers.isEmpty()) {
-			throw new AssistantWorkflowException("没有找到客户：" + keyword);
-		}
+	private CustomerResponse resolveCustomer(AuthPrincipal principal, String keyword) {
+        var customer = findCustomerByName(principal, keyword);
+        if (customer == null) throw new AssistantWorkflowException("没有找到客户：" + keyword);
+        return customer;
+    }
+
+    private CustomerResponse findCustomerByName(AuthPrincipal principal, String keyword) {
+        var customers = customerService.findCustomers(principal, keyword.strip(), null, null, 0, 5).getRecords();
+        if (customers.isEmpty()) return null;
 		var exact = customers.stream().filter(customer -> customer.name().equalsIgnoreCase(keyword.strip())).findFirst();
 		if (exact.isPresent()) {
 			return exact.get();
@@ -626,24 +629,20 @@ public class AssistantChatService {
 		return customers.get(0);
 	}
 
-	private CustomerResponse resolveOrCreateCustomer(String keyword, boolean allowCreate, List<AssistantToolTrace> traces) {
-		try {
-			var customer = resolveCustomer(keyword);
-			traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
-			return customer;
-		}
-		catch (CustomerNotFoundException | AssistantWorkflowException exception) {
-			if (!allowCreate) {
-				throw exception;
-			}
-			var customer = createCustomerFromDraft(new CustomerDraft(keyword, null, null, null, null, null, null));
-			traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "未找到现有客户，已新建：" + customer.name()));
-			return customer;
-		}
-	}
+	private CustomerResponse resolveOrCreateCustomer(AuthPrincipal principal, String keyword, boolean allowCreate, List<AssistantToolTrace> traces) {
+        var customer = findCustomerByName(principal, keyword);
+        if (customer != null) {
+            traces.add(new AssistantToolTrace("customer.search", "SUCCEEDED", "已匹配客户：" + customer.name()));
+            return customer;
+        }
+        if (!allowCreate) throw new AssistantWorkflowException("没有找到客户：" + keyword);
+        customer = createCustomerFromDraft(principal, new CustomerDraft(keyword, null, null, null, null, null, null));
+        traces.add(new AssistantToolTrace("customer.create", "SUCCEEDED", "未找到现有客户，已新建：" + customer.name()));
+        return customer;
+    }
 
-	private CustomerResponse createCustomerFromDraft(CustomerDraft draft) {
-		return customerService.createCustomer(new CustomerUpsertRequest(
+	private CustomerResponse createCustomerFromDraft(AuthPrincipal principal, CustomerDraft draft) {
+		return customerService.createCustomer(principal, new CustomerUpsertRequest(
 				draft.name(),
 				draft.website(),
 				draft.industry(),

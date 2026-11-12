@@ -97,10 +97,9 @@ class ChatAnalysisServiceTests {
 				modelService,
 				modelCallRecorder,
 				new ObjectMapper(),
-				Clock.fixed(NOW, ZoneOffset.UTC),
-				ORGANIZATION_ID);
+				Clock.fixed(NOW, ZoneOffset.UTC));
 
-		var response = service.analyze(CUSTOMER_ID, interaction.getId());
+		var response = service.analyze(ORGANIZATION_ID, CUSTOMER_ID, interaction.getId(), null);
 
 		var captor = ArgumentCaptor.forClass(ChatAnalysis.class);
 		var modelCall = ArgumentCaptor.forClass(ModelCallRecordRequest.class);

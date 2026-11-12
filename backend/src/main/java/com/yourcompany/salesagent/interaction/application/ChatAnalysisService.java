@@ -14,7 +14,8 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.auth.security.BusinessAccess;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -56,7 +57,6 @@ public class ChatAnalysisService {
 	private final ModelCallRecorder modelCallRecorder;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
-	private final UUID organizationId;
 
 	public ChatAnalysisService(
 			ChatAnalysisMapper analysisMapper,
@@ -66,8 +66,7 @@ public class ChatAnalysisService {
 			AiModelService modelService,
 			ModelCallRecorder modelCallRecorder,
 			ObjectMapper objectMapper,
-			Clock clock,
-			@Value("${app.demo.organization-id}") UUID organizationId) {
+			Clock clock) {
 		this.analysisMapper = analysisMapper;
 		this.interactionMapper = interactionMapper;
 		this.customerMapper = customerMapper;
@@ -76,12 +75,12 @@ public class ChatAnalysisService {
 		this.modelCallRecorder = modelCallRecorder;
 		this.objectMapper = objectMapper;
 		this.clock = clock;
-		this.organizationId = organizationId;
 	}
 
 	@Transactional(readOnly = true)
-	public List<ChatAnalysisResponse> findLatestForCustomer(UUID customerId) {
-		requireCustomer(customerId);
+	public List<ChatAnalysisResponse> findLatestForCustomer(AuthPrincipal actor, UUID customerId) {
+		var organizationId = BusinessAccess.organizationId(actor);
+		requireCustomer(organizationId, customerId);
 		var analyses = analysisMapper.selectList(Wrappers.<ChatAnalysis>lambdaQuery()
 				.eq(ChatAnalysis::getOrganizationId, organizationId)
 				.eq(ChatAnalysis::getCustomerId, customerId)
@@ -93,13 +92,9 @@ public class ChatAnalysisService {
 	}
 
 	@Transactional
-	public ChatAnalysisResponse analyze(UUID customerId, UUID interactionId) {
-		return analyze(customerId, interactionId, null);
-	}
-
-	@Transactional
-	public ChatAnalysisResponse analyze(UUID customerId, UUID interactionId, UUID memberId) {
-		return analyze(organizationId, customerId, interactionId, memberId);
+	public ChatAnalysisResponse analyze(AuthPrincipal actor, UUID customerId, UUID interactionId) {
+		BusinessAccess.requireWriter(actor);
+		return analyze(actor.organizationId(), customerId, interactionId, actor.memberId());
 	}
 
 	@Transactional
@@ -179,9 +174,11 @@ public class ChatAnalysisService {
 	}
 
 	@Transactional
-	public ChatAnalysisResponse apply(UUID customerId, UUID interactionId, UUID analysisId) {
-		var customer = requireCustomer(customerId);
-		requireChatInteraction(customerId, interactionId);
+	public ChatAnalysisResponse apply(AuthPrincipal actor, UUID customerId, UUID interactionId, UUID analysisId) {
+		BusinessAccess.requireWriter(actor);
+		var organizationId = actor.organizationId();
+		var customer = requireCustomer(organizationId, customerId);
+		requireChatInteraction(organizationId, customerId, interactionId);
 		var analysis = analysisMapper.selectOne(Wrappers.<ChatAnalysis>lambdaQuery()
 				.eq(ChatAnalysis::getId, analysisId)
 				.eq(ChatAnalysis::getOrganizationId, organizationId)
@@ -191,7 +188,7 @@ public class ChatAnalysisService {
 		if (analysis == null) {
 			throw new InteractionValidationException("聊天分析结果不存在或不属于当前客户");
 		}
-		var latest = latestAnalysis(interactionId);
+		var latest = latestAnalysis(organizationId, interactionId);
 		if (latest == null || !latest.getId().equals(analysisId)) {
 			throw new InteractionValidationException("该分析已不是最新版本，请刷新后再确认");
 		}
@@ -209,10 +206,6 @@ public class ChatAnalysisService {
 		return ChatAnalysisResponse.from(analysis);
 	}
 
-	private Customer requireCustomer(UUID customerId) {
-		return requireCustomer(organizationId, customerId);
-	}
-
 	private Customer requireCustomer(UUID organizationId, UUID customerId) {
 		var customer = customerMapper.selectOne(Wrappers.<Customer>lambdaQuery()
 				.eq(Customer::getId, customerId)
@@ -223,10 +216,6 @@ public class ChatAnalysisService {
 			throw new CustomerNotFoundException(customerId);
 		}
 		return customer;
-	}
-
-	private Interaction requireChatInteraction(UUID customerId, UUID interactionId) {
-		return requireChatInteraction(organizationId, customerId, interactionId);
 	}
 
 	private Interaction requireChatInteraction(UUID organizationId, UUID customerId, UUID interactionId) {
@@ -242,10 +231,6 @@ public class ChatAnalysisService {
 			throw new InteractionValidationException("只有聊天记录或客户来信可以执行 AI 分析");
 		}
 		return interaction;
-	}
-
-	private ChatAnalysis latestAnalysis(UUID interactionId) {
-		return latestAnalysis(organizationId, interactionId);
 	}
 
 	private ChatAnalysis latestAnalysis(UUID organizationId, UUID interactionId) {
@@ -297,6 +282,7 @@ public class ChatAnalysisService {
 	}
 
 	private static String limitChatContent(String content) {
+		if (!StringUtils.hasText(content)) throw new InteractionValidationException("这条互动没有可分析的正文，请先补充内容");
 		if (content.length() <= MAX_MODEL_INPUT_CHARS) return content;
 		return content.substring(0, 15_000)
 				+ "\n\n[中间过长内容已省略]\n\n"
