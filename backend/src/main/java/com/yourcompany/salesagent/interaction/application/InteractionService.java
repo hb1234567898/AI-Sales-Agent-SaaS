@@ -8,7 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.auth.security.BusinessAccess;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -40,22 +41,20 @@ public class InteractionService {
 	private final InteractionMapper interactionMapper;
 	private final CustomerMapper customerMapper;
 	private final Clock clock;
-	private final UUID organizationId;
 
 	public InteractionService(
 			InteractionMapper interactionMapper,
 			CustomerMapper customerMapper,
-			Clock clock,
-			@Value("${app.demo.organization-id}") UUID organizationId) {
+			Clock clock) {
 		this.interactionMapper = interactionMapper;
 		this.customerMapper = customerMapper;
 		this.clock = clock;
-		this.organizationId = organizationId;
 	}
 
 	@Transactional(readOnly = true)
-	public IPage<InteractionResponse> findTimeline(UUID customerId, int page, int size) {
-		requireCustomer(customerId);
+	public IPage<InteractionResponse> findTimeline(AuthPrincipal actor, UUID customerId, int page, int size) {
+		var organizationId = BusinessAccess.organizationId(actor);
+		requireCustomer(organizationId, customerId);
 		var interactionPage = interactionMapper.selectPage(
 				Page.of(page + 1L, size),
 				Wrappers.<Interaction>lambdaQuery()
@@ -71,8 +70,10 @@ public class InteractionService {
 	}
 
 	@Transactional
-	public InteractionResponse create(UUID customerId, InteractionCreateRequest request) {
-		requireCustomer(customerId);
+	public InteractionResponse create(AuthPrincipal actor, UUID customerId, InteractionCreateRequest request) {
+		BusinessAccess.requireWriter(actor);
+		var organizationId = actor.organizationId();
+		requireCustomer(organizationId, customerId);
 		if (!MANUAL_TYPES.contains(request.type())) {
 			throw new InteractionValidationException("该互动类型不能通过人工记录创建");
 		}
@@ -92,13 +93,15 @@ public class InteractionService {
 				Map.of("entryMode", "MANUAL"),
 				now);
 		interactionMapper.insert(interaction);
-		updateCustomerTimeline(customerId, request.occurredAt(), now);
+		updateCustomerTimeline(organizationId, customerId, request.occurredAt(), now);
 		return InteractionResponse.from(interaction);
 	}
 
 	@Transactional
-	public InteractionResponse importChat(UUID customerId, ChatImportRequest request) {
-		requireCustomer(customerId);
+	public InteractionResponse importChat(AuthPrincipal actor, UUID customerId, ChatImportRequest request) {
+		BusinessAccess.requireWriter(actor);
+		var organizationId = actor.organizationId();
+		requireCustomer(organizationId, customerId);
 		validateOccurredAt(request.occurredAt());
 		var now = clock.instant();
 		var participant = trimToNull(request.participantName());
@@ -120,11 +123,11 @@ public class InteractionService {
 						"lineCount", content.lines().count()),
 				now);
 		interactionMapper.insert(interaction);
-		updateCustomerTimeline(customerId, request.occurredAt(), now);
+		updateCustomerTimeline(organizationId, customerId, request.occurredAt(), now);
 		return InteractionResponse.from(interaction);
 	}
 
-	private void requireCustomer(UUID customerId) {
+	private void requireCustomer(UUID organizationId, UUID customerId) {
 		var exists = customerMapper.selectCount(Wrappers.<Customer>lambdaQuery()
 				.eq(Customer::getId, customerId)
 				.eq(Customer::getOrganizationId, organizationId)
@@ -140,7 +143,7 @@ public class InteractionService {
 		}
 	}
 
-	private void updateCustomerTimeline(UUID customerId, Instant occurredAt, Instant now) {
+	private void updateCustomerTimeline(UUID organizationId, UUID customerId, Instant occurredAt, Instant now) {
 		customerMapper.update(null, Wrappers.<Customer>lambdaUpdate()
 				.eq(Customer::getId, customerId)
 				.eq(Customer::getOrganizationId, organizationId)

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assignLead, convertLead, createLead, getLead, getLeadMetrics, getLeadOwners, getLeads, importLeads, updateLead } from '../api/leads-api'
 import { LeadsPage } from './LeadsPage'
 
-vi.mock('../auth/use-auth', () => ({ useIsGuest: () => false, useAuth: () => ({ memberId: 'member-1' }) }))
+const auth = vi.hoisted(() => ({ role: 'SALES' }))
+vi.mock('../auth/use-auth', () => ({ useIsGuest: () => false, useAuth: () => ({ memberId: 'member-1', role: auth.role }) }))
 vi.mock('../api/leads-api', () => ({
   getLeads: vi.fn(), getLead: vi.fn(), getLeadMetrics: vi.fn(), getLeadOwners: vi.fn(), createLead: vi.fn(), updateLead: vi.fn(),
   assignLead: vi.fn(), convertLead: vi.fn(), importLeads: vi.fn(),
@@ -24,6 +25,7 @@ function renderPage() {
 
 describe('LeadsPage', () => {
   beforeEach(() => {
+    auth.role = 'SALES'
     vi.mocked(getLeads).mockResolvedValue({ content: [lead], page: 0, size: 20, totalElements: 1, totalPages: 1, first: true, last: true })
     vi.mocked(getLeadMetrics).mockResolvedValue({ pending: 1, qualified: 0, unassigned: 1, averageScore: 82 })
     vi.mocked(getLeadOwners).mockResolvedValue([{ id: 'member-1', name: '陈默' }])
@@ -50,4 +52,25 @@ describe('LeadsPage', () => {
     await user.click(screen.getByRole('button', { name: '创建线索' }))
     await waitFor(() => expect(createLead).toHaveBeenCalledWith(expect.objectContaining({ company: '云岚科技', contactName: '苏恬', status: 'NEW' })))
   })
+  it('只读成员不能新增、导入、分配或转化线索', async () => {
+    auth.role = 'VIEWER'
+    renderPage()
+    await screen.findByText('云岚科技')
+    expect(screen.getByRole('button', { name: '新建线索' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '导入 CSV' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '分配 云岚科技' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '将 云岚科技 转为商机' })).toBeDisabled()
+  })
+
+  it('保留线索跟进入口，保存失败会展示错误', async () => {
+    vi.mocked(updateLead).mockRejectedValue(new Error('保存失败，请重试'))
+    const user = userEvent.setup(); renderPage()
+    await user.click(await screen.findByRole('button', { name: '编辑 云岚科技' }))
+    await screen.findByDisplayValue('云岚科技')
+    expect(screen.getByRole('button', { name: '跟进记录' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '保存修改' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('保存失败，请重试')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
 })

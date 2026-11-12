@@ -12,6 +12,7 @@ import org.springframework.util.StringUtils;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.auth.security.BusinessAccess;
 import com.yourcompany.salesagent.lead.api.LeadAssignRequest;
 import com.yourcompany.salesagent.lead.api.LeadConversionResponse;
 import com.yourcompany.salesagent.lead.api.LeadConvertRequest;
@@ -59,6 +60,7 @@ public class LeadService {
 
 	@Transactional
 	public LeadResponse createLead(AuthPrincipal actor, LeadUpsertRequest request) {
+		BusinessAccess.requireWriter(actor);
 		validateEditableStatus(request.status());
 		validateOwner(actor.organizationId(), request.ownerMemberId());
 		validateDuplicate(actor.organizationId(), null, request);
@@ -67,6 +69,7 @@ public class LeadService {
 
 	@Transactional
 	public LeadResponse updateLead(AuthPrincipal actor, UUID leadId, LeadUpsertRequest request) {
+		BusinessAccess.requireWriter(actor);
 		validateEditableStatus(request.status());
 		requireLead(actor.organizationId(), leadId);
 		validateOwner(actor.organizationId(), request.ownerMemberId());
@@ -85,6 +88,7 @@ public class LeadService {
 
 	@Transactional
 	public LeadResponse assign(AuthPrincipal actor, UUID leadId, LeadAssignRequest request) {
+		BusinessAccess.requireWriter(actor);
 		requireLead(actor.organizationId(), leadId);
 		validateOwner(actor.organizationId(), request.ownerMemberId());
 		if (mapper.assignLead(actor.organizationId(), leadId, request.ownerMemberId(), clock.instant()) == 0) {
@@ -95,6 +99,7 @@ public class LeadService {
 
 	@Transactional
 	public LeadConversionResponse convert(AuthPrincipal actor, UUID leadId, LeadConvertRequest request) {
+		BusinessAccess.requireWriter(actor);
 		var lead = requireLead(actor.organizationId(), leadId);
 		if (lead.getOwnerMemberId() == null) {
 			throw new LeadWorkflowException("请先为线索分配负责人，再转为商机");
@@ -111,6 +116,7 @@ public class LeadService {
 
 	@Transactional
 	public LeadImportResponse importLeads(AuthPrincipal actor, LeadImportRequest request) {
+		BusinessAccess.requireWriter(actor);
 		var errors = new ArrayList<String>();
 		var created = 0;
 		for (var index = 0; index < request.leads().size(); index++) {

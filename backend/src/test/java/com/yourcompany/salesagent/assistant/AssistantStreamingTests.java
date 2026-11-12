@@ -60,7 +60,7 @@ class AssistantStreamingTests {
 	void setup() {
 		when(tx.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
 		doAnswer(invocation -> { events.add("commit"); return null; }).when(tx).commit(any());
-		when(approvals.findApprovals("PENDING", 0, 10)).thenReturn(Page.of(1, 10));
+		when(approvals.findApprovals(principal, "PENDING", 0, 10)).thenReturn(Page.of(1, 10));
 		when(settings.requireRuntimeConfiguration(any(), any())).thenReturn(new AiModelRuntimeConfiguration("QWEN", "test", "https://example.test", "test-key"));
 		when(model.planAssistantAction(any(), anyString(), anyMap(), anyList())).thenAnswer(invocation -> {
 			var message = invocation.getArgument(1, String.class);
@@ -122,7 +122,7 @@ class AssistantStreamingTests {
 		assertThat(events).containsSubsequence("tool", "result", "delta", "delta", "commit", "done");
 		assertThat(saved.toolTraces()).allMatch(trace -> trace.status().equals("SUCCEEDED"));
 		assertThat(saved.data()).containsKey("modelUsage");
-		verify(approvals, times(1)).findApprovals("PENDING", 0, 10);
+		verify(approvals, times(1)).findApprovals(principal, "PENDING", 0, 10);
 		verify(modelCallRecorder, atLeastOnce()).record(any());
 	}
 
@@ -135,7 +135,7 @@ class AssistantStreamingTests {
 		assertThat(saved.content()).startsWith("已查询").contains("现在没有待审批建议").doesNotContain("secret provider detail");
 		assertThat(saved.data()).containsEntry("streamStatus", "INTERRUPTED");
 		assertThat(events).containsSubsequence("commit", "error", "done");
-		verify(approvals, times(1)).findApprovals("PENDING", 0, 10);
+		verify(approvals, times(1)).findApprovals(principal, "PENDING", 0, 10);
 	}
 
 	@Test
@@ -143,7 +143,7 @@ class AssistantStreamingTests {
 		when(settings.requireRuntimeConfiguration(any(), any())).thenThrow(new AiModelNotConfiguredException("未配置"));
 		service.streamChat(principal, conversationId, "查看待审批", null, this::receive);
 		assertThat(saved.content()).contains("配置并启用 AI 模型");
-		verify(approvals, never()).findApprovals(anyString(), anyInt(), anyInt());
+		verify(approvals, never()).findApprovals(any(), anyString(), anyInt(), anyInt());
 	}
 
 	@Test
@@ -234,7 +234,7 @@ class AssistantStreamingTests {
 				85, null, null, now, null,
 				new CustomerResponse.PrimaryContactResponse("李春和", "2564942830@qq.com", "13800000011"), now, now, 1);
 		var page = new Page<CustomerResponse>(1, 5).setRecords(List.of(customer));
-		when(customers.findCustomers("和成科技", null, null, 0, 5)).thenReturn(page);
+		when(customers.findCustomers(principal, "和成科技", null, null, 0, 5)).thenReturn(page);
 		when(fileStorageService.requireActive(principal.organizationId(), fileId)).thenReturn(file);
 		when(fileStorageService.preview(List.of(file))).thenReturn(attachmentPreview);
 		when(agentService.proposeDocumentEmailFromMcpAssistant(principal, customer, conversationId, "方案", List.of(fileId)))
@@ -247,6 +247,19 @@ class AssistantStreamingTests {
 		assertThat(saved.data()).containsEntry("approvalId", approvalId).containsEntry("to", "2564942830@qq.com");
 		verify(agentService).proposeDocumentEmailFromMcpAssistant(principal, customer, conversationId, "方案", List.of(fileId));
 	}
+
+    @Test
+    void ambiguousCustomerSearchNeverCreatesADuplicate() {
+        when(model.planAssistantAction(any(), anyString(), anyMap(), anyList()))
+            .thenReturn(plan("BUSINESS_ACTION", "interaction.chat_import", Map.of("customerName", "云岚", "createCustomer", true, "chatContent", "客户希望报价")));
+        var one = new CustomerResponse(UUID.randomUUID(), "云岚科技", null, null, null, CustomerStage.LEAD, CustomerStatus.ACTIVE, CustomerSource.CHAT, null, null, null, null, null, null, null, null, Instant.now(), Instant.now(), 0);
+        var two = new CustomerResponse(UUID.randomUUID(), "云岚制造", null, null, null, CustomerStage.LEAD, CustomerStatus.ACTIVE, CustomerSource.CHAT, null, null, null, null, null, null, null, null, Instant.now(), Instant.now(), 0);
+        when(customers.findCustomers(principal, "云岚", null, null, 0, 5)).thenReturn(new Page<CustomerResponse>(1, 5).setRecords(List.of(one, two)));
+        service.streamChat(principal, conversationId, "新建客户云岚并导入聊天", null, this::receive);
+        verify(customers, never()).createCustomer(any(), any());
+        verifyNoInteractions(agentService);
+        assertThat(saved.content()).contains("多个相似客户");
+    }
 
 	private static AiOrchestrationClient.AssistantPlan plan(String intent, String toolName, Map<String, Object> arguments) {
 		return new AiOrchestrationClient.AssistantPlan(
