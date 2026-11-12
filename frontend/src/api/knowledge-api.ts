@@ -19,6 +19,12 @@ export function getKnowledgeDocuments(query = '', category = '', page = 0) {
 }
 export function getKnowledgeDocument(id: string) { return getJson<KnowledgeDocument>(`${base}/documents/${id}`) }
 export function getKnowledgeChunks(id: string, page = 0) { return getJson<KnowledgePage<KnowledgeChunk>>(`${base}/documents/${id}/chunks?page=${page}&size=20`) }
+export async function getKnowledgeDocumentText(id: string) {
+  const bytes = await requestJson<ArrayBuffer>(`${base}/documents/${id}/file`, { method: 'GET', responseType: 'arraybuffer' })
+  // Match the ingestion service's UTF-8 / GB18030 decoding, including UTF-8 BOM.
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+  catch { return new TextDecoder('gb18030').decode(bytes) }
+}
 export function uploadKnowledgeDocument(metadata: KnowledgeMetadata, file: File) {
   const form = new FormData()
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
