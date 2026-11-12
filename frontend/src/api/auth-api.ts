@@ -30,7 +30,7 @@ export async function getAuthSession() {
 
 export async function login(input: LoginInput) {
   const passwordPayload = await encryptPasswordIfAvailable(input.password)
-  const result = await requestJson<AuthTokenResponse>('/api/v1/auth/login', {
+  const result = await requestJson<AuthTokenResponse>('/api/public/auth/login', {
     method: 'POST',
     data: {
       email: input.email,

@@ -1,4 +1,4 @@
-import { Buildings, Check, ClockCounterClockwise, User, X } from '@phosphor-icons/react'
+import { Buildings, Trash, Check, ClockCounterClockwise, User, X } from '@phosphor-icons/react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { Customer, CustomerStage, CustomerUpsertInput, OwnerOption } from '../../api/customers-api'
 import { SelectField } from '../forms/SelectField'
@@ -50,6 +50,7 @@ const emptyForm: CustomerFormState = {
 function toLocalDateTime(value: string | null) {
   if (!value) return ''
   const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
   const offset = date.getTimezoneOffset() * 60_000
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
@@ -82,14 +83,19 @@ interface CustomerDrawerProps {
   error?: string | null
   onClose: () => void
   onSubmit: (input: CustomerUpsertInput) => Promise<void>
+  activeTab: 'profile' | 'interactions'
+  onTabChange: (tab: 'profile' | 'interactions') => void
+  onDelete?: () => void
+  deleting?: boolean
+  deleteError?: string
   readOnly?: boolean
 }
 
-export function CustomerDrawer({ customer, mode, owners, pending, loading, error, onClose, onSubmit, readOnly = false }: CustomerDrawerProps) {
+export function CustomerDrawer({ customer, mode, owners, pending, loading, error, onClose, onSubmit, activeTab, onTabChange, onDelete, deleting, deleteError, readOnly = false }: CustomerDrawerProps) {
   const dialogRef = useRef<HTMLElement>(null)
   const [form, setForm] = useState<CustomerFormState>(() => fromCustomer(customer))
   const [localError, setLocalError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'profile' | 'interactions'>('profile')
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -159,15 +165,21 @@ export function CustomerDrawer({ customer, mode, owners, pending, loading, error
 
         {mode === 'edit' && customer ? (
           <nav className="customer-drawer-tabs" aria-label="客户详情页面">
-            <button className={activeTab === 'profile' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('profile')}><Buildings size={14} />客户资料</button>
-            <button className={activeTab === 'interactions' ? 'is-active' : ''} type="button" onClick={() => setActiveTab('interactions')}><ClockCounterClockwise size={14} />互动记录</button>
+            <button className={activeTab === 'profile' ? 'is-active' : ''} type="button" onClick={() => onTabChange('profile')}><Buildings size={14} />客户资料</button>
+            <button className={activeTab === 'interactions' ? 'is-active' : ''} type="button" onClick={() => onTabChange('interactions')}><ClockCounterClockwise size={14} />互动记录</button>
           </nav>
         ) : null}
 
+        {confirmDelete && <section className="customer-delete-confirm" role="alert" aria-label="确认删除客户">
+          <strong>删除「{customer?.name}」？</strong>
+          <p>客户将从列表移除，历史记录保留。已有报价的客户不能删除。</p>
+          {deleteError && <p className="form-error">{deleteError}</p>}
+          <div><button className="button button-secondary" type="button" disabled={deleting} onClick={() => setConfirmDelete(false)}>保留客户</button><button className="button customer-delete-button" type="button" disabled={deleting} onClick={onDelete}>{deleting ? '删除中…' : '确认删除'}</button></div>
+        </section>}
         {loading ? <div className="drawer-loading">正在读取客户资料…</div> : (
           activeTab === 'interactions' && customer ? <CustomerInteractionsPanel customerId={customer.id} readOnly={readOnly} /> : <form className={`customer-form${readOnly ? ' is-readonly' : ''}`} onSubmit={(event) => void handleSubmit(event)}>
-            {readOnly ? <p className="drawer-readonly-note">游客模式下客户资料仅供查看</p> : null}
-            <fieldset className="customer-form-fields" disabled={readOnly}>
+            {readOnly ? <p className="drawer-readonly-note">当前账号仅可查看客户资料</p> : null}
+            <fieldset className="customer-form-fields" disabled={readOnly || pending || deleting}>
             <section className="form-section">
               <div className="form-section-title"><Buildings size={15} /><span>企业信息</span></div>
               <div className="customer-form-grid">
@@ -204,8 +216,10 @@ export function CustomerDrawer({ customer, mode, owners, pending, loading, error
             {(localError || error) ? <p className="form-error" role="alert">{localError ?? error}</p> : null}
 
             <footer className="customer-form-actions">
-              <button className="button button-secondary" type="button" onClick={onClose} disabled={pending}>{readOnly ? '关闭' : '取消'}</button>
-              {!readOnly ? <button className="button button-primary" type="submit" disabled={pending}>{pending ? '保存中…' : mode === 'create' ? '创建客户' : '保存修改'}</button> : null}
+              {mode === 'edit' && onDelete && <button className="button customer-delete-button" type="button" disabled={pending || deleting} onClick={() => setConfirmDelete(true)}><Trash size={16} />删除客户</button>}
+              <span className="customer-save-hint">{readOnly ? '只读档案' : '修改后请保存'}</span>
+              <button className="button button-secondary" type="button" onClick={onClose} disabled={pending || deleting}>{readOnly ? '关闭' : '取消'}</button>
+              {!readOnly ? <button className="button button-primary" type="submit" disabled={pending || deleting}>{pending ? '保存中…' : mode === 'create' ? '创建客户' : '保存修改'}</button> : null}
             </footer>
           </form>
         )}

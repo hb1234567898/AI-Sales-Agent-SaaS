@@ -146,3 +146,16 @@ describe('CustomerInteractionsPanel', () => {
     ))).toBe(true)
   })
 })
+
+
+it('renders historical interactions with nullable content without crashing', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = fetchRequestUrl(input)
+    const payload = url.includes('/interactions?') ? { content: [{ id: 'old-event', type: 'TASK_CREATED', occurredAt: 'invalid', subject: '历史任务', bodyText: null, bodyPreview: null, participants: null, source: 'INTERNAL' }], totalElements: 1 } : []
+    return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+  })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CustomerInteractionsPanel customerId={customerId} /></QueryClientProvider>)
+  expect(await screen.findByText('历史任务')).toBeInTheDocument()
+  expect(screen.getByText('暂无文字内容')).toBeInTheDocument()
+  expect(screen.getByText('时间未记录')).toBeInTheDocument()
+})

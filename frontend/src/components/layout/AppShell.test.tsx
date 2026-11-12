@@ -60,3 +60,25 @@ describe('guest guide', () => {
     expect(within(dialog).queryByRole('button', { name: /团队 Token 预算与成员分配/ })).not.toBeInTheDocument()
   })
 })
+
+
+describe('feature navigation', () => {
+  it('searches new commercial features and supports the keyboard shortcut', async () => {
+    sessionStorage.setItem('sales-agent:guest-guide-seen', 'true')
+    const user = userEvent.setup(); mount()
+    await user.keyboard('{Control>}k{/Control}')
+    const input = screen.getByRole('searchbox', { name: '搜索功能' })
+    expect(input).toHaveFocus()
+    await user.type(input, '报价')
+    const results = screen.getByRole('navigation', { name: '功能搜索结果' })
+    expect(within(results).getByRole('link', { name: '报价单' })).toHaveAttribute('href', '/app/quotes')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('navigation', { name: '功能搜索结果' })).not.toBeInTheDocument()
+  })
+  it('does not expose administrator destinations to members in search', async () => {
+    auth.role = 'VIEWER'
+    const user = userEvent.setup(); mount()
+    await user.type(screen.getByRole('searchbox', { name: '搜索功能' }), '成员管理')
+    expect(screen.getByText('未找到匹配功能，请尝试其他关键词。')).toBeInTheDocument()
+  })
+})
