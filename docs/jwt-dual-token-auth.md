@@ -25,7 +25,7 @@
 前端调用：
 
 ```http
-POST /api/v1/auth/login
+POST /api/public/auth/login
 Content-Type: application/json
 ```
 
@@ -188,7 +188,7 @@ X-Sales-Agent-Access-Token: <accessToken>
 2. 如果存在，调用：
 
 ```http
-POST /api/v1/auth/refresh
+POST /api/public/auth/refresh
 ```
 
 3. 后端校验 Refresh Token。
@@ -270,24 +270,16 @@ private static boolean shouldResolveToken(Authentication authentication) {
 
 ## 9. 接口权限规则
 
-当前 `SecurityConfiguration` 中的权限规则：
+当前 `SecurityConfiguration` 按路径前缀划分权限：
 
 | 路径 | 权限 |
 | --- | --- |
-| `/api/v1/auth/login` | 放行 |
-| `/api/v1/auth/refresh` | 放行 |
-| `/actuator/health` | 放行 |
-| `/actuator/info` | 放行 |
-| `/api/v1/auth/session` | 必须登录 |
-| `GET /api/v1/**` | 放行，支持游客浏览 |
-| 其他请求 | 必须登录 |
+| `/api/public/**` | 免 Access Token；登录校验账号密码，刷新校验 Refresh Token |
+| `/api/v1/**` | 必须登录；管理操作额外校验角色 |
+| 其他请求 | 默认必须登录 |
 
-这也是为什么系统里经常出现：
+登录、刷新和公钥位于 `/api/public/auth/`，当前会话与退出位于 `/api/v1/auth/`。基础健康检查为 `/api/public/health`，仅输出状态，不暴露详情。游客浏览使用前端模拟数据。
 
-- 页面数据能看。
-- 保存、导入、修改会 401。
-
-因为 GET 默认允许游客读取，而 POST/PUT/DELETE 必须带有效 JWT。
 
 ## 10. 登出流程
 

@@ -107,6 +107,29 @@ public class CustomerService {
 		return toResponse(customer, contact, owners);
 	}
 
+    @Transactional
+    public void deleteCustomer(com.yourcompany.salesagent.auth.security.AuthPrincipal principal, UUID customerId, long version) {
+        if (principal == null || !List.of("OWNER", "ADMIN").contains(principal.role())) {
+            throw new org.springframework.security.access.AccessDeniedException("仅管理员可删除客户");
+        }
+        var customer = customerMapper.selectOne(Wrappers.<Customer>lambdaQuery()
+                .eq(Customer::getId, customerId)
+                .eq(Customer::getOrganizationId, principal.organizationId())
+                .isNull(Customer::getDeletedAt).last("FOR UPDATE"));
+        if (customer == null) throw new CustomerNotFoundException(customerId);
+        if (customer.getVersion() != version) throw new CustomerValidationException("客户资料已更新，请刷新后再删除");
+        if (customerMapper.countCustomerQuotes(principal.organizationId(), customerId) > 0) {
+            throw new CustomerValidationException("客户已关联报价，不能删除；请保留客户档案以便查询合同与回款");
+        }
+        var now = clock.instant();
+        int changed = customerMapper.update(null, Wrappers.<Customer>lambdaUpdate()
+                .eq(Customer::getId, customerId).eq(Customer::getOrganizationId, principal.organizationId())
+                .eq(Customer::getVersion, version).isNull(Customer::getDeletedAt)
+                .set(Customer::getDeletedAt, now).set(Customer::getUpdatedAt, now)
+                .set(Customer::getStatus, CustomerStatus.ARCHIVED).set(Customer::getVersion, version + 1));
+        if (changed == 0) throw new CustomerValidationException("客户资料已更新，请刷新后再删除");
+    }
+
 	@Transactional(readOnly = true)
 	public CustomerMetricsResponse getMetrics() {
 		return customerMapper.selectMetrics(organizationId);

@@ -98,8 +98,6 @@ public class AuditLogAspect {
 		var method = request.getMethod();
 		var path = request.getRequestURI();
 		return path.startsWith("/api/v1/")
-				&& !path.equals("/api/v1/auth/login")
-				&& !path.equals("/api/v1/auth/refresh")
 				&& ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method) || "DELETE".equals(method));
 	}
 

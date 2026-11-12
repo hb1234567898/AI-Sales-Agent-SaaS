@@ -115,3 +115,7 @@ export function updateCustomer(customerId: string, input: CustomerUpsertInput) {
     data: input,
   })
 }
+
+export function deleteCustomer(customerId: string, version: number) {
+  return requestJson<void>(`/api/v1/customers/${customerId}?version=${version}`, { method: 'DELETE' })
+}

@@ -48,7 +48,7 @@ export async function encryptPasswordIfAvailable(password: string): Promise<Pass
 }
 
 async function getPasswordKey() {
-  publicKeyPromise ??= getJson<PasswordPublicKeyResponse>('/api/v1/auth/password-key').catch(() => ({
+  publicKeyPromise ??= getJson<PasswordPublicKeyResponse>('/api/public/auth/password-key').catch(() => ({
     enabled: false,
     keyId: null,
     algorithm: 'RSA-OAEP-256',
