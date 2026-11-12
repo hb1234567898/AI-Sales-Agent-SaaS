@@ -10,7 +10,7 @@ const auth = vi.hoisted(() => ({ guest: false, role: 'OWNER' }))
 vi.mock('../auth/use-auth', () => ({ useIsGuest: () => auth.guest, useAuth: () => ({ role: auth.role }) }))
 vi.mock('../api/knowledge-api', async (original) => ({
   ...await original<typeof import('../api/knowledge-api')>(),
-  getKnowledgeDocuments: vi.fn(), getKnowledgeDocument: vi.fn(), getKnowledgeChunks: vi.fn(),
+  getKnowledgeDocuments: vi.fn(), getKnowledgeDocument: vi.fn(), getKnowledgeChunks: vi.fn(), getKnowledgeDocumentText: vi.fn(),
   uploadKnowledgeDocument: vi.fn(), createKnowledgeText: vi.fn(), askKnowledge: vi.fn(),
   setKnowledgeState: vi.fn(), deleteKnowledgeDocument: vi.fn(),
 }))
@@ -28,6 +28,7 @@ describe('KnowledgePage', () => {
     vi.resetAllMocks(); auth.guest = false; auth.role = 'OWNER'
     vi.mocked(api.getKnowledgeDocuments).mockResolvedValue(page([doc]))
     vi.mocked(api.getKnowledgeDocument).mockResolvedValue(doc)
+    vi.mocked(api.getKnowledgeDocumentText).mockResolvedValue('发送报价前需销售经理审批。')
     vi.mocked(api.getKnowledgeChunks).mockResolvedValue(page([{ id: 'chunk-1', documentId: doc.id, chunkIndex: 0, pageNumber: null, title: doc.title, content: '发送报价前需销售经理审批。', revision: 1 }]))
   })
   afterEach(cleanup)
@@ -96,6 +97,48 @@ describe('KnowledgePage', () => {
     await user.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(vi.mocked(api.deleteKnowledgeDocument).mock.calls[0]?.[0]).toEqual(doc))
   })
+  it('previews complete Markdown files and can switch back to unchanged source', async () => {
+    const markdownDoc = { ...doc, filename: '审批.MD', chunkCount: 4 }
+    const markdown = '# 审批指南\n\n**经理审批**\n\n1. 提交报价\n2. 等待审批\n\n| 金额 | 审批人 |\n| --- | --- |\n| 一万元 | 经理 |\n\n```json\n' + JSON.stringify({ notes: '长内容'.repeat(400) }) + '\n```'
+    vi.mocked(api.getKnowledgeDocuments).mockResolvedValue(page([markdownDoc]))
+    vi.mocked(api.getKnowledgeDocument).mockResolvedValue(markdownDoc)
+    vi.mocked(api.getKnowledgeDocumentText).mockResolvedValue(markdown)
+    const user = userEvent.setup(); mount()
+    await user.click(await screen.findByRole('button', { name: /审批.MD/ }))
+    const preview = await screen.findByRole('region', { name: '资料原文' })
+    expect(await within(preview).findByRole('heading', { level: 1, name: '审批指南' })).toBeInTheDocument()
+    expect(within(preview).getByText('经理审批').tagName).toBe('STRONG')
+    expect(within(preview).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(preview).getByRole('cell', { name: '一万元' })).toBeInTheDocument()
+    expect(preview.querySelector('pre code.language-json')).toHaveTextContent(JSON.stringify({ notes: '长内容'.repeat(400) }))
+    expect(api.getKnowledgeChunks).not.toHaveBeenCalled()
+    await user.click(within(preview).getByRole('button', { name: '源码' }))
+    expect(preview.querySelector('.knowledge-markdown-source')?.textContent).toBe(markdown)
+    expect(within(preview).queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    await user.click(within(preview).getByRole('button', { name: '预览' }))
+    expect(within(preview).getByRole('heading', { level: 1, name: '审批指南' })).toBeInTheDocument()
+    expect(api.getKnowledgeDocumentText).toHaveBeenCalledTimes(1)
+  })
+  it('shows original text loading errors and lets the user retry', async () => {
+    vi.mocked(api.getKnowledgeDocumentText).mockRejectedValueOnce(new Error('原文读取失败'))
+    const user = userEvent.setup(); mount()
+    await user.click(await screen.findByRole('button', { name: /报价审批流程.txt/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('原文读取失败')
+    await user.click(screen.getByRole('button', { name: '重试读取原文' }))
+    expect(await screen.findByText('发送报价前需销售经理审批。')).toBeInTheDocument()
+  })
+  it('keeps extracted PDF pages paginated without treating the binary file as text', async () => {
+    vi.mocked(api.getKnowledgeDocument).mockResolvedValue({ ...doc, filename: '审批.pdf' })
+    vi.mocked(api.getKnowledgeChunks).mockResolvedValueOnce({ ...page([{ id: 'chunk-1', documentId: doc.id, chunkIndex: 0, pageNumber: 1, title: doc.title, content: '第一页审批内容', revision: 1 }]), totalPages: 2, last: false })
+      .mockResolvedValueOnce({ ...page([{ id: 'chunk-2', documentId: doc.id, chunkIndex: 1, pageNumber: 2, title: doc.title, content: '第二页审批内容', revision: 1 }]), page: 1, totalPages: 2, first: false })
+    const user = userEvent.setup(); mount()
+    await user.click(await screen.findByRole('button', { name: /报价审批流程.txt/ }))
+    expect(await screen.findByText('第一页审批内容')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '下一页' }))
+    expect(await screen.findByText('第二页审批内容')).toBeInTheDocument()
+    expect(screen.getByText('片段 2 · 第 2 页')).toBeInTheDocument()
+    expect(api.getKnowledgeDocumentText).not.toHaveBeenCalled()
+  })
   it('lets guests browse and ask about local demo knowledge without team API calls', async () => {
     auth.guest = true; const user = userEvent.setup(); mount()
     expect(await screen.findByText('销售报价与折扣审批')).toBeInTheDocument()
@@ -109,5 +152,7 @@ describe('KnowledgePage', () => {
     await user.click(screen.getByRole('button', { name: /资料 1.*销售报价/ }))
     expect(await screen.findByRole('dialog', { name: '资料详情' })).toBeInTheDocument()
     expect(api.getKnowledgeDocument).not.toHaveBeenCalled()
+    expect(api.getKnowledgeDocumentText).not.toHaveBeenCalled()
+    expect(api.getKnowledgeChunks).not.toHaveBeenCalled()
   })
 })

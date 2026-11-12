@@ -5,20 +5,16 @@ import type { Driver, DriveStep } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import './feature-guides.css'
 import { availableGuides, type FeatureGuide, type GuideStep } from './feature-guides'
+import { currentProgress, guideSignature, readProgress, type GuideProgress, type Progress } from './guide-progress'
 
 export type GuideMode = 'catalog' | 'current' | null
-interface GuideProgress { step: number; completed: boolean }
-type Progress = Record<string, GuideProgress>
-function readProgress(key: string): Progress {
-  try {
-    const stored: unknown = JSON.parse(sessionStorage.getItem(key) ?? '{}')
-    if (!stored || typeof stored !== 'object') return {}
-    return Object.fromEntries(Object.entries(stored).filter(([, value]) => value && typeof value.step === 'number' && Number.isInteger(value.step) && value.step >= 0 && typeof value.completed === 'boolean'))
-  } catch { return {} }
-}
 function escapeText(value: string) { return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!) }
-function visibleTarget(selector: string) {
-  return [...document.querySelectorAll<HTMLElement>(selector)].find(element => element.getClientRects().length > 0)
+function visibleTarget(target: GuideStep['target']) {
+  // Prefer the detailed panel before falling back to its containing page.
+  for (const selector of Array.isArray(target) ? target : [target]) {
+    const element = [...document.querySelectorAll<HTMLElement>(selector)].find(element => element.getClientRects().length > 0)
+    if (element) return element
+  }
 }
 function waitForPage(heading: string, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -34,9 +30,15 @@ function waitForPage(heading: string, signal: AbortSignal): Promise<void> {
 }
 async function revealStep(step: GuideStep, signal: AbortSignal) {
   if (step.reveal?.startsWith('knowledge-')) {
+    if (step.reveal !== 'knowledge-preview') document.querySelector<HTMLButtonElement>('.knowledge-drawer [aria-label="关闭资料详情"]')?.click()
     const label = step.reveal === 'knowledge-ask' ? '知识问答' : '资料库'
     const tab = [...document.querySelectorAll<HTMLButtonElement>('.knowledge-tabs [role="tab"]')].find(button => button.textContent?.includes(label))
     if (tab?.getAttribute('aria-selected') !== 'true') tab?.click()
+  }
+  if (step.reveal === 'knowledge-preview' && !document.querySelector('.knowledge-drawer')) {
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    const row = [...document.querySelectorAll('.knowledge-table tbody tr')].find(row => row.querySelector('.knowledge-status.is-ready'))
+    row?.querySelector<HTMLButtonElement>('.knowledge-document-link')?.click()
   }
   if (step.reveal?.startsWith('customer-')) {
     if (!document.querySelector('.customer-drawer')) visibleTarget('.table-action-button')?.click()
@@ -67,10 +69,11 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
   const [tourActive, setTourActive] = useState(false)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const tourRef = useRef<Driver | null>(null)
-  const totalCompleted = guides.filter(guide => progress[guide.id]?.completed).length
+  const statuses = Object.fromEntries(guides.map(guide => [guide.id, currentProgress(guide, progress[guide.id])]))
+  const totalCompleted = guides.filter(guide => statuses[guide.id]?.completed).length
 
-  const persist = useCallback((id: string, value: GuideProgress) => {
-    const next = { ...progressRef.current, [id]: value }
+  const persist = useCallback((guide: FeatureGuide, value: GuideProgress) => {
+    const next = { ...progressRef.current, [guide.id]: { ...value, signature: guideSignature(guide) } }
     progressRef.current = next
     setProgress(next)
     sessionStorage.setItem(storageKey, JSON.stringify(next))
@@ -88,7 +91,8 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
 
   useEffect(() => {
     if (mode !== 'current' || !current) return
-    const frame = requestAnimationFrame(() => start(current, progressRef.current[current.id]?.completed ? 0 : progressRef.current[current.id]?.step ?? 0))
+    const saved = currentProgress(current, progressRef.current[current.id])
+    const frame = requestAnimationFrame(() => start(current, saved?.completed ? 0 : saved?.step ?? 0))
     return () => cancelAnimationFrame(frame)
   }, [mode, current, start])
 
@@ -104,6 +108,7 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
     const controller = new AbortController()
     const guide = launch.guide
     const customerWasOpen = Boolean(document.querySelector('.customer-drawer'))
+    const knowledgeWasOpen = Boolean(document.querySelector('.knowledge-drawer'))
     const quotaWasOpen = Boolean(document.querySelector('.mcp-token-modal'))
     let tour: Driver | undefined
     let transitioning = false
@@ -122,7 +127,7 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
             description: `<p>${escapeText(step.description)}</p><div class="feature-tour-result"><strong>完成后</strong><span>${escapeText(step.result)}</span></div>${role === 'GUEST' ? `<p class="feature-tour-guest">${escapeText(guide.guestNote)}</p>` : ''}`,
           },
         }))
-        const finish = () => { persist(guide.id, { step: 0, completed: true }); setFinished(guide.id); tour?.destroy() }
+        const finish = () => { persist(guide, { step: 0, completed: true }); setFinished(guide.id); tour?.destroy() }
         const move = async (index: number) => {
           if (transitioning) return
           if (index >= guide.steps.length) { finish(); return }
@@ -130,7 +135,7 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
           try {
             await revealStep(guide.steps[index], controller.signal)
             displayedIndex = index
-            persist(guide.id, { step: index, completed: progressRef.current[guide.id]?.completed ?? false })
+            persist(guide, { step: index, completed: currentProgress(guide, progressRef.current[guide.id])?.completed ?? false })
             if (tour) tour.setConfig({ ...tour.getConfig(), steps: steps() })
             tour?.moveTo(index)
           }
@@ -145,7 +150,7 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
           onNextClick: () => { void move((tour?.getActiveIndex() ?? 0) + 1) },
           onPrevClick: () => { void move(Math.max(0, (tour?.getActiveIndex() ?? 0) - 1)) },
           onDoneClick: finish,
-          onHighlighted: () => { setTourActive(true); persist(guide.id, { step: displayedIndex, completed: progressRef.current[guide.id]?.completed ?? false }) },
+          onHighlighted: () => { setTourActive(true); persist(guide, { step: displayedIndex, completed: currentProgress(guide, progressRef.current[guide.id])?.completed ?? false }) },
           onDestroyed: () => { if (tourRef.current === tour) tourRef.current = null; setTourActive(false); setLaunch(null) },
         })
         tourRef.current = tour
@@ -158,11 +163,12 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
     return () => {
       controller.abort(); tour?.destroy()
       if (!customerWasOpen && guide.id === 'customers') document.querySelector<HTMLButtonElement>('.customer-drawer .drawer-close')?.click()
+      if (!knowledgeWasOpen && guide.id === 'knowledge') document.querySelector<HTMLButtonElement>('.knowledge-drawer [aria-label="关闭资料详情"]')?.click()
       if (!quotaWasOpen && guide.id === 'token-quota') document.querySelector<HTMLButtonElement>('.mcp-token-modal header [aria-label="关闭"]')?.click()
     }
   }, [launch, location.pathname, persist, role])
 
-  const selectedProgress = progress[selected.id]
+  const selectedProgress = statuses[selected.id]
   const finishedGuide = guides.find(guide => guide.id === finished)
   const nextGuide = finishedGuide ? guides[guides.indexOf(finishedGuide) + 1] : undefined
 
@@ -172,14 +178,14 @@ export function FeatureGuides({ mode, onClose, role, userId }: { mode: GuideMode
       <div className="feature-guide-layout">
         <nav className="feature-guide-directory" aria-label="功能引导目录">
           <div className="feature-guide-overall"><strong>已完成 {totalCompleted} / {guides.length}</strong><progress aria-label="功能引导完成进度" value={totalCompleted} max={guides.length} /></div>
-          {(['销售工作', 'AI 与协作', '配置与管理'] as const).map(group => <section key={group}><h3>{group}</h3>{guides.filter(guide => guide.group === group).map(guide => <button type="button" key={guide.id} className={progress[guide.id]?.completed ? 'is-complete' : undefined} aria-current={selected.id === guide.id ? 'true' : undefined} onClick={() => setSelection({ id: guide.id, path: location.pathname })}>{progress[guide.id]?.completed ? <CheckCircle size={17} weight="fill" /> : <Circle size={17} />}<span>{guide.title}<small>{guide.steps.length} 个步骤{progress[guide.id]?.completed ? ' · 已完成' : progress[guide.id] ? ' · 已开始' : ''}</small></span></button>)}</section>)}
+          {(['销售工作', 'AI 与协作', '配置与管理'] as const).map(group => <section key={group}><h3>{group}</h3>{guides.filter(guide => guide.group === group).map(guide => <button type="button" key={guide.id} className={statuses[guide.id]?.completed ? 'is-complete' : undefined} aria-current={selected.id === guide.id ? 'true' : undefined} onClick={() => setSelection({ id: guide.id, path: location.pathname })}>{statuses[guide.id]?.completed ? <CheckCircle size={17} weight="fill" /> : <Circle size={17} />}<span>{guide.title}<small>{guide.steps.length} 个步骤{statuses[guide.id]?.completed ? ' · 已完成' : statuses[guide.id]?.updated ? ' · 有更新' : progress[guide.id] ? ' · 已开始' : ' · 未开始'}</small></span></button>)}</section>)}
         </nav>
         <article className="feature-guide-detail" aria-label={`${selected.title}功能说明`}>
           <p className="feature-guide-category">{selected.group} · {selected.steps.length} 个步骤</p>
-          <h3>{selected.title}</h3><p className="feature-guide-summary">{selected.summary}</p>
+          <h3>{selected.title}</h3>{selectedProgress?.updated && <p className="feature-guide-update" role="status">功能说明已更新，请查看新版引导。其他功能的学习进度会保留。</p>}<p className="feature-guide-summary">{selected.summary}</p>
           <dl className="feature-guide-preparation"><dt>开始前</dt><dd>{selected.prerequisite}</dd>{role === 'GUEST' && <><dt>游客体验</dt><dd>{selected.guestNote}</dd></>}</dl>
           <ol className="feature-guide-outline">{selected.steps.map((step, index) => <li key={step.title}><span>{index + 1}</span><div><h4>{step.title}</h4><p>{step.description}</p><small>完成后：{step.result}</small></div></li>)}</ol>
-          <footer className="feature-guide-detail-footer"><p>导览会高亮页面区域，可随时暂停；进度在当前浏览会话中保留。</p><div>{selectedProgress && !selectedProgress.completed && selectedProgress.step > 0 && <button className="button button-secondary" onClick={() => start(selected, selectedProgress.step)}><Play size={15} />继续第 {selectedProgress.step + 1} 步</button>}<button className="button button-primary" onClick={() => start(selected)}><Play size={15} weight="fill" />{selectedProgress?.completed ? '重新查看引导' : '开始逐步引导'}</button></div></footer>
+          <footer className="feature-guide-detail-footer"><p>导览可随时暂停，进度在当前浏览会话中保留；功能说明更新后会提示查看新版。</p><div>{selectedProgress && !selectedProgress.completed && selectedProgress.step > 0 && <button className="button button-secondary" onClick={() => start(selected, selectedProgress.step)}><Play size={15} />继续第 {selectedProgress.step + 1} 步</button>}<button className="button button-primary" onClick={() => start(selected)}><Play size={15} weight="fill" />{selectedProgress?.updated ? '查看更新引导' : selectedProgress?.completed ? '重新查看引导' : '开始逐步引导'}</button></div></footer>
         </article>
       </div>
     </dialog>

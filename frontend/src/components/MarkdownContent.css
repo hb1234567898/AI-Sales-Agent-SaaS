@@ -1,0 +1,36 @@
+.markdown-content {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.4em 0 .6em;
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.markdown-content h1 { font-size: 24px; }
+.markdown-content h2 { font-size: 20px; }
+.markdown-content h3 { font-size: 17px; }
+.markdown-content :is(h4, h5, h6) { font-size: 14px; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content p { margin: .8em 0; white-space: normal; }
+.markdown-content :is(ul, ol) { margin: .8em 0; padding-left: 1.7em; }
+.markdown-content li + li { margin-top: .25em; }
+.markdown-content li > :is(ul, ol) { margin-block: .25em; }
+.markdown-content a { color: var(--blue-600); text-decoration: underline; text-underline-offset: 3px; }
+.markdown-content blockquote { margin: 1em 0; padding: 2px 16px; border-left: 3px solid var(--border-strong); color: var(--muted); }
+.markdown-content code { padding: 2px 5px; border-radius: 4px; background: #f1f4f8; font-family: Consolas, 'Courier New', monospace; font-size: .9em; }
+.markdown-content pre { max-width: 100%; margin: 1em 0; padding: 14px 16px; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #f7f9fc; white-space: pre; overflow-wrap: normal; line-height: 1.6; }
+.markdown-content pre code { padding: 0; border-radius: 0; background: none; }
+.markdown-content img { display: block; max-width: 100%; height: auto; margin-block: 1em; }
+.markdown-content hr { margin: 1.5em 0; border: 0; border-top: 1px solid var(--border); }
+.markdown-table-scroll { max-width: 100%; margin: 1em 0; overflow-x: auto; }
+.markdown-table-scroll table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.markdown-table-scroll :is(th, td) { min-width: 90px; padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+.markdown-table-scroll th { background: #f7f9fc; font-weight: 600; }
+.markdown-content .contains-task-list { padding-left: .3em; list-style: none; }
+.markdown-content .task-list-item input { margin-right: 8px; }
