@@ -91,7 +91,7 @@ describe('LoginPage', () => {
 
     expect(await screen.findByRole('heading', { name: '客户页面' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([input, init]) => (
-      fetchRequestUrl(input).endsWith('/api/v1/auth/login')
+      fetchRequestUrl(input).endsWith('/api/public/auth/login')
       && fetchRequestMethod(input, init) === 'POST'
     ))).toBe(true)
     expect(loginBody).toMatchObject({
@@ -168,7 +168,7 @@ describe('LoginPage', () => {
     expect(await screen.findByRole('heading', { name: '今日工作台' })).toBeInTheDocument()
     expect(passwordKeyRequests).toBe(2)
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      fetchRequestUrl(input).endsWith('/api/v1/auth/login')
+      fetchRequestUrl(input).endsWith('/api/public/auth/login')
       && fetchRequestMethod(input, init) === 'POST'
     ))).toHaveLength(1)
   })

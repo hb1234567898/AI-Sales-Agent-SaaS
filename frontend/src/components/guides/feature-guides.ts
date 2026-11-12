@@ -52,11 +52,11 @@ export const featureGuides: FeatureGuide[] = [
   {
     id: 'today', title: '今日工作台', heading: '今日工作台', path: '/app/today', group: '销售工作',
     summary: '先判断今天要推进哪些客户，再进入跟进或审批处理具体事项。',
-    prerequisite: '可直接浏览；当前工作台指标与队列展示演示内容。', guestNote: '可查看全部示例，并通过链接进入其他功能。',
+    prerequisite: '登录后展示当前账号可见的跟进、审批与运行数据；游客模式展示演示内容。', guestNote: '可查看全部示例，并通过链接进入其他功能。',
     steps: [
-      { title: '先看今天的工作量', target: '.metric-strip', description: '从待跟进、高优先级客户、待审批和触达量判断当天的重点。结合每项指标旁的说明理解统计含义。', result: '知道应该优先看客户跟进，还是先处理人工审批。' },
-      { title: '从优先队列找客户', target: '.priority-panel', description: '对照客户评分、最近互动、建议动作和负责人，选择值得推进的客户。点击行末“处理”进入跟进任务。', result: '把客户信号转成可执行的下一步工作。' },
-      { title: '检查需要确认的动作', target: '.review-panel', description: '查看 AI 建议的客户和动作摘要，点击“审核”进入审批中心。发送邮件等外部动作需要先核对内容再批准。', result: '明确哪些事项需要人工决策。' },
+      { title: '先看今天的工作量', target: '.metric-strip', description: '查看我的今日到期、已逾期、待人工审批和累计已完成跟进。点击指标进入对应功能；未获取的数据以 — 显示。', result: '知道应该优先看客户跟进，还是先处理人工审批。' },
+      { title: '处理我的跟进待办', target: '.priority-panel', description: '按计划时间查看任务、关联客户和任务来源，点击任务进入详情。有编辑权限时，可点击勾选按钮完成任务。', result: '把客户信号转成可执行的下一步工作。' },
+      { title: '检查需要确认的动作', target: '.review-panel', description: '查看 AI 建议的客户和动作摘要，点击“打开审批中心”处理。发送邮件等外部动作需要先核对内容再批准。', result: '明确哪些事项需要人工决策。' },
       { title: '追踪最近执行情况', target: '.runs-panel', description: '对照运行名称、处理范围和结果状态，点击“运行记录”进入 Agent 运行页查看具体步骤。', result: '从工作台继续追查一次分析或动作生成的结果。' },
     ],
   },

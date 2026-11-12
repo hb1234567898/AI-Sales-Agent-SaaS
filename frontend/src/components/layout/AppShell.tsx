@@ -26,7 +26,7 @@ import {
   X,
   type IconProps,
 } from '@phosphor-icons/react'
-import { useCallback, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getPendingApprovals } from '../../api/approvals-api'
@@ -50,7 +50,6 @@ const workNavigation: NavItem[] = [
   { to: '/app/opportunities', label: '商机', icon: Kanban },
   { to: '/app/follow-ups', label: '跟进任务', icon: Target },
   { to: '/app/mail', label: '客户邮件', icon: EnvelopeSimple },
-  { to: '/app/forecast', label: '销售预测', icon: PresentationChart },
   { to: '/app/approvals', label: '审批', icon: CheckSquareOffset },
 ]
 
@@ -58,6 +57,7 @@ const insightNavigation: NavItem[] = [
   { to: '/app/mcp', label: 'MCP 助手', icon: ChatCircleText },
   { to: '/app/knowledge', label: '企业知识库', icon: BookOpen },
   { to: '/app/agent-runs', label: 'Agent 运行', icon: Robot },
+  { to: '/app/forecast', label: '销售预测', icon: PresentationChart },
   { to: '/app/analytics', label: '效果分析', icon: ChartLineUp },
   { to: '/app/settings', label: '设置', icon: GearSix },
 ]
@@ -146,7 +146,7 @@ function Sidebar({
       <div className="sidebar-navigation">
         <NavigationGroup label="销售工作" items={workNavigation} onNavigate={onClose} />
         <NavigationGroup label="报价与成交" items={commercialNavigation} onNavigate={onClose} />
-        <NavigationGroup label="运营与配置" items={insightNavigation} onNavigate={onClose} />
+        <NavigationGroup label="智能工具与管理" items={insightNavigation} onNavigate={onClose} />
         {role === 'OWNER' || role === 'ADMIN' ? (
           <NavigationGroup label="管理员" items={adminNavigation} onNavigate={onClose} />
         ) : null}
@@ -173,6 +173,19 @@ function Sidebar({
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    function shortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        searchRef.current?.focus()
+      }
+      if (event.key === 'Escape') { setSearch(''); setSidebarOpen(false) }
+    }
+    document.addEventListener('keydown', shortcut)
+    return () => document.removeEventListener('keydown', shortcut)
+  }, [])
   const session = useAuth()
   const guestMode = session.role === 'GUEST'
   const [guideMode, setGuideMode] = useState<GuideMode>(() => session.role === 'GUEST' && sessionStorage.getItem('sales-agent:guest-guide-seen') !== 'true' ? 'catalog' : null)
@@ -204,6 +217,9 @@ export function AppShell() {
     logoutMutation.mutate()
   }
 
+  const searchResults = [...workNavigation, ...commercialNavigation, ...insightNavigation,
+    ...(['OWNER', 'ADMIN'].includes(session.role) ? adminNavigation : [])]
+    .filter(item => item.label.toLowerCase().includes(search.trim().toLowerCase()))
   const pendingApprovals = approvalsQuery.data?.totalElements ?? 0
 
   return (
@@ -238,11 +254,18 @@ export function AppShell() {
             <List size={20} />
           </button>
 
-          <label className="global-search">
-            <MagnifyingGlass size={17} aria-hidden />
-            <input type="search" placeholder="搜索客户、任务或运行记录" aria-label="全局搜索" />
-            <kbd>Ctrl K</kbd>
-          </label>
+          <div className="feature-search" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSearch('') }}>
+            <label className="global-search">
+              <MagnifyingGlass size={17} aria-hidden />
+              <input ref={searchRef} type="search" placeholder="搜索功能，如报价、邮件、客户" aria-label="搜索功能" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => {
+                if (event.key === 'Enter' && search.trim() && searchResults[0]) { navigate(searchResults[0].to); setSearch('') }
+              }} />
+              <kbd>Ctrl K</kbd>
+            </label>
+            {search.trim() && <nav className="feature-search-results" aria-label="功能搜索结果">
+              {searchResults.length ? searchResults.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setSearch('')}><Icon size={18} /><span>{label}</span></NavLink>) : <p>未找到匹配功能，请尝试其他关键词。</p>}
+            </nav>}
+          </div>
 
           <div className="topbar-actions">
             <button className="feature-guide-topbar" type="button" title="查看所有功能的详细使用引导" aria-label="打开功能使用指南" onClick={() => setGuideMode('catalog')}><Question size={18} /><span>功能指南</span></button>

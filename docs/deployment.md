@@ -87,7 +87,7 @@ ssh-keyscan -p 22 117.72.109.112
 
 ## Nginx 与 HTTPS
 
-模板默认监听 80 端口，前端由 Nginx 直接提供，`/api/` 和 `/actuator/health` 代理到 `127.0.0.1:8080`。配置域名后应申请证书并强制跳转 HTTPS，避免 Bearer Token 在明文 HTTP 中传输。
+模板默认监听 80 端口，前端由 Nginx 直接提供，`/api/`（包含公开健康检查 `/api/public/health`） 代理到 `127.0.0.1:8080`。配置域名后应申请证书并强制跳转 HTTPS，避免 Bearer Token 在明文 HTTP 中传输。
 
 如果使用宝塔 Nginx，请把站点运行目录设置为 `/www/wwwroot/ai.likeasuka.icu/current/frontend`，再把 `deploy/server/nginx.conf` 中的 `location` 段复制到对应站点配置；不要直接覆盖宝塔生成的 Nginx 主配置。
 
@@ -116,6 +116,6 @@ Flyway 数据库迁移不会自动回滚。因此数据库变更必须向后兼�
 ```bash
 sudo systemctl status ai-sales-agent --no-pager
 sudo journalctl -u ai-sales-agent -n 200 --no-pager
-curl --fail http://127.0.0.1:8080/actuator/health
+curl --fail http://127.0.0.1:8080/api/public/health
 sudo nginx -t
 ```

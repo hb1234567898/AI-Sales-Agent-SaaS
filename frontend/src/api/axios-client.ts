@@ -29,8 +29,7 @@ interface RetriableRequestConfig extends InternalAxiosRequestConfig {
 }
 
 const safeMethods = new Set(['GET', 'HEAD', 'OPTIONS'])
-const unauthenticatedPaths = new Set(['/api/v1/auth/login', '/api/v1/auth/refresh'])
-const authenticationWritePaths = new Set([...unauthenticatedPaths, '/api/v1/auth/logout'])
+const isPublicPath = (path: string) => path.startsWith('/api/public/')
 const apiBaseUrlStorageKey = 'sales-agent:api-base-url'
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const sameOriginBaseUrl = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
@@ -64,23 +63,16 @@ export const authRefreshClient = axios.create({
 apiClient.interceptors.request.use(async (config) => {
   const path = requestPath(config.url)
   const method = (config.method ?? 'GET').toUpperCase()
-  if (sessionStorage.getItem('sales-agent:guest-mode') === 'true' && !path.startsWith('/api/v1/auth/')) {
+  if (sessionStorage.getItem('sales-agent:guest-mode') === 'true' && !isPublicPath(path) && !path.startsWith('/api/v1/auth/')) {
     if (!safeMethods.has(method)) throw new ApiError('游客模式只能浏览，登录后才能执行修改操作', 403)
     config.adapter = async (request) => ({ data: getGuestData(request.url ?? '', request.params), status: 200, statusText: 'OK', headers: new AxiosHeaders(), config: request })
     return config
-  }
-  if (
-    !safeMethods.has(method)
-    && !authenticationWritePaths.has(path)
-    && sessionStorage.getItem('sales-agent:guest-mode') === 'true'
-  ) {
-    throw new ApiError('游客模式只能浏览，登录后才能执行修改操作', 403)
   }
 
   let tokens = getAuthTokens()
   // 主动刷新临近过期的 access token，避免流式等耗时请求在传输中途撞上 401，
   // 而 stream 模式下的 401→refresh→retry 链路不稳定，容易直接失败。
-  if (!unauthenticatedPaths.has(path) && tokens?.accessToken && isAccessTokenExpiring(tokens)) {
+  if (!isPublicPath(path) && tokens?.accessToken && isAccessTokenExpiring(tokens)) {
     try {
       if ((await refreshAccessToken()) === 'refreshed') {
         tokens = getAuthTokens()
@@ -90,7 +82,7 @@ apiClient.interceptors.request.use(async (config) => {
       // 刷新失败则沿用原 token，交给 401 响应拦截器兜底。
     }
   }
-  if (!unauthenticatedPaths.has(path) && tokens?.accessToken) {
+  if (!isPublicPath(path) && tokens?.accessToken) {
     const headers = AxiosHeaders.from(config.headers)
     if (!headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${tokens.accessToken}`)
@@ -113,7 +105,7 @@ apiClient.interceptors.response.use(
       error.response?.status === 401
       && config
       && !config.salesAgentRetried
-      && !unauthenticatedPaths.has(path)
+      && !isPublicPath(path)
       && tokens?.refreshToken
     ) {
       config.salesAgentRetried = true
@@ -182,7 +174,7 @@ async function performRefresh(): Promise<RefreshResult> {
   if (!tokens?.refreshToken) return 'invalid'
 
   try {
-    const response = await authRefreshClient.post<AuthTokens>('/api/v1/auth/refresh', {
+    const response = await authRefreshClient.post<AuthTokens>('/api/public/auth/refresh', {
       refreshToken: tokens.refreshToken,
     })
     replaceAuthTokens(response.data)

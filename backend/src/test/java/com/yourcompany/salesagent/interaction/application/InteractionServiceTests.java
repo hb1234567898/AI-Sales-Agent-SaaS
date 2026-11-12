@@ -27,6 +27,14 @@ import com.yourcompany.salesagent.interaction.domain.InteractionType;
 import com.yourcompany.salesagent.interaction.infrastructure.InteractionMapper;
 
 class InteractionServiceTests {
+    @org.junit.jupiter.api.BeforeAll
+    static void initializeCustomerMetadata() {
+        var configuration = new com.baomidou.mybatisplus.core.MybatisConfiguration();
+        configuration.getTypeHandlerRegistry().register(UUID.class, com.yourcompany.salesagent.shared.persistence.UuidTypeHandler.class);
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+            new org.apache.ibatis.builder.MapperBuilderAssistant(configuration, "test"), Customer.class);
+    }
+
 
 	private static final UUID ORGANIZATION_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 	private static final UUID CUSTOMER_ID = UUID.fromString("30000000-0000-0000-0000-000000000001");

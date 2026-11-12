@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CustomersPage } from './CustomersPage'
 import { fetchRequestUrl } from '../test/fetch-request'
 
+const auth = vi.hoisted(() => ({ role: 'ADMIN' }))
+vi.mock('../auth/use-auth', () => ({ useIsGuest: () => false, useAuth: () => ({ role: auth.role }) }))
+
 const customer = {
   id: '30000000-0000-0000-0000-000000000001',
   name: '云岚科技',
@@ -30,6 +33,7 @@ const customer = {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  auth.role = 'ADMIN'
 })
 
 describe('CustomersPage', () => {
@@ -61,4 +65,37 @@ describe('CustomersPage', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '添加客户' })).toBeInTheDocument()
   })
+})
+
+
+it('only administrators can delete, with confirmation and a versioned request', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = fetchRequestUrl(input)
+    if ((init?.method ?? (input instanceof Request ? input.method : 'GET')) === 'DELETE') return new Response(null, { status: 204 })
+    const payload = url.includes('/metrics') ? { total: 1 } : url.includes('/owners') ? [] : url.endsWith(customer.id) ? customer : { content: [customer], totalElements: 1, totalPages: 1, page: 0, first: true, last: true }
+    return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+  })
+  const user = userEvent.setup()
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CustomersPage /></QueryClientProvider>)
+  await user.click(await screen.findByRole('button', { name: '编辑 云岚科技' }))
+  await user.click(await screen.findByRole('button', { name: '删除客户' }))
+  expect(screen.getByText('删除「云岚科技」？')).toBeInTheDocument()
+  expect(fetchMock.mock.calls.some(([input, init]) => (init?.method ?? (input instanceof Request ? input.method : 'GET')) === 'DELETE')).toBe(false)
+  await user.click(screen.getByRole('button', { name: '确认删除' }))
+  await screen.findByRole('button', { name: '添加客户' })
+  expect(fetchMock.mock.calls.some(([input]) => fetchRequestUrl(input).endsWith(`${customer.id}?version=0`))).toBe(true)
+})
+
+it('hides delete from sales members', async () => {
+  auth.role = 'SALES'
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = fetchRequestUrl(input)
+    const payload = url.includes('/metrics') ? { total: 1 } : url.includes('/owners') ? [] : url.endsWith(customer.id) ? customer : { content: [customer], totalElements: 1 }
+    return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+  })
+  const user = userEvent.setup()
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CustomersPage /></QueryClientProvider>)
+  await user.click(await screen.findByRole('button', { name: '编辑 云岚科技' }))
+  await screen.findByDisplayValue('云岚科技')
+  expect(screen.queryByRole('button', { name: '删除客户' })).not.toBeInTheDocument()
 })

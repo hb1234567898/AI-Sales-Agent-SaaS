@@ -123,6 +123,7 @@ function toIso(value: string) {
 }
 
 function formatOccurredAt(value: string) {
+  if (!value || Number.isNaN(Date.parse(value))) return '时间未记录'
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
     day: '2-digit',
@@ -201,6 +202,7 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
       queryClient.invalidateQueries({ queryKey: ['customer-files', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customers'] }),
+      queryClient.invalidateQueries({ queryKey: ['customer-metrics'] }),
     ])
     setComposer(null)
   }
@@ -223,6 +225,7 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
       queryClient.invalidateQueries({ queryKey: ['customer-chat-analyses', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
       queryClient.invalidateQueries({ queryKey: ['customers'] }),
+      queryClient.invalidateQueries({ queryKey: ['customer-metrics'] }),
     ]),
   })
   const fileMutation = useMutation({
@@ -352,9 +355,9 @@ export function CustomerInteractionsPanel({ customerId, readOnly = false }: Cust
               <span className="interaction-timeline-icon">{interactionIcon(interaction.type)}</span>
               <article>
                 <header><div><strong>{interaction.subject ?? typeLabels[interaction.type]}</strong><span>{typeLabels[interaction.type]} · {sourceLabels[interaction.source] ?? interaction.source}</span></div><time>{formatOccurredAt(interaction.occurredAt)}</time></header>
-                {interaction.participants.length ? <div className="interaction-participants"><UsersThree size={13} />{interaction.participants.join('、')}</div> : null}
-                <p>{interaction.bodyPreview}</p>
-                {interaction.bodyText.length > interaction.bodyPreview.length ? <details><summary>查看完整原文</summary><pre>{interaction.bodyText}</pre></details> : null}
+                {(interaction.participants ?? []).length ? <div className="interaction-participants"><UsersThree size={13} />{(interaction.participants ?? []).join('、')}</div> : null}
+                <p>{interaction.bodyPreview || interaction.bodyText || '暂无文字内容'}</p>
+                {(interaction.bodyText ?? '').length > (interaction.bodyPreview ?? '').length ? <details><summary>查看完整原文</summary><pre>{interaction.bodyText}</pre></details> : null}
                 {interaction.type === 'CHAT_IMPORT' ? (
                   analyses.get(interaction.id) ? (
                     <ChatAnalysisCard
