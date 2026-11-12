@@ -16,6 +16,25 @@ function TestSelect() {
 }
 
 describe('SelectField', () => {
+  it('portals table dropdowns into their dialog and still selects pointer options', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<dialog open aria-label="报价"><div style={{ overflow: 'hidden' }}><SelectField portal value="all" options={options} onChange={() => {}} ariaLabel="弹窗阶段" /></div></dialog>)
+    await user.click(screen.getByRole('combobox', { name: '弹窗阶段' }))
+    expect(screen.getByRole('listbox', { name: '弹窗阶段' }).parentElement?.tagName).toBe('DIALOG')
+    window.dispatchEvent(new Event('resize'))
+    await user.click(screen.getByRole('option', { name: '技术评审' }))
+    expect(screen.queryByRole('listbox', { name: '弹窗阶段' })).not.toBeInTheDocument()
+    unmount()
+  })
+  it('Escape closes an open dropdown without cancelling its parent dialog', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<dialog open><SelectField portal value="all" options={options} onChange={() => {}} ariaLabel="报价阶段" /></dialog>)
+    const trigger = screen.getByRole('combobox', { name: '报价阶段' })
+    await user.click(trigger); await user.keyboard('{Escape}')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger.closest('dialog')).toHaveAttribute('open')
+    unmount()
+  })
   it('supports pointer and keyboard selection', async () => {
     const user = userEvent.setup()
     render(<TestSelect />)

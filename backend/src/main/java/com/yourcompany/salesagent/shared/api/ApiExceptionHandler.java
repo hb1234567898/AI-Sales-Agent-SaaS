@@ -56,6 +56,7 @@ public class ApiExceptionHandler {
 			FollowUpWorkflowException.class,
 			LeadWorkflowException.class,
 			OpportunityWorkflowException.class,
+			com.yourcompany.salesagent.commercial.application.CommercialException.class,
 			KnowledgeException.class,
 			com.yourcompany.salesagent.mail.application.MailWorkflowException.class
 	})
