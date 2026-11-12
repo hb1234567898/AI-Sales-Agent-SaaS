@@ -14,7 +14,7 @@ on:
       release_tag:
         description: "GitHub Release tag，例如 desktop-v0.1.5"
         required: true
-        default: "desktop-v1.3.1"
+        default: "desktop-v1.4.0"
       prerelease:
         description: "是否发布为预发布版本"
         required: true
@@ -81,7 +81,15 @@ jobs:
           tagName: ${{ inputs.release_tag || github.ref_name }}
           releaseName: AI Sales Agent Desktop ${{ inputs.release_tag || github.ref_name }}
           releaseBody: |
-            AI Sales Agent 桌面端发布包。
+            AI Sales Agent 1.4.0。
+
+            - 新增产品价格、报价版本、合同与回款管理。
+            - 工作台接入真实任务、审批和运行记录，增加功能搜索并优化客户编辑。
+            - 支持管理员删除客户，修复互动记录和线索保存异常。
+            - 按公开/登录前缀管理 API，修复客户与互动的组织隔离和只读权限。
+            - 登录接口已升级，旧版客户端请更新后登录。
+
+            完整发布说明见仓库 docs/releases/1.4.0.md。
 
             - Windows 安装包由 Tauri / NSIS 生成。
             - latest.json 用于桌面端自动更新。
