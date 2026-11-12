@@ -22,7 +22,7 @@ class CustomerDeletionTests {
 
     final UUID org = UUID.randomUUID();
     final CustomerMapper mapper = mock(CustomerMapper.class);
-    final CustomerService service = new CustomerService(mapper, mock(CustomerContactMapper.class), Clock.systemUTC(), org);
+    final CustomerService service = new CustomerService(mapper, mock(CustomerContactMapper.class), Clock.systemUTC());
     AuthPrincipal principal(String role) { return new AuthPrincipal(UUID.randomUUID(), UUID.randomUUID(), org, UUID.randomUUID(), "admin@example.com", "Admin", "Team", role, Instant.now().plusSeconds(3600)); }
     @Test void rejectsSalesBeforeDatabaseAccess() {
         assertThatThrownBy(() -> service.deleteCustomer(principal("SALES"), UUID.randomUUID(), 0)).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);

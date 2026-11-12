@@ -12,7 +12,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.yourcompany.salesagent.auth.security.AuthPrincipal;
+import com.yourcompany.salesagent.auth.security.BusinessAccess;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -40,31 +41,30 @@ public class CustomerService {
 	private final CustomerMapper customerMapper;
 	private final CustomerContactMapper contactMapper;
 	private final Clock clock;
-	private final UUID organizationId;
 
 	public CustomerService(
 			CustomerMapper customerMapper,
 			CustomerContactMapper contactMapper,
-			Clock clock,
-			@Value("${app.demo.organization-id}") UUID organizationId) {
+			Clock clock) {
 		this.customerMapper = customerMapper;
 		this.contactMapper = contactMapper;
 		this.clock = clock;
-		this.organizationId = organizationId;
 	}
 
 	@Transactional(readOnly = true)
 	public IPage<CustomerResponse> findCustomers(
+			AuthPrincipal actor,
 			String keyword,
 			CustomerStage stage,
 			CustomerStatus status,
 			int page,
 			int size) {
+		var organizationId = BusinessAccess.organizationId(actor);
 		var customerPage = customerMapper.selectPage(
 				Page.of(page + 1L, size),
-				buildQuery(keyword, stage, status));
-		var contacts = loadPrimaryContacts(customerPage.getRecords());
-		var owners = loadOwners().stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
+				buildQuery(organizationId, keyword, stage, status));
+		var contacts = loadPrimaryContacts(organizationId, customerPage.getRecords());
+		var owners = loadOwners(organizationId).stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
 		var records = customerPage.getRecords().stream()
 				.map(customer -> toResponse(customer, contacts.get(customer.getId()), owners))
 				.toList();
@@ -74,36 +74,41 @@ public class CustomerService {
 	}
 
 	@Transactional(readOnly = true)
-	public CustomerResponse findCustomer(UUID customerId) {
-		var customer = findEntity(customerId);
-		var contact = contactMapper.selectOne(primaryContactQuery(customerId).last("LIMIT 1"));
-		var owners = loadOwners().stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
+	public CustomerResponse findCustomer(AuthPrincipal actor, UUID customerId) {
+		var organizationId = BusinessAccess.organizationId(actor);
+		var customer = findEntity(organizationId, customerId);
+		var contact = contactMapper.selectOne(primaryContactQuery(organizationId, customerId).last("LIMIT 1"));
+		var owners = loadOwners(organizationId).stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
 		return toResponse(customer, contact, owners);
 	}
 
 	@Transactional
-	public CustomerResponse createCustomer(CustomerUpsertRequest request) {
-		validateOwner(request.ownerMemberId());
+	public CustomerResponse createCustomer(AuthPrincipal actor, CustomerUpsertRequest request) {
+		BusinessAccess.requireWriter(actor);
+		var organizationId = actor.organizationId();
+		validateOwner(organizationId, request.ownerMemberId());
 		var now = clock.instant();
 		var customer = Customer.create(organizationId, request.name().trim(), now);
 		apply(customer, request, now);
 		customerMapper.insert(customer);
 		var contact = updatePrimaryContact(customer, request, now);
-		var owners = loadOwners().stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
+		var owners = loadOwners(organizationId).stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
 		return toResponse(customer, contact, owners);
 	}
 
 	@Transactional
-	public CustomerResponse updateCustomer(UUID customerId, CustomerUpsertRequest request) {
-		validateOwner(request.ownerMemberId());
-		var customer = findEntity(customerId);
+	public CustomerResponse updateCustomer(AuthPrincipal actor, UUID customerId, CustomerUpsertRequest request) {
+		BusinessAccess.requireWriter(actor);
+		var organizationId = actor.organizationId();
+		validateOwner(organizationId, request.ownerMemberId());
+		var customer = findEntity(organizationId, customerId);
 		var now = clock.instant();
 		apply(customer, request, now);
 		if (customerMapper.updateById(customer) == 0) {
 			throw new CustomerValidationException("客户资料已被其他成员更新，请刷新后重试");
 		}
 		var contact = updatePrimaryContact(customer, request, now);
-		var owners = loadOwners().stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
+		var owners = loadOwners(organizationId).stream().collect(Collectors.toMap(OwnerOptionResponse::id, OwnerOptionResponse::name));
 		return toResponse(customer, contact, owners);
 	}
 
@@ -131,16 +136,21 @@ public class CustomerService {
     }
 
 	@Transactional(readOnly = true)
-	public CustomerMetricsResponse getMetrics() {
-		return customerMapper.selectMetrics(organizationId);
+	public CustomerMetricsResponse getMetrics(AuthPrincipal actor) {
+		return customerMapper.selectMetrics(BusinessAccess.organizationId(actor));
 	}
 
 	@Transactional(readOnly = true)
-	public List<OwnerOptionResponse> loadOwners() {
+	public List<OwnerOptionResponse> loadOwners(AuthPrincipal actor) {
+		return loadOwners(BusinessAccess.organizationId(actor));
+	}
+
+	private List<OwnerOptionResponse> loadOwners(UUID organizationId) {
 		return customerMapper.selectOwners(organizationId);
 	}
 
 	private LambdaQueryWrapper<Customer> buildQuery(
+			UUID organizationId,
 			String keyword,
 			CustomerStage stage,
 			CustomerStatus status) {
@@ -163,7 +173,7 @@ public class CustomerService {
 		return query;
 	}
 
-	private Customer findEntity(UUID customerId) {
+	private Customer findEntity(UUID organizationId, UUID customerId) {
 		var customer = customerMapper.selectOne(Wrappers.<Customer>lambdaQuery()
 				.eq(Customer::getId, customerId)
 				.eq(Customer::getOrganizationId, organizationId)
@@ -199,7 +209,8 @@ public class CustomerService {
 			Customer customer,
 			CustomerUpsertRequest request,
 			Instant now) {
-		var contact = contactMapper.selectOne(primaryContactQuery(customer.getId()).last("LIMIT 1"));
+		var organizationId = customer.getOrganizationId();
+		var contact = contactMapper.selectOne(primaryContactQuery(organizationId, customer.getId()).last("LIMIT 1"));
 		var contactName = trimToNull(request.primaryContactName());
 		if (contactName == null) {
 			if (contact != null) {
@@ -230,7 +241,7 @@ public class CustomerService {
 		return contact;
 	}
 
-	private LambdaQueryWrapper<CustomerContact> primaryContactQuery(UUID customerId) {
+	private LambdaQueryWrapper<CustomerContact> primaryContactQuery(UUID organizationId, UUID customerId) {
 		return Wrappers.<CustomerContact>lambdaQuery()
 				.eq(CustomerContact::getOrganizationId, organizationId)
 				.eq(CustomerContact::getCustomerId, customerId)
@@ -238,7 +249,7 @@ public class CustomerService {
 				.isNull(CustomerContact::getDeletedAt);
 	}
 
-	private Map<UUID, CustomerContact> loadPrimaryContacts(Collection<Customer> customers) {
+	private Map<UUID, CustomerContact> loadPrimaryContacts(UUID organizationId, Collection<Customer> customers) {
 		if (customers.isEmpty()) {
 			return Map.of();
 		}
@@ -280,8 +291,8 @@ public class CustomerService {
 				customer.getVersion());
 	}
 
-	private void validateOwner(UUID ownerMemberId) {
-		if (ownerMemberId != null && loadOwners().stream().noneMatch(owner -> owner.id().equals(ownerMemberId))) {
+	private void validateOwner(UUID organizationId, UUID ownerMemberId) {
+		if (ownerMemberId != null && loadOwners(organizationId).stream().noneMatch(owner -> owner.id().equals(ownerMemberId))) {
 			throw new CustomerValidationException("负责人不属于当前组织或账号已停用");
 		}
 	}

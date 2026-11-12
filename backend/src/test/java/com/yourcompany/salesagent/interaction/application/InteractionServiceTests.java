@@ -45,9 +45,9 @@ class InteractionServiceTests {
 		var interactionMapper = mock(InteractionMapper.class);
 		var customerMapper = mock(CustomerMapper.class);
 		when(customerMapper.selectCount(any())).thenReturn(1L);
-		var service = new InteractionService(interactionMapper, customerMapper, clock, ORGANIZATION_ID);
+		var service = new InteractionService(interactionMapper, customerMapper, clock);
 
-		var response = service.importChat(CUSTOMER_ID, new ChatImportRequest(
+		var response = service.importChat(actor(), CUSTOMER_ID, new ChatImportRequest(
 				ChatPlatform.WECHAT,
 				Instant.parse("2026-08-25T07:30:00Z"),
 				"部署周期确认",
@@ -68,7 +68,7 @@ class InteractionServiceTests {
 		var interactionMapper = mock(InteractionMapper.class);
 		var customerMapper = mock(CustomerMapper.class);
 		when(customerMapper.selectCount(any())).thenReturn(1L);
-		var service = new InteractionService(interactionMapper, customerMapper, clock, ORGANIZATION_ID);
+		var service = new InteractionService(interactionMapper, customerMapper, clock);
 
 		var request = new InteractionCreateRequest(
 				InteractionType.CRM_UPDATE,
@@ -78,7 +78,11 @@ class InteractionServiceTests {
 				"更新商机阶段",
 				null);
 
-		assertThatThrownBy(() -> service.create(CUSTOMER_ID, request))
+		assertThatThrownBy(() -> service.create(actor(), CUSTOMER_ID, request))
 				.isInstanceOf(InteractionValidationException.class);
 	}
+
+    private com.yourcompany.salesagent.auth.security.AuthPrincipal actor() {
+        return new com.yourcompany.salesagent.auth.security.AuthPrincipal(UUID.randomUUID(), UUID.randomUUID(), ORGANIZATION_ID, UUID.randomUUID(), "sales@example.com", "Sales", "Team", "SALES", clock.instant().plusSeconds(3600));
+    }
 }
