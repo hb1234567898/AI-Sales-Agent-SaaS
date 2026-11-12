@@ -1,6 +1,10 @@
 package com.yourcompany.salesagent.customer.api;
 
 import java.net.URI;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import com.yourcompany.salesagent.auth.security.AuthPrincipal;
 import java.util.List;
 import java.util.UUID;
 
@@ -72,4 +76,12 @@ public class CustomerController {
 			@Valid @RequestBody CustomerUpsertRequest request) {
 		return customerService.updateCustomer(customerId, request);
 	}
+
+    @DeleteMapping("/{customerId}")
+    @PreAuthorize("hasAnyRole('OWNER', 'ADMIN')")
+    public ResponseEntity<Void> deleteCustomer(@AuthenticationPrincipal AuthPrincipal principal,
+            @PathVariable UUID customerId, @RequestParam @Min(0) long version) {
+        customerService.deleteCustomer(principal, customerId, version);
+        return ResponseEntity.noContent().build();
+    }
 }

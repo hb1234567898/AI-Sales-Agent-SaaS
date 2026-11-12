@@ -105,6 +105,7 @@ Spring Boot 通过 `AI_SERVICE_BASE_URL=http://127.0.0.1:8090` 和相同的 `AI_
 
 ## 设计文档
 
+- [API 登录访问策略](./docs/api-access-policy.md)
 - [报价到成交：产品、报价版本、合同与回款](./docs/quote-to-cash.md)
 - [主动跟进：任务、规则与提醒](./docs/proactive-follow-ups.md)
 - [邮件回复闭环：收信、审批与部署](./docs/email-reply-loop.md)

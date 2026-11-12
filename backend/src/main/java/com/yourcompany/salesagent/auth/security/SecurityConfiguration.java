@@ -11,7 +11,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.MediaType;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -50,10 +49,9 @@ public class SecurityConfiguration {
 				.authorizeHttpRequests(authorize -> authorize
 						// SSE 的容器内部派发已在初始请求校验过 JWT。
 						.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
-						.requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/password-key", "/actuator/health", "/actuator/info").permitAll()
-						.requestMatchers("/api/v1/audit-events/**", "/api/v1/admin/**").authenticated()
-						.requestMatchers("/api/v1/auth/session").authenticated()
-						.requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
+						.requestMatchers("/api/public/**").permitAll()
+						.requestMatchers("/api/v1/**").authenticated()
+						// 业务接口默认认证，包括后续新增接口；游客演示数据由前端提供。
 						.anyRequest().authenticated())
 				.exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
 					response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

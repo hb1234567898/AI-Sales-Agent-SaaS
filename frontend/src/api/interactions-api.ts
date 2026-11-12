@@ -11,9 +11,9 @@ export interface CustomerInteraction {
   direction: InteractionDirection
   occurredAt: string
   subject: string | null
-  bodyText: string
-  bodyPreview: string
-  participants: string[]
+  bodyText: string | null
+  bodyPreview: string | null
+  participants: string[] | null
   source: string
   createdAt: string
 }

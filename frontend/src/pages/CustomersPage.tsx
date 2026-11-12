@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import {
   createCustomer,
+  deleteCustomer,
   getCustomer,
   getCustomerMetrics,
   getCustomerOwners,
@@ -26,7 +27,7 @@ import {
 import { CustomerDrawer } from '../components/customers/CustomerDrawer'
 import { SelectField } from '../components/forms/SelectField'
 import { DemoPageHeader } from '../components/layout/DemoPageHeader'
-import { useIsGuest } from '../auth/use-auth'
+import { useAuth, useIsGuest } from '../auth/use-auth'
 
 const stageLabels: Record<CustomerStage, string> = {
   LEAD: '初步接触',
@@ -72,6 +73,10 @@ type DrawerState = { mode: 'create' } | { mode: 'edit'; customerId: string }
 
 export function CustomersPage() {
   const isGuest = useIsGuest()
+  const session = useAuth()
+  const canDelete = ['OWNER', 'ADMIN'].includes(session.role)
+  const readOnly = !['OWNER', 'ADMIN', 'MANAGER', 'SALES'].includes(session.role)
+  const [activeTab, setActiveTab] = useState<'profile' | 'interactions'>('profile')
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim())
@@ -112,6 +117,15 @@ export function CustomersPage() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (customer: Customer) => deleteCustomer(customer.id, customer.version),
+    onSuccess: async () => {
+      setDrawer(null)
+      setPage(0)
+      await queryClient.invalidateQueries()
+    },
+  })
+
   const customers = customersQuery.data?.content ?? []
   const metrics = metricsQuery.data
 
@@ -122,6 +136,8 @@ export function CustomersPage() {
 
   function openEditor(customer: Customer) {
     saveMutation.reset()
+    deleteMutation.reset()
+    setActiveTab('profile')
     setDrawer({ mode: 'edit', customerId: customer.id })
   }
 
@@ -133,7 +149,7 @@ export function CustomersPage() {
         actions={(
           <>
             <button className="button button-secondary" type="button" disabled title="将在客户导入迭代开放"><UploadSimple size={16} />导入客户</button>
-            <button className="button button-primary" type="button" disabled={isGuest} title={isGuest ? '游客模式不能添加客户' : undefined} onClick={() => { saveMutation.reset(); setDrawer({ mode: 'create' }) }}><Plus size={16} />添加客户</button>
+            <button className="button button-primary" type="button" disabled={readOnly} title={isGuest ? '游客模式不能添加客户' : undefined} onClick={() => { saveMutation.reset(); setDrawer({ mode: 'create' }) }}><Plus size={16} />添加客户</button>
           </>
         )}
       />
@@ -179,7 +195,7 @@ export function CustomersPage() {
                       <td className="muted-cell">{formatRelativeTime(customer.lastInteractionAt)}</td>
                       <td>{customer.ownerName ?? '暂未分配'}</td>
                       <td><span className="action-copy">{customer.nextAction ?? '尚未设置'}</span></td>
-                      <td><button className="table-action-button" type="button" onClick={() => openEditor(customer)} aria-label={`${isGuest ? '查看' : '编辑'} ${customer.name}`}>{isGuest ? <Eye size={15} /> : <PencilSimple size={15} />}</button></td>
+                      <td><button className="table-action-button" type="button" onClick={() => openEditor(customer)} aria-label={`${readOnly ? '查看' : '编辑'} ${customer.name}`}>{readOnly ? <Eye size={15} /> : <PencilSimple size={15} />}</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -208,9 +224,14 @@ export function CustomersPage() {
           pending={saveMutation.isPending}
           loading={drawer.mode === 'edit' && selectedCustomerQuery.isPending}
           error={saveMutation.error?.message ?? selectedCustomerQuery.error?.message}
-          onClose={() => setDrawer(null)}
+          onClose={() => { if (!saveMutation.isPending && !deleteMutation.isPending) setDrawer(null) }}
           onSubmit={saveCustomer}
-          readOnly={isGuest}
+          readOnly={readOnly}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onDelete={canDelete && selectedCustomerQuery.data ? () => deleteMutation.mutate(selectedCustomerQuery.data!) : undefined}
+          deleting={deleteMutation.isPending}
+          deleteError={deleteMutation.error?.message}
         />
       ) : null}
     </section>

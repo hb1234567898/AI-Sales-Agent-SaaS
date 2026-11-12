@@ -15,6 +15,32 @@ afterEach(() => {
 })
 
 describe('Axios HTTP client JWT refresh', () => {
+  it('public prefix skips access tokens and refresh, including while browsing as a guest', async () => {
+    sessionStorage.setItem('sales-agent:guest-mode', 'true')
+    saveExpiredTokens(false)
+    const refresh = vi.fn()
+    authRefreshClient.defaults.adapter = refresh
+    const adapter = vi.fn(async (config: InternalAxiosRequestConfig) => {
+      expect(header(config, 'Authorization')).toBeUndefined()
+      expect(header(config, 'X-Sales-Agent-Access-Token')).toBeUndefined()
+      return resolve(config, 200, { ok: true })
+    })
+    apiClient.defaults.adapter = adapter
+    await expect(requestJson('/api/public/auth/password-key')).resolves.toEqual({ ok: true })
+    await expect(requestJson('/api/public/future-feature', { method: 'POST', data: {} })).resolves.toEqual({ ok: true })
+    expect(adapter).toHaveBeenCalledTimes(2)
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('public authentication failures do not trigger token refresh', async () => {
+    saveExpiredTokens(false)
+    const refresh = vi.fn()
+    authRefreshClient.defaults.adapter = refresh
+    apiClient.defaults.adapter = config => reject(config, 401, { detail: '账号或密码错误' })
+    await expect(requestJson('/api/public/auth/login', { method: 'POST', data: {} })).rejects.toMatchObject({ status: 401 })
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
   it('Access Token 已过期时请求前主动刷新，一次成功即轮换双 Token', async () => {
     saveExpiredTokens(false)
     let apiRequests = 0
@@ -29,6 +55,7 @@ describe('Axios HTTP client JWT refresh', () => {
         : resolve(config, 200, { configured: true })
     }
     authRefreshClient.defaults.adapter = async (config) => {
+      expect(config.url).toBe('/api/public/auth/refresh')
       expect(config.withCredentials).toBe(false)
       expect(JSON.parse(String(config.data))).toEqual({ refreshToken: 'old-refresh.jwt' })
       return resolve(config, 200, refreshedTokens())

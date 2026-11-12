@@ -48,8 +48,9 @@ server:
 management:
   endpoints:
     web:
+      base-path: /api/public
       exposure:
-        include: health,info
+        include: health
   health:
     # SMTP 是用户可选通道，未配置时不应拖低整个业务服务的健康状态。
     mail:
