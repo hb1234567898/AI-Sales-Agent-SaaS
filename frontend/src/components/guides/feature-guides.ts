@@ -1,10 +1,10 @@
 export interface GuideStep {
   title: string
-  target: string
+  target: string | string[]
   description: string
   result: string
   allowInteraction?: boolean
-  reveal?: 'knowledge-documents' | 'knowledge-ask' | 'customer-profile' | 'customer-interactions' | 'token-budget' | 'token-usage'
+  reveal?: 'knowledge-documents' | 'knowledge-preview' | 'knowledge-ask' | 'customer-profile' | 'customer-interactions' | 'token-budget' | 'token-usage'
 }
 export interface FeatureGuide {
   id: string
@@ -19,7 +19,54 @@ export interface FeatureGuide {
   steps: GuideStep[]
 }
 
+// AppShell's navigation coverage check requires a guide for every new feature entry.
 export const featureGuides: FeatureGuide[] = [
+  {
+    id: 'today', title: '今日工作台', heading: '今日工作台', path: '/app/today', group: '销售工作',
+    summary: '先判断今天要推进哪些客户，再进入跟进或审批处理具体事项。',
+    prerequisite: '登录后展示当前账号可见的跟进、审批与运行数据；游客模式展示演示内容。', guestNote: '可查看全部示例，并通过链接进入其他功能。',
+    steps: [
+      { title: '先看今天的工作量', target: '.metric-strip', description: '查看我的今日到期、已逾期、待人工审批和累计已完成跟进。点击指标进入对应功能；未获取的数据以 — 显示。', result: '知道应该优先看客户跟进，还是先处理人工审批。' },
+      { title: '处理我的跟进待办', target: '.priority-panel', description: '按计划时间查看任务、关联客户和任务来源，点击任务进入详情。有编辑权限时，可点击勾选按钮完成任务。', result: '把客户信号转成可执行的下一步工作。' },
+      { title: '检查需要确认的动作', target: '.review-panel', description: '查看 AI 建议的客户和动作摘要，点击“打开审批中心”处理。发送邮件等外部动作需要先核对内容再批准。', result: '明确哪些事项需要人工决策。' },
+      { title: '追踪最近执行情况', target: '.runs-panel', description: '对照运行名称、处理范围和结果状态，点击“运行记录”进入 Agent 运行页查看具体步骤。', result: '从工作台继续追查一次分析或动作生成的结果。' },
+      { title: '搜索功能与查看提醒', target: '.app-topbar', description: '使用顶部搜索或 Ctrl / Command + K 查找客户、邮件、报价等功能。通知铃铛汇总待审批和跟进提醒，点击提醒可进入对应任务。', result: '从任意页面快速找到功能和待办。' },
+    ],
+  },
+  {
+    id: 'leads', title: '线索录入、分配与转化', heading: '线索池', path: '/app/leads', group: '销售工作',
+    summary: '把潜在客户整理成线索，明确负责人后转为客户与商机。', prerequisite: '录入至少需要企业名称和联系人；转化前需分配负责人。', guestNote: '可搜索、筛选模拟线索；新增、导入、分配和转化需登录。',
+    steps: [
+      { title: '查看线索总体情况', target: '[aria-label="线索指标"]', description: '待处理线索包含需要联系或培育的记录。未分配数量用于发现尚无人跟进的线索，平均评分用于快速判断线索质量。', result: '识别先分配还是先联系。' },
+      { title: '录入或批量导入', target: '.page-actions', description: '“新建线索”填写企业、联系人、来源和负责人。批量导入选择 CSV，文件需含“企业名称”和“联系人”列，完成后查看成功、跳过和错误提示。', result: '线索进入列表，导入结果可核对。' },
+      { title: '搜索与筛选', target: '.toolbar-controls', description: '可按企业、联系人、邮箱或电话搜索，也可用状态下拉框查看新线索、已联系或培育中记录。筛选后检查列表数量。', result: '找到本次准备处理的线索。' },
+      { title: '分配负责人并持续维护', target: '.leads-table', description: '在未分配记录右侧点击人员图标，可分配给当前销售。编辑图标用于维护状态、评分和下一步动作；已转化或失效记录不再继续转化。', result: '每条有效线索有明确的销售负责人。' },
+      { title: '转为客户和商机', target: '.leads-table', description: '点击行末的转化图标，填写商机名称、预计金额和成交日期后确认。转化会保留客户档案并创建商机，之后可在“客户”和“商机”中继续推进。', result: '线索状态变为已转化，形成客户与商机记录。' },
+    ],
+  },
+  {
+    id: 'customers', title: '客户档案与互动记录', heading: '客户', path: '/app/customers', group: '销售工作',
+    summary: '统一维护客户、联系人、负责人和历史沟通，把分析结果沉淀为下一步动作。', prerequisite: '先添加客户或从线索转化；AI 分析需要已配置模型和成员额度。', guestNote: '可打开模拟客户档案和互动记录；资料修改、上传和 AI 分析需登录。',
+    steps: [
+      { title: '理解客户指标', target: '[aria-label="客户指标"]', description: '查看客户总数、高意向客户、活跃商机和平均评分。高意向按客户评分判断，客户数和商机数不是同一个统计口径。', result: '对当前客户池形成整体判断。' },
+      { title: '定位负责的客户', target: '.toolbar-controls', description: '搜索企业名称、行业或网站，并按商机阶段筛选。列表同时显示评分、预计金额、负责人和下一步动作。', result: '找到需要查看或维护的客户。' },
+      { title: '打开客户档案', target: ['.customer-form', '.customer-drawer', '.workspace-table-wrap'], reveal: 'customer-profile', description: '点击客户名称或行末查看/编辑图标打开档案。“客户资料”中可维护企业信息、主要联系人、负责人、跟进时间和下一步动作。', result: '客户信息和销售推进计划集中保存。' },
+      { title: '沉淀沟通与附件', target: ['.customer-interactions', '.customer-drawer'], reveal: 'customer-interactions', description: '在客户档案切换“互动记录”，可查看历史沟通。登录后可新增电话/会议记录、导入聊天或上传报价、方案等附件；上传前确认关联客户。', result: '后续分析与邮件发送能使用有来源的沟通和文件。' },
+      { title: '确认 AI 分析后再回写', target: ['.customer-interactions', '.customer-drawer'], reveal: 'customer-interactions', description: '在一条聊天记录上点击 AI 分析，检查需求、痛点、风险和分析依据。确认无误后点击“确认并更新客户”，才会更新评分与下一步动作。', result: 'AI 建议经过销售确认，重新分析保留历史版本。' },
+      { title: '由管理员清理低质量客户', target: ['.customer-form-actions', '.customer-drawer', '.workspace-table-wrap'], reveal: 'customer-profile', description: '低质量客户由所有者或管理员在档案底部点击“删除客户”，核对客户后确认。普通销售没有删除权限；历史记录保留，已有报价的客户不能删除。', result: '明确客户清理的负责人和删除限制。' },
+    ],
+  },
+  {
+    id: 'opportunities', title: '商机管道与阶段推进', heading: '商机管道', path: '/app/opportunities', group: '销售工作',
+    summary: '跟踪销售机会、预计收入、成交概率和阶段变化。', prerequisite: '新建商机需要真实客户和负责人；线索转化也会创建商机。', guestNote: '可切换看板/列表并查看模拟商机；保存与阶段变更需登录。',
+    steps: [
+      { title: '看金额与风险', target: '[aria-label="商机指标"]', description: '活跃金额是未关闭商机的金额之和，加权金额按成交概率计算。停滞商机帮助发现长时间没有推进的机会。', result: '区分潜在销售规模与概率加权后的预期。' },
+      { title: '创建一条商机', target: '.page-actions', description: '点击“新建商机”，选择客户、负责人，填写商机名称、金额、概率和预计成交日期。预测分类用于区分管道、最佳情况和承诺。', result: '商机进入需求确认阶段，后续可编辑和推进。' },
+      { title: '切换视图与筛选', target: '.opportunity-panel .module-toolbar', description: '用负责人、阶段和关键词缩小范围。看板按阶段分列，列表便于对照金额、概率、预计成交日期和下一步。', result: '按工作习惯查看同一批商机。' },
+      { title: '查看详情并推进', target: '.opportunity-panel', description: '点击商机打开详情，登录后可编辑或变更阶段。赢单会按成交处理，输单必须填写原因；关闭后不再继续变更阶段。', result: '阶段和成交状态与实际销售进度一致。' },
+      { title: '核对变更记录', target: '.opportunity-panel', description: '真实商机详情包含变更历史，可查看阶段变化、操作者和时间。如果保存提示资料已更新，刷新后再修改。', result: '推进过程可追溯，并避免覆盖他人的修改。' },
+    ],
+  },
   {
     id: 'products', title: '产品目录与价格表', heading: '产品与价格', path: '/app/products', group: '销售工作',
     summary: '维护产品标准价及有效期内的合作价格，为报价提供统一定价来源。', prerequisite: '所有者、管理员或主管可以维护；报价使用已启用产品。', guestNote: '可以查看模拟产品与价格表，修改和保存需登录并具备管理权限。',
@@ -50,57 +97,16 @@ export const featureGuides: FeatureGuide[] = [
     ],
   },
   {
-    id: 'today', title: '今日工作台', heading: '今日工作台', path: '/app/today', group: '销售工作',
-    summary: '先判断今天要推进哪些客户，再进入跟进或审批处理具体事项。',
-    prerequisite: '登录后展示当前账号可见的跟进、审批与运行数据；游客模式展示演示内容。', guestNote: '可查看全部示例，并通过链接进入其他功能。',
-    steps: [
-      { title: '先看今天的工作量', target: '.metric-strip', description: '查看我的今日到期、已逾期、待人工审批和累计已完成跟进。点击指标进入对应功能；未获取的数据以 — 显示。', result: '知道应该优先看客户跟进，还是先处理人工审批。' },
-      { title: '处理我的跟进待办', target: '.priority-panel', description: '按计划时间查看任务、关联客户和任务来源，点击任务进入详情。有编辑权限时，可点击勾选按钮完成任务。', result: '把客户信号转成可执行的下一步工作。' },
-      { title: '检查需要确认的动作', target: '.review-panel', description: '查看 AI 建议的客户和动作摘要，点击“打开审批中心”处理。发送邮件等外部动作需要先核对内容再批准。', result: '明确哪些事项需要人工决策。' },
-      { title: '追踪最近执行情况', target: '.runs-panel', description: '对照运行名称、处理范围和结果状态，点击“运行记录”进入 Agent 运行页查看具体步骤。', result: '从工作台继续追查一次分析或动作生成的结果。' },
-    ],
-  },
-  {
-    id: 'leads', title: '线索录入、分配与转化', heading: '线索池', path: '/app/leads', group: '销售工作',
-    summary: '把潜在客户整理成线索，明确负责人后转为客户与商机。', prerequisite: '录入至少需要企业名称和联系人；转化前需分配负责人。', guestNote: '可搜索、筛选模拟线索；新增、导入、分配和转化需登录。',
-    steps: [
-      { title: '查看线索总体情况', target: '[aria-label="线索指标"]', description: '待处理线索包含需要联系或培育的记录。未分配数量用于发现尚无人跟进的线索，平均评分用于快速判断线索质量。', result: '识别先分配还是先联系。' },
-      { title: '录入或批量导入', target: '.page-actions', description: '“新建线索”填写企业、联系人、来源和负责人。批量导入选择 CSV，文件需含“企业名称”和“联系人”列，完成后查看成功、跳过和错误提示。', result: '线索进入列表，导入结果可核对。' },
-      { title: '搜索与筛选', target: '.toolbar-controls', description: '可按企业、联系人、邮箱或电话搜索，也可用状态下拉框查看新线索、已联系或培育中记录。筛选后检查列表数量。', result: '找到本次准备处理的线索。' },
-      { title: '分配负责人并持续维护', target: '.leads-table', description: '在未分配记录右侧点击人员图标，可分配给当前销售。编辑图标用于维护状态、评分和下一步动作；已转化或失效记录不再继续转化。', result: '每条有效线索有明确的销售负责人。' },
-      { title: '转为客户和商机', target: '.leads-table', description: '点击行末的转化图标，填写商机名称、预计金额和成交日期后确认。转化会保留客户档案并创建商机，之后可在“客户”和“商机”中继续推进。', result: '线索状态变为已转化，形成客户与商机记录。' },
-    ],
-  },
-  {
-    id: 'customers', title: '客户档案与互动记录', heading: '客户', path: '/app/customers', group: '销售工作',
-    summary: '统一维护客户、联系人、负责人和历史沟通，把分析结果沉淀为下一步动作。', prerequisite: '先添加客户或从线索转化；AI 分析需要已配置模型和成员额度。', guestNote: '可打开模拟客户档案和互动记录；资料修改、上传和 AI 分析需登录。',
-    steps: [
-      { title: '理解客户指标', target: '[aria-label="客户指标"]', description: '查看客户总数、高意向客户、活跃商机和平均评分。高意向按客户评分判断，客户数和商机数不是同一个统计口径。', result: '对当前客户池形成整体判断。' },
-      { title: '定位负责的客户', target: '.toolbar-controls', description: '搜索企业名称、行业或网站，并按商机阶段筛选。列表同时显示评分、预计金额、负责人和下一步动作。', result: '找到需要查看或维护的客户。' },
-      { title: '打开客户档案', target: '.customer-form, .customer-drawer, .workspace-table-wrap', reveal: 'customer-profile', description: '点击客户名称或行末查看/编辑图标打开档案。“客户资料”中可维护企业信息、主要联系人、负责人、跟进时间和下一步动作。', result: '客户信息和销售推进计划集中保存。' },
-      { title: '沉淀沟通与附件', target: '.customer-interactions, .customer-drawer', reveal: 'customer-interactions', description: '在客户档案切换“互动记录”，可查看历史沟通。登录后可新增电话/会议记录、导入聊天或上传报价、方案等附件；上传前确认关联客户。', result: '后续分析与邮件发送能使用有来源的沟通和文件。' },
-      { title: '确认 AI 分析后再回写', target: '.customer-interactions, .customer-drawer', reveal: 'customer-interactions', description: '在一条聊天记录上点击 AI 分析，检查需求、痛点、风险和分析依据。确认无误后点击“确认并更新客户”，才会更新评分与下一步动作。', result: 'AI 建议经过销售确认，重新分析保留历史版本。' },
-    ],
-  },
-  {
-    id: 'opportunities', title: '商机管道与阶段推进', heading: '商机管道', path: '/app/opportunities', group: '销售工作',
-    summary: '跟踪销售机会、预计收入、成交概率和阶段变化。', prerequisite: '新建商机需要真实客户和负责人；线索转化也会创建商机。', guestNote: '可切换看板/列表并查看模拟商机；保存与阶段变更需登录。',
-    steps: [
-      { title: '看金额与风险', target: '[aria-label="商机指标"]', description: '活跃金额是未关闭商机的金额之和，加权金额按成交概率计算。停滞商机帮助发现长时间没有推进的机会。', result: '区分潜在销售规模与概率加权后的预期。' },
-      { title: '创建一条商机', target: '.page-actions', description: '点击“新建商机”，选择客户、负责人，填写商机名称、金额、概率和预计成交日期。预测分类用于区分管道、最佳情况和承诺。', result: '商机进入需求确认阶段，后续可编辑和推进。' },
-      { title: '切换视图与筛选', target: '.opportunity-panel .module-toolbar', description: '用负责人、阶段和关键词缩小范围。看板按阶段分列，列表便于对照金额、概率、预计成交日期和下一步。', result: '按工作习惯查看同一批商机。' },
-      { title: '查看详情并推进', target: '.opportunity-panel', description: '点击商机打开详情，登录后可编辑或变更阶段。赢单会按成交处理，输单必须填写原因；关闭后不再继续变更阶段。', result: '阶段和成交状态与实际销售进度一致。' },
-      { title: '核对变更记录', target: '.opportunity-panel', description: '真实商机详情包含变更历史，可查看阶段变化、操作者和时间。如果保存提示资料已更新，刷新后再修改。', result: '推进过程可追溯，并避免覆盖他人的修改。' },
-    ],
-  },
-  {
     id: 'follow-ups', title: '跟进任务与完成确认', heading: '跟进任务', path: '/app/follow-ups', group: '销售工作',
-    summary: '把客户下一步动作纳入待办，按时完成并确认结果。', prerequisite: '批准 Agent 生成的内部跟进建议后，任务会进入队列。', guestNote: '可按全部、今天和逾期查看模拟任务；完成确认需登录。',
+    summary: '手动安排跟进、自动生成待办，并用延期和提醒管理客户推进。', prerequisite: '可手动新建任务，也可通过自动跟进规则或批准 AI 建议生成；只读账号不能修改。', guestNote: '可查看模拟任务、筛选和自动跟进规则；保存、完成、延期和取消需登录。',
     steps: [
       { title: '识别优先处理范围', target: '.module-stat-grid', description: '对比当前待办、今日/逾期待办和已逾期数量，先处理已经超过计划时间的事项。', result: '明确今日任务优先级。' },
-      { title: '筛选今天或逾期任务', target: '[aria-label="任务筛选"]', description: '点击“全部”“今天”或“已逾期”切换范围。某个范围没有记录时，可回到全部查看其他计划。', result: '只关注本轮需要处理的任务。' },
-      { title: '阅读任务内容与负责人', target: '.task-list', description: '核对任务标题、客户、生成原因、优先级和截止时间，再确认负责人。任务内容用于指导实际联系或内部准备。', result: '知道联系谁、做什么、何时完成。' },
-      { title: '实际完成后确认', target: '.task-list', description: '完成实际工作后，登录用户可点击任务左侧勾选按钮确认完成。只查看内容时不要提前标记；手动新建任务当前尚未开放。', result: '开放任务队列反映真实剩余工作。' },
+      { title: '新建客户跟进任务', target: '.page-actions', description: '点击“新建任务”，选择客户与负责人，填写任务标题、跟进方式、优先级和计划时间，保存后进入待办。选择和填写不会自动创建任务。', result: '把具体的客户联系计划安排到负责人。' },
+      { title: '筛选任务与查看团队范围', target: '.follow-up-filters', description: '按“待处理”“今日到期”“已逾期”“已结束”筛选。所有者、管理员和主管可切换我的任务与团队任务；已结束保留完成和取消记录。', result: '在正确的任务范围内安排本轮工作。', allowInteraction: true },
+      { title: '阅读任务内容与负责人', target: '.follow-up-task-list', description: '点击任务标题查看客户、生成原因、来源、负责人和截止时间。手动创建、AI 建议和自动跟进分别标识，便于追溯来源。', result: '知道联系谁、做什么、何时完成。' },
+      { title: '完成、延期或取消', target: '.follow-up-task-list', description: '实际完成后点击勾选确认；需要改期时点击延期并填写新的时间与备注；不再需要的任务可取消。已结束记录仍可查看，销售只能修改本人或未分配的有效任务。', result: '待办状态反映真实进度，延期与取消保留记录。' },
+      { title: '设置自动跟进与 AI 建议', target: '.follow-up-automation-summary', description: '点击“设置规则”，配置未联系天数、每日检查时间、客户数量上限和提前提醒时间，保存后生效。可选同时生成 AI 建议并消耗个人额度；邮件触达仍需审批。“立即检查”会执行规则，不能当作预览。', result: '按已保存的规则持续生成待办，避免重复跟进。' },
+      { title: '通过通知返回到期任务', target: '.follow-up-notifications', description: '顶部铃铛显示即将到期和已逾期提醒。打开通知点击客户任务进入详情；标记已读只处理提醒，完成任务仍需在任务中确认。', result: '区分提醒已读和业务任务已完成。' },
     ],
   },
   {
@@ -118,8 +124,8 @@ export const featureGuides: FeatureGuide[] = [
     summary: '核对 Agent 提出的动作，批准或拒绝，并检查真实执行结果。', prerequisite: '先由 Agent 或 MCP 产生待审批动作；发邮件需配置邮箱并准备所需附件。', guestNote: '可查看模拟审批与邮件预览；批准、拒绝和真实发送需登录。',
     steps: [
       { title: '识别动作和风险', target: '.approval-list', description: '查看动作类型、客户、风险等级、发起方和生成原因。批准意味着允许执行该项动作，先确认它符合客户沟通目标。', result: '清楚本次授权将影响哪位客户。' },
-      { title: '检查邮件和附件', target: '.email-approval-preview, .approval-list', description: '发邮件时逐项核对收件人、主题、正文和附件。方案、报价或合同需要文件时，应先在客户档案或聊天中提供对应文件。', result: '批准前确认发送对象、文字和文件均正确。' },
-      { title: '作出批准或拒绝决定', target: '.approval-actions, .approval-list', description: '批准会触发后续工具执行，拒绝则不执行外部动作。MCP 中出现审批时也可直接在聊天内确认，无需切换页面。', result: '审批状态记录本次人工决定。' },
+      { title: '检查邮件和附件', target: ['.email-approval-preview', '.approval-list'], description: '发邮件时逐项核对收件人、主题、正文和附件。方案、报价或合同需要文件时，应先在客户档案或聊天中提供对应文件。', result: '批准前确认发送对象、文字和文件均正确。' },
+      { title: '作出批准或拒绝决定', target: ['.approval-actions', '.approval-list'], description: '批准会触发后续工具执行，拒绝则不执行外部动作。MCP 中出现审批时也可直接在聊天内确认，无需切换页面。', result: '审批状态记录本次人工决定。' },
       { title: '区分批准与发送成功', target: '.approval-layout', description: '批准后还要检查结果提示。邮件发送成功会记录 EMAIL_SENT；如果发送失败，按提示核对邮箱、收件人或附件，再查看客户互动和 Agent 记录。', result: '以工具执行结果确认业务闭环，避免重复发送。' },
     ],
   },
@@ -135,11 +141,23 @@ export const featureGuides: FeatureGuide[] = [
     ],
   },
   {
+    id: 'mail', title: '客户邮件、意图分析与回复', heading: '客户邮件', path: '/app/mail', group: 'AI 与协作',
+    summary: '同步客户来信，关联客户、分析意图，并在审批后发送回复。', prerequisite: '管理员先在设置中配置并开启 IMAP 收信；回复还需 SMTP 发件配置和可操作的客户权限。', guestNote: '可查看模拟邮件与状态；真实同步、关联、分析、回复和审批需登录。',
+    steps: [
+      { title: '检查收信与同步状态', target: '.mail-page .page-heading', description: '通过“收信配置”进入设置。所有者或管理员开启收信后可点击“同步邮件”，留意最近同步时间和错误提示；收信与发件使用不同配置。', result: '确认客户来信已经同步到系统。' },
+      { title: '筛选待回复和待关联邮件', target: '.mail-toolbar', description: '按待回复、待关联、已处理、已发送或全部切换。待关联表示尚未匹配客户，需要先确认客户身份；同步数量不等于待回复数量。', result: '定位当前要处理的邮件。', allowInteraction: true },
+      { title: '阅读正文并关联客户', target: '.mail-workspace', description: '点击邮件查看收发件人、时间、正文和同一会话。待关联邮件由有权限的管理成员查找客户并确认关联，避免把沟通记到错误客户；来信附件请在原邮箱查看。', result: '邮件内容和对应客户均已核对。', allowInteraction: true },
+      { title: '分析客户意图并准备回复', target: '.mail-detail', description: '已关联客户的来信可“分析客户意图”，核对摘要、风险和下一步建议。点击“撰写回复”检查收件人、主题、正文和客户附件，再提交回复审批；无需回复时可标记已处理。', result: '形成有依据的处理决定和待审批回复。' },
+      { title: '审核回复并核对发送结果', target: '.mail-detail', description: '打开“审核回复”检查审批快照，再批准发送或拒绝。批准后仍要核对发送状态；遇到“发送结果需核对”时到原邮箱确认，系统不会自动重发。', result: '从客户来信、人工审批到发送结果形成闭环。' },
+    ],
+  },
+  {
     id: 'knowledge', title: '企业知识库与带引用问答', heading: '企业知识库', path: '/app/knowledge', group: 'AI 与协作',
     summary: '上传企业资料，检索相关内容，并查看回答引用的原文。', prerequisite: '支持 PDF、DOCX、TXT 和 Markdown，单文件不超过 10MB；扫描件需先做 OCR。', guestNote: '可查看模拟资料并询问报价审批或产品功能；不调用真实模型。',
     steps: [
       { title: '上传文件或录入文本', target: '.page-actions', reveal: 'knowledge-documents', description: '点击“新增资料”，选择文件或录入正文，填写标题、分类和可见范围。“保存并入库”才上传并解析；个人私有仅上传者可见，团队共享供同组织成员查询。', result: '形成可检索的企业资料。' },
       { title: '检查入库状态', target: '.knowledge-library', reveal: 'knowledge-documents', description: '用标题、文件名或分类定位资料，确认状态为已入库。解析失败时打开详情查看原因，修正文件后重新解析。停用资料不参与问答。', result: '用于回答的资料可用且内容正确。' },
+      { title: '预览 Markdown 与核对源码', target: ['.knowledge-preview', '.knowledge-drawer', '.knowledge-library'], reveal: 'knowledge-preview', description: '点击已入库资料打开原文，默认按 Markdown 显示标题、列表、表格和代码块，可切换“源码”核对文字。Markdown 和文本资料按完整原文预览，PDF、DOCX 保留解析片段和页码；还没有资料时先新增资料。', result: '按排版阅读企业资料，也能核对原始内容。', allowInteraction: true },
       { title: '提出具体问题', target: '.knowledge-question', reveal: 'knowledge-ask', description: '输入产品、报价或流程问题，例如“发送报价前需要哪些审批？”。选择全部可访问资料或单份资料，再点击提问。正式问答需要模型和成员额度。', result: '回答基于检索到的资料；无相关内容时会明确提示。' },
       { title: '核对回答来源', target: '.knowledge-ask', reveal: 'knowledge-ask', description: '回答下方列出参考资料、片段版本和 PDF 页码。展开“查看引用原文”核对依据，点击来源标题打开详情；游客可先用“报价审批”体验。', result: '能追溯回答依据，而不只看到一段结论。' },
       { title: '维护资料版本', target: '.knowledge-library', reveal: 'knowledge-documents', description: '打开资料详情可下载、编辑、替换原文件、重新解析、停用或删除。修改后核对新版本，删除或停用的内容不会继续参与新问答。', result: '知识内容随着企业资料更新。' },
@@ -151,8 +169,8 @@ export const featureGuides: FeatureGuide[] = [
     steps: [
       { title: '先看运行指标', target: '[aria-label="Agent 运行指标"]', description: '查看今日运行、处理客户、待审批和失败数量。待审批不是失败，它表示动作在等待人工决定。', result: '分清待处理状态与执行异常。' },
       { title: '选择要追查的运行', target: '.run-history-panel', description: '点击一条运行记录，核对名称、状态、时间和触发方式。由 MCP 触发的运行也会标识来源。', result: '定位到本次操作对应的记录。' },
-      { title: '按步骤查看执行过程', target: '.execution-flow, .run-detail-panel', description: '对照每一步的状态和耗时，确认分析或工具执行在哪一步结束。如果出现失败，结合客户记录核查，不要直接重复外部发送。', result: '缩小需要排查的环节。' },
-      { title: '把运行结果接回业务', target: '.run-facts, .run-detail-panel', description: '核对处理范围、客户数量、待审批数和运行摘要。需要人工确认的动作进入审批页，成功产生的跟进任务进入跟进队列。', result: '完成从分析到人工确认再到业务记录的追踪。' },
+      { title: '按步骤查看执行过程', target: ['.execution-flow', '.run-detail-panel'], description: '对照每一步的状态和耗时，确认分析或工具执行在哪一步结束。如果出现失败，结合客户记录核查，不要直接重复外部发送。', result: '缩小需要排查的环节。' },
+      { title: '把运行结果接回业务', target: ['.run-facts', '.run-detail-panel'], description: '核对处理范围、客户数量、待审批数和运行摘要。需要人工确认的动作进入审批页，成功产生的跟进任务进入跟进队列。', result: '完成从分析到人工确认再到业务记录的追踪。' },
     ],
   },
   {
@@ -172,6 +190,7 @@ export const featureGuides: FeatureGuide[] = [
       { title: '查看系统连接', target: '#integrations', description: '先检查业务 API 是否可连接，再分别准备模型与发件邮箱。游客状态中的服务信息均为演示。', result: '知道问题来自业务服务还是外部通道。' },
       { title: '配置并测试 AI 模型', target: '#model', description: '填写模型名称、API Key 和 HTTPS 兼容地址，保存后测试连接。修改已保存的配置时，密钥留空代表保留原值。成员还需分配额度才能使用 AI。', result: '模型就绪后用于新产生的分析与聊天调用。' },
       { title: '配置个人发件邮箱', target: '#email-settings', description: '填写 SMTP 主机、端口、账号、授权码和发件人，按邮箱要求设置认证与 STARTTLS，保存后测试连接。常见邮箱使用授权码而不是网页登录密码。', result: '审批通过的邮件有可用发送通道。' },
+      { title: '配置客户收信邮箱', target: '#mailbox-settings', description: '所有者或管理员配置团队 IMAP 收信地址、账号、授权码及同步设置，保存并测试后开启收信，再到“客户邮件”同步。SMTP 负责发送，IMAP 负责接收，配置一项不会自动完成另一项。', result: '客户来信可同步、关联客户并进入回复流程。' },
       { title: '理解审批规则', target: '#approval-policy', description: '查看客户消息、敏感 CRM 更新和内部任务的审批选项。当前策略区为界面展示，复选项尚未接入独立保存接口。', result: '不把界面切换误认为策略已经生效。' },
     ],
   },

@@ -63,6 +63,17 @@ describe('guest guide', () => {
 
 
 describe('feature navigation', () => {
+  it.each(['GUEST', 'VIEWER', 'SALES', 'MANAGER', 'ADMIN', 'OWNER'])('includes a usable guide for every navigation entry visible to %s', (role) => {
+    auth.role = role
+    mount()
+    const sidebar = screen.getByRole('complementary', { name: '应用导航' })
+    const guides = availableGuides(role)
+    for (const link of within(sidebar).getAllByRole('link')) {
+      const matching = guides.filter(guide => guide.path === link.getAttribute('href'))
+      expect(matching.length, `缺少“${link.textContent}”的功能引导`).toBeGreaterThan(0)
+      expect(matching.every(guide => guide.steps.length > 0 && guide.steps.every(step => step.title && step.description && step.target))).toBe(true)
+    }
+  })
   it('searches new commercial features and supports the keyboard shortcut', async () => {
     sessionStorage.setItem('sales-agent:guest-guide-seen', 'true')
     const user = userEvent.setup(); mount()

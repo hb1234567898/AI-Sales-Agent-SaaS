@@ -24,6 +24,7 @@
 .feature-guide-category { margin: 0 0 8px; color: var(--blue-600); font-size: 11px; }
 .feature-guide-detail > h3 { margin: 0; font-size: 22px; line-height: 1.4; }
 .feature-guide-summary { margin: 10px 0 20px; color: #475467; font-size: 14px; line-height: 1.7; }
+.feature-guide-update { margin: 14px 0; padding: 10px 12px; border-left: 3px solid var(--blue-600); background: #edf4ff; color: var(--blue-700); font-size: 12px; line-height: 1.7; }
 .feature-guide-preparation { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 12px; margin: 0 0 24px; padding: 16px 0; border-block: 1px solid var(--border); font-size: 12px; line-height: 1.7; }
 .feature-guide-preparation dt { font-weight: 600; }
 .feature-guide-preparation dd { margin: 0; color: #667085; overflow-wrap: anywhere; }
